@@ -1,0 +1,20 @@
+{
+  "name": "otel-light",
+  "version": "0.7.0",
+  "description": "",
+  "main": "ecosystem.config.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DidierHoarau/otel-light.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/DidierHoarau/otel-light/issues"
+  },
+  "homepage": "https://github.com/DidierHoarau/otel-light#readme"
+}

@@ -1,0 +1,10 @@
+# https://hub.docker.com/r/otel/opentelemetry-collector-contrib/tags#!
+version: "3"
+
+services:
+  otel:
+    image: didierhoarau/otel-light
+    ports:
+      - 8080:8080
+    volumes:
+      - ./data:/data

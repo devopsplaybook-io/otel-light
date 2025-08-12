@@ -1,0 +1,16 @@
+version: "3"
+
+services:
+  app:
+    build: .
+    image: ${DOCKER_REGISTRY}/telepathy-server_app
+    ports: 
+      - 3000:3000
+    volumes:
+      - ../src:/opt/app/src
+      - ../tsconfig.json:/opt/app/tsconfig.json
+      - ../package.json:/opt/app/package.json
+      - ../package-lock.json:/opt/app/package-lock.json
+      - ./start-cmd-dev.sh:/start-cmd.sh
+      - ./sample-config-server.json:/etc/telepathy/config-server.json
+      - ./sample-version-server:/opt/telepathy/version-server

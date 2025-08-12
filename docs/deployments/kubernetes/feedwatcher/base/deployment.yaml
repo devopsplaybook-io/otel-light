@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: otel-light
+  labels:
+    app: otel-light
+spec:
+  replicas: 1
+  revisionHistoryLimit: 1
+  selector:
+    matchLabels:
+      app: otel-light
+  template:
+    metadata:
+      labels:
+        app: otel-light
+    spec:
+      containers:
+        - image: otel-light
+          name: otel-light
+          resources:
+            limits:
+              memory: 500Mi
+              cpu: 1
+            requests:
+              memory: 20Mi
+              cpu: 100m
+          volumeMounts:
+            - mountPath: /data
+              name: pod-volume
+          imagePullPolicy: Always
+      volumes:
+        - name: pod-volume
+          persistentVolumeClaim:
+            claimName: otel-light
