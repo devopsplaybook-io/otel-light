@@ -26,7 +26,6 @@
       </div>
     </div>
     <div class="trace-summary">
-      <b>Service</b>
       <b>Name</b>
       <b>ID</b>
       <b>Time</b>
@@ -38,13 +37,11 @@
         @click="toggleTrace(trace.traceId)"
         style="cursor: pointer"
         :trace="trace"
-        :class="traceSpans[trace.traceId] ? 'trace-expanded' : ''"
       />
       <TraceSpan
         v-if="traceSpans[trace.traceId]"
         :trace="trace"
         :traceSpans="traceSpans[trace.traceId]"
-        :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
       />
     </div>
   </div>
@@ -171,10 +168,10 @@ export default {
 };
 </script>
 
-<style scoped>
+<style>
 .trace-summary {
   display: grid;
-  grid-template-columns: 3fr 3fr 2fr 3fr 1fr 1fr;
+  grid-template-columns: 3fr 3fr 3fr 1fr 1fr;
   gap: 1rem;
   width: 100%;
 }
@@ -200,12 +197,5 @@ select {
   grid-template-columns: auto 1fr auto auto 1fr auto;
   align-items: center;
   gap: 0.5rem;
-}
-
-.trace-expanded {
-  background-color: #dfe3eb22;
-}
-.trace-span-expanded {
-  background-color: #dfe3eb11;
 }
 </style>

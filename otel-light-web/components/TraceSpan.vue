@@ -1,11 +1,16 @@
 <template>
   <div class="trace-span-list">
     <div
-      v-for="span of traceSpans"
+      v-for="span of sortedTraceSpans"
       :key="span.spanId"
       class="span-bar-container"
     >
-      <div class="span-name">{{ span.name }} {{ span.durationText }}</div>
+      <div class="span-name">
+        {{ span.name }}
+        <small>({{ span.durationText }})</small>
+        {{ span.spanId }}
+        {{ span.parentSpanId }}
+      </div>
       <div
         class="span-bar"
         :style="{
@@ -19,6 +24,35 @@
 
 <script>
 import { getDurationText } from "../services/Utils";
+
+function buildSpanTree(spans) {
+  const spanMap = {};
+  spans.forEach((span) => {
+    span.children = [];
+    spanMap[span.spanId] = span;
+  });
+  const roots = [];
+  spans.forEach((span) => {
+    if (span.parentSpanId && spanMap[span.parentSpanId]) {
+      spanMap[span.parentSpanId].children.push(span);
+    } else {
+      roots.push(span);
+    }
+  });
+  function flatten(spanList) {
+    let result = [];
+    spanList
+      .sort((a, b) => a.startTime - b.startTime)
+      .forEach((span) => {
+        result.push(span);
+        if (span.children && span.children.length > 0) {
+          result = result.concat(flatten(span.children));
+        }
+      });
+    return result;
+  }
+  return flatten(roots);
+}
 
 export default {
   props: {
@@ -36,18 +70,24 @@ export default {
       durationText: "",
     };
   },
-  async created() {
-    this.traceSpans.forEach((span) => {
-      span.startPercent = (
-        (100 * (span.startTime - this.trace.startTime)) /
-        (this.trace.endTime - this.trace.startTime)
-      ).toFixed(0);
-      span.endPercent = (
-        (100 * (span.endTime - this.trace.startTime)) /
-        (this.trace.endTime - this.trace.startTime)
-      ).toFixed(0);
-      span.durationText = getDurationText(span.endTime - span.startTime);
-    });
+  computed: {
+    sortedTraceSpans() {
+      if (!this.traceSpans || !Array.isArray(this.traceSpans)) return [];
+      // Clone to avoid mutating original
+      const spans = this.traceSpans.map((span) => ({ ...span }));
+      spans.forEach((span) => {
+        span.startPercent = (
+          (100 * (span.startTime - this.trace.startTime)) /
+          (this.trace.endTime - this.trace.startTime)
+        ).toFixed(0);
+        span.endPercent = (
+          (100 * (span.endTime - this.trace.startTime)) /
+          (this.trace.endTime - this.trace.startTime)
+        ).toFixed(0);
+        span.durationText = getDurationText(span.endTime - span.startTime);
+      });
+      return buildSpanTree(spans);
+    },
   },
   methods: {},
 };
@@ -55,6 +95,9 @@ export default {
 
 <style>
 .trace-span-list {
+  padding-top: 1rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
   width: 100%;
 }
 

@@ -1,18 +1,17 @@
 <template>
-  <div>
-    <div class="trace-summary">
-      <span>{{ this.trace.name }}</span>
-      <span>{{ this.trace.traceId }}</span>
-      <span>{{
-        new Date(this.trace.startTime / 1_000_000).toLocaleString()
-      }}</span>
-      <span>{{ durationText }}</span>
-      <span
-        >{{ this.trace.spanCount }} span{{
-          this.trace.spanCount === 1 ? "" : "s"
-        }}</span
-      >
-    </div>
+  <div class="trace-summary">
+    <span>{{ this.trace.serviceName }}</span
+    ><span>{{ this.trace.name }}</span>
+    <span>{{ this.trace.traceId }}</span>
+    <span>{{
+      new Date(this.trace.startTime / 1_000_000).toLocaleString()
+    }}</span>
+    <span>{{ durationText }}</span>
+    <span
+      >{{ this.trace.spanCount }} span{{
+        this.trace.spanCount === 1 ? "" : "s"
+      }}</span
+    >
   </div>
 </template>
 
@@ -40,16 +39,4 @@ export default {
 };
 </script>
 
-<style>
-.trace-summary {
-  display: grid;
-  grid-template-columns: 3fr 3fr 3fr 1fr 1fr;
-  gap: 1rem;
-  width: 100%;
-}
-.trace-summary span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-</style>
+<style></style>

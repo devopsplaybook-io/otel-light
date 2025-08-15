@@ -10,15 +10,22 @@
         <NuxtLink
           to="/traces"
           :class="activeRoute == '/traces' ? 'active' : 'inactive'"
-          ><i class="bi bi-robot"></i
-        ></NuxtLink>
+          >T<small>races</small></NuxtLink
+        >
       </li>
       <li v-if="authenticationStore.isAuthenticated">
         <NuxtLink
-          to="/traces/stats"
-          :class="activeRoute == '/traces/stats' ? 'active' : 'inactive'"
-          ><i class="bi bi-speedometer"></i
-        ></NuxtLink>
+          to="/metrics"
+          :class="activeRoute == '/metrics' ? 'active' : 'inactive'"
+          >M<small>etrics</small></NuxtLink
+        >
+      </li>
+      <li v-if="authenticationStore.isAuthenticated">
+        <NuxtLink
+          to="/logs"
+          :class="activeRoute == '/logs' ? 'active' : 'inactive'"
+          >L<small>ogs</small></NuxtLink
+        >
       </li>
       <li>
         <NuxtLink

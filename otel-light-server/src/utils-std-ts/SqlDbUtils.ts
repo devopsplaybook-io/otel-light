@@ -87,12 +87,12 @@ export async function SqlDbUtilsExecSQLFile(
   });
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function SqlDbUtilsQuerySQL(
   context: Span,
   sql: string,
   params = [],
   debug = false
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
   const span = StandardTracerStartSpan("SqlDbUtilsQuerySQL", context);
   if (debug) {
@@ -103,6 +103,7 @@ export function SqlDbUtilsQuerySQL(
       span.end();
       if (error) {
         logger.error(`SQL ERROR: ${sql}`);
+        console.log(error);
         reject(error);
       } else {
         resolve(rows);

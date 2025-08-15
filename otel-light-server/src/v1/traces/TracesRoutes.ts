@@ -7,6 +7,7 @@ export class TracesRoutes {
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
     fastify.post("/", async (req, res) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (req.body as any).resourceSpans.forEach((resourceSpan) => {
         let serviceName =
           find(resourceSpan.resource.attributes, { key: "service.name" })?.value
@@ -23,10 +24,12 @@ export class TracesRoutes {
               find(span.attributes, { key: "service.version" })?.value
                 ?.stringValue || serviceVersion;
             await SqlDbUtilsNoTelemetryExecSQL(
-              "INSERT INTO traces (traceId, spanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, atttributes, rawSpan) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, atttributes, rawSpan) " +
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
               [
                 span.traceId,
                 span.spanId,
+                span.parentSpanId,
                 span.name,
                 serviceName,
                 serviceVersion,
