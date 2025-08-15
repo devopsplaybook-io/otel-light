@@ -1,9 +1,8 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
-import { SqlDbUtilsQuerySQL } from "../utils-std-ts/SqlDbUtils";
-import { StandardTracerGetSpanFromRequest } from "../utils-std-ts/StandardTracer";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
+import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
 
 export class AnalyticsTracesRoutes {
   //
@@ -13,6 +12,7 @@ export class AnalyticsTracesRoutes {
       Querystring: {
         from?: number;
         to?: number;
+        keywords?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -35,9 +35,15 @@ export class AnalyticsTracesRoutes {
         sqlParams.push(req.query.to);
         hasWheres = true;
       }
+      if (req.query.keywords) {
+        if (hasWheres) {
+          sqlWhere += " AND ";
+        }
+        sqlWhere += " rootSpan.keywords LIKE ? ";
+        sqlParams.push(`%${req.query.keywords}%`);
+      }
 
-      const rawTraces = await SqlDbUtilsQuerySQL(
-        StandardTracerGetSpanFromRequest(req),
+      const rawTraces = await SqlDbUtilsNoTelemetryQuerySQL(
         "SELECT " +
           "MIN(t.startTime) AS startTime, " +
           "MAX(t.endTime) AS endTime, " +
@@ -71,8 +77,7 @@ export class AnalyticsTracesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
 
-      const rawSpans = await SqlDbUtilsQuerySQL(
-        StandardTracerGetSpanFromRequest(req),
+      const rawSpans = await SqlDbUtilsNoTelemetryQuerySQL(
         "SELECT * " +
           " FROM traces " +
           " WHERE traceId = ? " +

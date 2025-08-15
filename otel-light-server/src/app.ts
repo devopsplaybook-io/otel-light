@@ -10,9 +10,9 @@ import {
 } from "./utils-std-ts/StandardTracer";
 import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
 import { AuthInit } from "./users/Auth";
-import { SampleApplication } from "./sample/Sample";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
+import { MaintenanceInit } from "./Maintenance";
 
 const logger = new Logger("app");
 
@@ -33,10 +33,9 @@ Promise.resolve().then(async () => {
 
   await SqlDbUtilsInit(span, config);
   await AuthInit(span, config);
+  await MaintenanceInit(span, config);
 
   span.end();
-
-  SampleApplication();
 
   // API
 

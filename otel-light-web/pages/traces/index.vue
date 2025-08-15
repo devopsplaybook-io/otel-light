@@ -1,9 +1,9 @@
 <template>
-  <div>
+  <div id="traces-page">
     <div id="search-options">
       <input
         type="search"
-        v-model="searchFilter"
+        v-model="keywords"
         placeholder="Search"
         aria-label="Search"
         v-on:input="filterChanged"
@@ -25,27 +25,29 @@
         </select>
       </div>
     </div>
-    <div class="trace-summary">
-      <b>Service</b>
-      <b>Name</b>
-      <b>ID</b>
-      <b>Time</b>
-      <b>Duration</b>
-      <b>Spans</b>
-    </div>
-    <div v-for="trace of traces" :key="trace.traceId">
-      <Trace
-        @click="toggleTrace(trace.traceId)"
-        style="cursor: pointer"
-        :trace="trace"
-        :class="traceSpans[trace.traceId] ? 'trace-expanded' : ''"
-      />
-      <TraceSpan
-        v-if="traceSpans[trace.traceId]"
-        :trace="trace"
-        :traceSpans="traceSpans[trace.traceId]"
-        :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
-      />
+    <div id="traces">
+      <div class="trace-summary">
+        <b>Service</b>
+        <b>Name</b>
+        <b>Time</b>
+        <b>Duration</b>
+        <b>ID</b>
+        <b>Spans</b>
+      </div>
+      <div v-for="trace of traces" :key="trace.traceId">
+        <Trace
+          @click="toggleTrace(trace.traceId)"
+          style="cursor: pointer"
+          :trace="trace"
+          :class="traceSpans[trace.traceId] ? 'trace-expanded' : ''"
+        />
+        <TraceSpan
+          v-if="traceSpans[trace.traceId]"
+          :trace="trace"
+          :traceSpans="traceSpans[trace.traceId]"
+          :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -61,7 +63,7 @@ export default {
   data() {
     return {
       traces: [],
-      searchFilter: "",
+      keywords: "",
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
@@ -92,12 +94,12 @@ export default {
     }
   },
   watch: {
-    searchFilter(newFilter) {
+    keywords(newFilter) {
       const query = { ...route.query };
       if (newFilter) {
-        query.search = newFilter;
+        query.keywords = newFilter;
       } else {
-        delete query.search;
+        delete query.keywords;
       }
     },
     fromValue: "dateFilterChanged",
@@ -149,9 +151,10 @@ export default {
         return nowNs - secondsAgo * 1e9;
       }
 
-      const params = {
-        ...(this.searchFilter ? { search: this.searchFilter } : {}),
-      };
+      const params = {};
+      if (this.keywords) {
+        params.keywords = this.keywords;
+      }
 
       const fromNs = toNanoseconds(this.fromValue, this.fromUnit);
       const toNs = toNanoseconds(this.toValue, this.toUnit);
@@ -171,10 +174,11 @@ export default {
 };
 </script>
 
-<style scoped>
+<style>
 .trace-summary {
+  min-width: 1200px;
   display: grid;
-  grid-template-columns: 3fr 3fr 2fr 3fr 1fr 1fr;
+  grid-template-columns: 3fr 3fr 3fr 2fr 2fr 1fr;
   gap: 1rem;
   width: 100%;
 }
@@ -182,6 +186,19 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+</style>
+
+<style scoped>
+#traces-page {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+#traces {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 select {
@@ -191,7 +208,6 @@ select {
 #search-options input {
   padding-top: 0.5em;
   padding-bottom: 0.5em;
-  padding-left: 3em;
   height: 2.6rem;
 }
 

@@ -23,9 +23,23 @@ export class TracesRoutes {
             serviceVersion =
               find(span.attributes, { key: "service.version" })?.value
                 ?.stringValue || serviceVersion;
+
+            const keywords =
+              serviceName +
+              " " +
+              serviceVersion +
+              " " +
+              span.name +
+              " " +
+              span.status.code +
+              span.traceId +
+              "" +
+              span.spanId +
+              "" +
+              span.parentSpanId;
             await SqlDbUtilsNoTelemetryExecSQL(
-              "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, atttributes, rawSpan) " +
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+              "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, atttributes, rawSpan, keywords) " +
+                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
               [
                 span.traceId,
                 span.spanId,
@@ -38,6 +52,7 @@ export class TracesRoutes {
                 span.status.code,
                 JSON.stringify(span.attributes),
                 JSON.stringify(span),
+                keywords.toLowerCase(),
               ]
             );
           });

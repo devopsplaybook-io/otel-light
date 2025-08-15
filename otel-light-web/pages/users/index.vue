@@ -38,7 +38,8 @@
         <button v-on:click="changePassword()">Change</button>
         <button v-on:click="changePasswordStart(false)">Cancel</button>
       </article>
-      <h1>Settings</h1>
+      <h1>Preferences</h1>
+      <h3>Refresh</h3>
       <div>
         <label for="refresh-interval">Auto-refresh interval:</label>
         <select
@@ -54,7 +55,7 @@
         </select>
       </div>
 
-      <h1>Dark Mode</h1>
+      <h3>Dark Mode</h3>
       <button @click="toggleTheme" style="margin-bottom: 1em">
         Switch to {{ isDark ? "Light" : "Dark" }} Mode
       </button>

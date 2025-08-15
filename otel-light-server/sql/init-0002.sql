@@ -9,5 +9,6 @@ CREATE TABLE IF NOT EXISTS traces (
     endTime INTEGER NOT NULL,
     statusCode INTEGER NOT NULL,
     atttributes TEXT NOT NULL,
-    rawSpan TEXT NOT NULL
+    rawSpan TEXT NOT NULL,
+    keywords VARCHAR(4000) NOT NULL
 );

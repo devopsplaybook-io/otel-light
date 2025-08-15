@@ -8,8 +8,6 @@
       <div class="span-name">
         {{ span.name }}
         <small>({{ span.durationText }})</small>
-        {{ span.spanId }}
-        {{ span.parentSpanId }}
       </div>
       <div
         class="span-bar"
@@ -84,6 +82,9 @@ export default {
           (100 * (span.endTime - this.trace.startTime)) /
           (this.trace.endTime - this.trace.startTime)
         ).toFixed(0);
+        if (span.endPercent === span.startPercent) {
+          span.endPercent = span.endPercent + 1;
+        }
         span.durationText = getDurationText(span.endTime - span.startTime);
       });
       return buildSpanTree(spans);

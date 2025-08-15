@@ -16,8 +16,9 @@ export class Config implements ConfigInterface {
   public DATA_DIR = process.env.DATA_DIR || "/data";
   public JWT_KEY: string = uuidv4();
   public LOG_LEVEL = "info";
-  public STATS_FETCH_FREQUENCY = 60;
-  public STATS_RETENTION = 60 * 60 * 24;
+  public LOGS_RETENTION_DAYS = 30;
+  public METRICS_RETENTION_DAYS = 30;
+  public TRACES_RETENTION_DAYS = 30;
   public OPENTELEMETRY_COLLECTOR_HTTP: string =
     process.env.OPENTELEMETRY_COLLECTOR_HTTP || "";
   public OPENTELEMETRY_COLLECTOR_AWS =
@@ -42,8 +43,9 @@ export class Config implements ConfigInterface {
     setIfSet("DATA_DIR");
     setIfSet("JWT_KEY", false);
     setIfSet("LOG_LEVEL");
-    setIfSet("STATS_FETCH_FREQUENCY");
-    setIfSet("STATS_RETENTION");
+    setIfSet("LOGS_RETENTION_DAYS");
+    setIfSet("METRICS_RETENTION_DAYS");
+    setIfSet("TRACES_RETENTION_DAYS");
     setIfSet("OPENTELEMETRY_COLLECTOR_HTTP");
     setIfSet("OPENTELEMETRY_COLLECTOR_AWS");
   }
