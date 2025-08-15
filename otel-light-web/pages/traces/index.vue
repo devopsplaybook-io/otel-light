@@ -8,43 +8,31 @@
       aria-label="Search"
       v-on:input="filterChanged"
     />
-    <div id="object-actions" class="actions">
-      <select v-model="objectType">
-        <option value="node">Nodes</option>
-        <option value="namespace">Namespaces</option>
-        <option value="deployment">Deployments</option>
-        <option value="statefulset">StatefulSets</option>
-        <option value="daemonset">DaemonSets</option>
-        <option value="pod">Pods</option>
-        <option value="job">Jobs</option>
-        <option value="service">Services</option>
-        <option value="pvc">PVC</option>
-        <option value="configmap">ConfigMap</option>
-        <option value="secret">Secrets</option>
-      </select>
-      <span
-        ><i class="bi bi-arrow-clockwise" v-on:click="refreshObject()"></i
-      ></span>
-    </div>
-    <div id="object-list">
-      <KubernetesNodeList v-if="objectType == 'node'" />
-      <KubernetesNamespaceList v-if="objectType == 'namespace'" />
-      <KubernetesDeploymentList v-if="objectType == 'deployment'" />
-      <KubernetesPodList v-else-if="objectType == 'pod'" />
-      <KubernetesStatefulSetList v-else-if="objectType == 'statefulset'" />
-      <KubernetesDaemonSetList v-else-if="objectType == 'daemonset'" />
-      <KubernetesJobList v-else-if="objectType == 'job'" />
-      <KubernetesServiceList v-else-if="objectType == 'service'" />
-      <KubernetesPVCList v-else-if="objectType == 'pvc'" />
-      <KubernetesConfigMapList v-else-if="objectType == 'configmap'" />
-      <KubernetesSecretList v-else-if="objectType == 'secret'" />
+    <div v-for="trace of tracesStore.traces" :key="trace.traceId">
+      <Trace
+        @click="toggleTrace(trace.traceId)"
+        style="cursor: pointer"
+        :trace="trace"
+      />
+      <TraceSpan
+        v-if="traceSpans[trace.traceId]"
+        :trace="trace"
+        :traceSpans="traceSpans[trace.traceId]"
+      />
     </div>
   </div>
 </template>
 
+<script setup>
+const tracesStore = TracesStore();
+</script>
+
 <script>
 import { debounce } from "lodash";
+import { AuthService } from "~~/services/AuthService";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
+import Config from "~~/services/Config";
+import axios from "axios";
 
 export default {
   data() {
@@ -53,29 +41,18 @@ export default {
       searchFilter: "",
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
+      traceSpans: {},
     };
   },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
-    const route = useRoute();
-    if (route.query.objectType) {
-      this.objectType = route.query.objectType;
-    }
-    if (route.query.search) {
-      this.searchFilter = route.query.search;
-      KubernetesObjectStore().setFilter(this.searchFilter);
-    }
     this.refreshIntervalValue = RefreshIntervalService.get();
+    TracesStore().getTraces();
   },
   mounted() {
     const interval = parseInt(this.refreshIntervalValue, 10);
-    if (interval > 0) {
-      this.refreshIntervalId = setInterval(() => {
-        this.refreshObject();
-      }, interval);
-    }
   },
   beforeUnmount() {
     if (this.refreshIntervalId) {
@@ -111,6 +88,30 @@ export default {
     },
   },
   methods: {
+    async getTraceSpans(traceId) {
+      return await axios
+        .get(
+          `${
+            (
+              await Config.get()
+            ).SERVER_URL
+          }/analytics/traces/${traceId}/spans`,
+          await AuthService.getAuthHeader()
+        )
+        .then((response) => {
+          return response.data.spans;
+        });
+    },
+    async toggleTrace(traceId) {
+      if (this.traceSpans[traceId]) {
+        delete this.traceSpans[traceId];
+      } else {
+        if (!this.traceSpans[traceId]) {
+          const spans = await this.getTraceSpans(traceId);
+          this.traceSpans[traceId] = spans;
+        }
+      }
+    },
     refreshObject() {
       KubernetesObjectStore().refreshLast();
     },

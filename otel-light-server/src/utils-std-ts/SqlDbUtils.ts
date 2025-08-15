@@ -10,7 +10,10 @@ const SQL_DIR = `${__dirname}/../../sql`;
 
 let database;
 
-export async function SqlDbUtilsInit(context: Span, config: Config): Promise<void> {
+export async function SqlDbUtilsInit(
+  context: Span,
+  config: Config
+): Promise<void> {
   const span = StandardTracerStartSpan("SqlDbUtilsInit", context);
   await fs.ensureDir(config.DATA_DIR);
   database = new Database(`${config.DATA_DIR}/database.db`);
@@ -33,17 +36,26 @@ export async function SqlDbUtilsInit(context: Span, config: Config): Promise<voi
       if (dbVersionInitFile > dbVersionApplied) {
         logger.info(`Loading init file: ${initFile}`);
         await SqlDbUtilsExecSQLFile(span, `${SQL_DIR}/${initFile}`);
-        await SqlDbUtilsQuerySQL(span, 'INSERT INTO metadata (type, value, dateCreated) VALUES ("db_version",?,?)', [
-          dbVersionInitFile,
-          new Date().toISOString(),
-        ]);
+        await SqlDbUtilsQuerySQL(
+          span,
+          'INSERT INTO metadata (type, value, dateCreated) VALUES ("db_version",?,?)',
+          [dbVersionInitFile, new Date().toISOString()]
+        );
       }
     }
   }
   span.end();
 }
 
-export function SqlDbUtilsExecSQL(context: Span, sql: string, params = []): Promise<void> {
+export function SqlDbUtilsInitGetDatabase() {
+  return database;
+}
+
+export function SqlDbUtilsExecSQL(
+  context: Span,
+  sql: string,
+  params = []
+): Promise<void> {
   const span = StandardTracerStartSpan("SqlDbUtilsExecSQL", context);
   return new Promise((resolve, reject) => {
     database.run(sql, params, (error) => {
@@ -57,7 +69,10 @@ export function SqlDbUtilsExecSQL(context: Span, sql: string, params = []): Prom
   });
 }
 
-export async function SqlDbUtilsExecSQLFile(context: Span, filename: string): Promise<void> {
+export async function SqlDbUtilsExecSQLFile(
+  context: Span,
+  filename: string
+): Promise<void> {
   const span = StandardTracerStartSpan("SqlDbUtilsExecSQLFile", context);
   const sql = (await fs.readFile(filename)).toString();
   return new Promise((resolve, reject) => {
@@ -73,7 +88,12 @@ export async function SqlDbUtilsExecSQLFile(context: Span, filename: string): Pr
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function SqlDbUtilsQuerySQL(context: Span, sql: string, params = [], debug = false): Promise<any[]> {
+export function SqlDbUtilsQuerySQL(
+  context: Span,
+  sql: string,
+  params = [],
+  debug = false
+): Promise<any[]> {
   const span = StandardTracerStartSpan("SqlDbUtilsQuerySQL", context);
   if (debug) {
     console.log(sql);

@@ -9,12 +9,10 @@ import {
   StandardTracerStartSpan,
 } from "./utils-std-ts/StandardTracer";
 import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
-import { StandardTracerApiRegisterHooks } from "./StandardTracerApi";
 import { AuthInit } from "./users/Auth";
-import { KubeCtlCommandRoutes } from "./kubectl/KubeCtlCommandRoutes";
-import { KubeCtlLogsRoutes } from "./kubectl/KubeCtlLogsRoutes";
-import { StatsDataInit } from "./stats/StatsData";
-import { StatsRoutes } from "./stats/StatsRoutes";
+import { SampleApplication } from "./sample/Sample";
+import { TracesRoutes } from "./v1/traces/TracesRoutes";
+import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 
 const logger = new Logger("app");
 
@@ -35,9 +33,10 @@ Promise.resolve().then(async () => {
 
   await SqlDbUtilsInit(span, config);
   await AuthInit(span, config);
-  await StatsDataInit(span, config);
 
   span.end();
+
+  SampleApplication();
 
   // API
 
@@ -56,19 +55,19 @@ Promise.resolve().then(async () => {
   /* eslint-disable-next-line */
   fastify.register(require("@fastify/multipart"));
 
-  StandardTracerApiRegisterHooks(fastify, config);
+  // fastify.addHook("onRequest", async (req) => {
+  //   console.log(`${req.method}-${req.url}`);
+  // });
+
+  fastify.register(new TracesRoutes().getRoutes, {
+    prefix: "/api/v1/traces",
+  });
 
   fastify.register(new UsersRoutes().getRoutes, {
     prefix: "/api/users",
   });
-  fastify.register(new KubeCtlCommandRoutes().getRoutes, {
-    prefix: "/api/kubectl/command",
-  });
-  fastify.register(new KubeCtlLogsRoutes().getRoutes, {
-    prefix: "/api/kubectl/logs",
-  });
-  fastify.register(new StatsRoutes().getRoutes, {
-    prefix: "/api/stats",
+  fastify.register(new AnalyticsTracesRoutes().getRoutes, {
+    prefix: "/api/analytics/traces",
   });
   fastify.get("/api/status", async () => {
     return { started: true };

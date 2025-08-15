@@ -1,5 +1,7 @@
 export function UtilsRelativeTime(date: string) {
-  const delta = Math.round((new Date().getTime() - new Date(date).getTime()) / 1000);
+  const delta = Math.round(
+    (new Date().getTime() - new Date(date).getTime()) / 1000
+  );
   const minute = 60,
     hour = minute * 60,
     day = hour * 24,
@@ -46,7 +48,21 @@ export async function UtilsDecompressData(compressedData: string) {
       controller.close();
     },
   });
-  const response = new Response(readableStream.pipeThrough(decompressionStream));
+  const response = new Response(
+    readableStream.pipeThrough(decompressionStream)
+  );
   const arrayBuffer = await response.arrayBuffer();
   return new TextDecoder().decode(arrayBuffer);
+}
+
+export function getDurationText(durationNs: number): string {
+  if (durationNs < 1_000) {
+    return `${durationNs} ns`;
+  } else if (durationNs < 1_000_000) {
+    return `${(durationNs / 1_000).toFixed(2)} μs`;
+  } else if (durationNs < 1_000_000_000) {
+    return `${(durationNs / 1_000_000).toFixed(2)} ms`;
+  } else {
+    return `${(durationNs / 1_000_000_000).toFixed(2)} s`;
+  }
 }
