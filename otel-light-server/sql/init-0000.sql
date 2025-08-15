@@ -5,5 +5,5 @@ CREATE TABLE IF NOT EXISTS metadata (
 );
 
 -- 
--- DELETE FROM metadata WHERE type = 'db_version' and value > 1;
--- DROP TABLE IF EXISTS traces;
+DELETE FROM metadata WHERE type = 'db_version' and value > 1;
+DROP TABLE IF EXISTS traces;
