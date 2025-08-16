@@ -12,15 +12,15 @@
         <label>From</label>
         <input type="number" min="0" v-model.number="fromValue" />
         <select v-model="fromUnit">
-          <option value="minutes">minutes ago</option>
-          <option value="hours">hours ago</option>
+          <option value="minutes">min. ago</option>
+          <option value="hours">h ago</option>
           <option value="days">days ago</option>
         </select>
         <label>To</label>
         <input type="number" min="0" v-model.number="toValue" />
         <select v-model="toUnit">
-          <option value="minutes">minutes ago</option>
-          <option value="hours">hours ago</option>
+          <option value="minutes">min. ago</option>
+          <option value="hours">h ago</option>
           <option value="days">days ago</option>
         </select>
       </div>
