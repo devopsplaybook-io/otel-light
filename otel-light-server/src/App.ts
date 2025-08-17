@@ -18,6 +18,7 @@ import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
+import { SettingsRoutes } from "./settings/SettingsRoutes";
 
 const logger = new Logger("app");
 
@@ -83,6 +84,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new AnalyticsLogsRoutes().getRoutes, {
     prefix: "/api/analytics/logs",
+  });
+  fastify.register(new SettingsRoutes().getRoutes, {
+    prefix: "/api/settings",
   });
 
   fastify.get("/api/status", async () => {

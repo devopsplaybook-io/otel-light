@@ -1,7 +1,7 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" />
-    <div id="metrics-list">
+    <div v-if="!loading" id="metrics-list">
       <article
         v-for="metric of metrics"
         :key="metric.serviceName + metric.serviceVersion + metric.name"
@@ -35,6 +35,7 @@ export default {
       filter: {
         queryString: "",
       },
+      loading: false,
     };
   },
   async created() {
@@ -90,12 +91,18 @@ export default {
       this.fetchMetrics();
     },
     async fetchMetrics() {
+      this.loading = true;
       const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
-      axios.get(url, await AuthService.getAuthHeader()).then((response) => {
-        this.metrics = this.processMetrics(response.data.metrics);
-      });
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then((response) => {
+          this.metrics = this.processMetrics(response.data.metrics);
+        })
+        .finally(() => {
+          this.loading = false;
+        });
     },
   },
 };

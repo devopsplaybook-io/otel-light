@@ -19,7 +19,7 @@ export default {
     return {
       durationText: "",
       chartOptions: {
-        chart: { id: "line" },
+        chart: { id: "line", animations: { enabled: false } },
         xaxis: { type: "datetime", title: { text: "Timestamp" } },
       },
       chartSeries: [],

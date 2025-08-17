@@ -27,6 +27,13 @@
           >L<small>ogs</small></NuxtLink
         >
       </li>
+      <li v-if="authenticationStore.isAuthenticated">
+        <NuxtLink
+          to="/settings"
+          :class="activeRoute == '/settings' ? 'active' : 'inactive'"
+          ><i class="bi bi-gear"></i
+        ></NuxtLink>
+      </li>
       <li>
         <NuxtLink
           to="/users"
