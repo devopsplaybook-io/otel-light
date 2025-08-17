@@ -35,11 +35,11 @@
 </template>
 
 <script>
-import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { AuthService } from "~~/services/AuthService";
+import Config from "~~/services/Config";
+import { EventBus, EventTypes, handleError } from "~~/services/EventBus";
 
 export default {
   components: { SearchOptions },

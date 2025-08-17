@@ -28,9 +28,9 @@ export class AnalyticsLogsRoutes {
         sqlWhere += " AND time <= ? ";
         sqlParams.push(req.query.to);
       }
-      if (req.query.keywords) {
+      if (req.query.keywords?.trim()) {
         sqlWhere += " AND keywords LIKE ? ";
-        sqlParams.push(`%${req.query.keywords}%`);
+        sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
       const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(

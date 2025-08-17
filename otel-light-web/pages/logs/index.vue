@@ -16,11 +16,12 @@
 </template>
 
 <script>
-import { AuthService } from "~~/services/AuthService";
-import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
-import Config from "~~/services/Config";
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
+import { AuthService } from "~~/services/AuthService";
+import Config from "~~/services/Config";
+import { handleError } from "~~/services/EventBus";
+import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
   components: { SearchOptions },
@@ -63,9 +64,12 @@ export default {
       const url = `${(await Config.get()).SERVER_URL}/analytics/logs${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
-      axios.get(url, await AuthService.getAuthHeader()).then((response) => {
-        this.logs = response.data.logs;
-      });
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then((response) => {
+          this.logs = response.data.logs;
+        })
+        .catch(handleError);
     },
   },
 };

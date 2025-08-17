@@ -12,7 +12,10 @@ import { StandardTracerStartSpan } from "./utils-std-ts/StandardTracer";
 const propagator = new W3CTraceContextPropagator();
 const logger = new Logger("StandardTracerApi");
 
-export async function StandardTracerApiRegisterHooks(fastify: FastifyInstance, config: Config): Promise<void> {
+export async function StandardTracerApiRegisterHooks(
+  fastify: FastifyInstance,
+  config: Config
+): Promise<void> {
   fastify.addHook("onRequest", async (req) => {
     if (req.url.indexOf("/api") !== 0) {
       return;
@@ -24,7 +27,11 @@ export async function StandardTracerApiRegisterHooks(fastify: FastifyInstance, c
       spanName = `${config.SERVICE_ID}-${config.VERSION}`;
       urlName = `${config.SERVICE_ID}-${config.VERSION}-${req.method}-${req.url}`;
     }
-    const callerContext = propagator.extract(ROOT_CONTEXT, req.headers, defaultTextMapGetter);
+    const callerContext = propagator.extract(
+      ROOT_CONTEXT,
+      req.headers,
+      defaultTextMapGetter
+    );
     api.context.with(callerContext, () => {
       const span = StandardTracerStartSpan(spanName);
       span.setAttribute(SemanticAttributes.HTTP_METHOD, req.method);

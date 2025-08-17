@@ -29,9 +29,9 @@ export class AnalyticsTracesRoutes {
         sqlWhere += " AND rootSpan.startTime <= ? ";
         sqlParams.push(req.query.to);
       }
-      if (req.query.keywords) {
-        sqlWhere += " AND keywords LIKE ? ";
-        sqlParams.push(`%${req.query.keywords}%`);
+      if (req.query.keywords?.trim()) {
+        sqlWhere += " AND rootSpan.keywords LIKE ? ";
+        sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
       const rawTraces = await SqlDbUtilsNoTelemetryQuerySQL(

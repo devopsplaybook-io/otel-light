@@ -29,12 +29,12 @@
 </template>
 
 <script>
-import { debounce } from "lodash";
-import { AuthService } from "~~/services/AuthService";
-import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
-import Config from "~~/services/Config";
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
+import { AuthService } from "~~/services/AuthService";
+import Config from "~~/services/Config";
+import { handleError } from "~~/services/EventBus";
+import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
   components: { SearchOptions },
@@ -101,9 +101,12 @@ export default {
       const url = `${(await Config.get()).SERVER_URL}/analytics/traces${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
-      axios.get(url, await AuthService.getAuthHeader()).then((response) => {
-        this.traces = response.data.traces;
-      });
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then((response) => {
+          this.traces = response.data.traces;
+        })
+        .catch(handleError);
     },
   },
 };

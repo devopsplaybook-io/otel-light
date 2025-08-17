@@ -1,6 +1,5 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
-import { Span } from "../model/Span";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
 import { Metric } from "../model/Metric";
 import { AnalyticsUtilsGetDefaultFromTime } from "./AnalyticsUtils";
@@ -29,9 +28,9 @@ export class AnalyticsMetricsRoutes {
         sqlWhere += " AND time <= ? ";
         sqlParams.push(req.query.to);
       }
-      if (req.query.keywords) {
+      if (req.query.keywords?.trim()) {
         sqlWhere += " AND keywords LIKE ? ";
-        sqlParams.push(`%${req.query.keywords}%`);
+        sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(

@@ -17,12 +17,13 @@
 </template>
 
 <script>
+import axios from "axios";
 import { find, sortBy } from "lodash";
-import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
+import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
-import axios from "axios";
-import SearchOptions from "~/components/SearchOptions.vue";
+import { handleError } from "~~/services/EventBus";
+import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
   components: { SearchOptions },
@@ -100,6 +101,7 @@ export default {
         .then((response) => {
           this.metrics = this.processMetrics(response.data.metrics);
         })
+        .catch(handleError)
         .finally(() => {
           this.loading = false;
         });
