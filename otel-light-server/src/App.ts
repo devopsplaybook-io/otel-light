@@ -6,9 +6,6 @@ import { Logger } from "./utils-std-ts/Logger";
 import { UsersRoutes } from "./users/UsersRoutes";
 import {
   StandardTracerInitTelemetry,
-  StandardTracerMetricCreateCounter,
-  StandardTracerMetricCreateGauge,
-  StandardTracerMetricCreateObservableGauge,
   StandardTracerStartSpan,
 } from "./utils-std-ts/StandardTracer";
 import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
