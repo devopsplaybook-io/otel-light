@@ -6,7 +6,7 @@ export default defineNuxtConfig({
       charset: "utf-16",
       viewport:
         "width=device-width, initial-scale=1, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no",
-      title: "Kubernetes Web",
+      title: "OTEL Light",
       meta: [
         { name: "description", content: "otel-light" },
         { name: "theme-color", content: "#212121" },
