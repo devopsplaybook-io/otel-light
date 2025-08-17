@@ -1,11 +1,10 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
-import { Span } from "../model/Span";
+import { Log } from "../model/Log";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
-import { Metric } from "../model/Metric";
 import { AnalyticsUtilsGetDefaultFromTime } from "./AnalyticsUtils";
 
-export class AnalyticsMetricsRoutes {
+export class AnalyticsLogsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
@@ -34,16 +33,16 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(`%${req.query.keywords}%`);
       }
 
-      const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        "SELECT * FROM metrics " + sqlWhere,
+      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
+        "SELECT * FROM logs " + sqlWhere,
         sqlParams
       );
-      const metrics = [];
-      rawMetrics.forEach((rawMetric) => {
-        metrics.push(new Metric(rawMetric));
+      const logs = [];
+      rawLogs.forEach((rawLog) => {
+        logs.push(new Log(rawLog));
       });
 
-      return res.status(200).send({ metrics });
+      return res.status(200).send({ logs });
     });
   }
 }

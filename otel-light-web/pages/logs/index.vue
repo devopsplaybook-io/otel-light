@@ -1,22 +1,107 @@
 <template>
-  <div>work in progress</div>
+  <div id="logs-page">
+    <SearchOptions @filterChanged="onFilterChanged" />
+    <div id="logs">
+      <div class="log-summary">
+        <b>Service</b>
+        <b>Time</b>
+        <b>Severity</b>
+        <b>Log</b>
+      </div>
+      <div v-for="log of logs" :key="log.serviceName + log.time">
+        <Log :log="log" />
+      </div>
+    </div>
+  </div>
 </template>
 
 <script>
+import { AuthService } from "~~/services/AuthService";
+import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
+import Config from "~~/services/Config";
+import axios from "axios";
+import SearchOptions from "~/components/SearchOptions.vue";
+
 export default {
+  components: { SearchOptions },
   data() {
-    return {};
+    return {
+      logs: [],
+      refreshIntervalId: null,
+      refreshIntervalValue: RefreshIntervalService.get(),
+      logSpans: {},
+      filter: {
+        queryString: "",
+      },
+    };
   },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
+    this.refreshIntervalValue = RefreshIntervalService.get();
   },
-  mounted() {},
-  beforeUnmount() {},
-  watch: {},
-  methods: {},
+  mounted() {
+    const interval = parseInt(this.refreshIntervalValue, 10);
+    if (interval > 0) {
+      this.refreshIntervalId = setInterval(() => {
+        this.fetchLogs();
+      }, interval);
+    }
+  },
+  beforeUnmount() {
+    if (this.refreshIntervalId) {
+      clearInterval(this.refreshIntervalId);
+    }
+  },
+  methods: {
+    onFilterChanged(filter) {
+      this.filter.queryString = filter.queryString;
+      this.fetchLogs();
+    },
+    async fetchLogs() {
+      const url = `${(await Config.get()).SERVER_URL}/analytics/logs${
+        this.filter.queryString ? "?" + this.filter.queryString : ""
+      }`;
+      axios.get(url, await AuthService.getAuthHeader()).then((response) => {
+        this.logs = response.data.logs;
+      });
+    },
+  },
 };
 </script>
 
-<style scoped></style>
+<style>
+.log-summary {
+  min-width: 1200px;
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 9fr;
+  gap: 1rem;
+  width: 100%;
+}
+.log-summary span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+</style>
+
+<style scoped>
+#logs-page {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+#logs {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.log-expanded {
+  background-color: #dfe3eb22;
+}
+.log-span-expanded {
+  background-color: #dfe3eb11;
+}
+</style>

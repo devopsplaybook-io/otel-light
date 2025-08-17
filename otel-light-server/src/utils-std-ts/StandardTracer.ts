@@ -37,11 +37,9 @@ import {
 import { FastifyInstance } from "fastify";
 import * as os from "os";
 import { Config } from "../Config";
-import { Logger } from "./Logger";
 
 let tracerInstance;
 const propagator = new W3CTraceContextPropagator();
-const logger = new Logger("StandardTracerApi");
 let meterProvider: MeterProvider;
 let config;
 const METER_NAME = "default";
@@ -198,7 +196,6 @@ export function StandardTracerInitFastify(fastify: FastifyInstance) {
     const span = (req as any).tracerSpanApi as Span;
     span.status.code = SpanStatusCode.ERROR;
     span.recordException(error);
-    logger.error(error);
   });
 }
 

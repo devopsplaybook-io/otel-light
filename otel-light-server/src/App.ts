@@ -2,7 +2,7 @@ import Fastify from "fastify";
 import * as path from "path";
 import { watchFile } from "fs-extra";
 import { Config } from "./Config";
-import { Logger } from "./utils-std-ts/Logger";
+import { Logger, LoggerInit } from "./utils-std-ts/Logger";
 import { UsersRoutes } from "./users/UsersRoutes";
 import {
   StandardTracerInitTelemetry,
@@ -16,6 +16,8 @@ import { MaintenanceInit } from "./Maintenance";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
+import { LogsRoutes } from "./v1/logs/LogsRoutes";
+import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 
 const logger = new Logger("app");
 
@@ -34,6 +36,7 @@ Promise.resolve().then(async () => {
 
   const span = StandardTracerStartSpan("init");
 
+  await LoggerInit(span, config);
   await SqlDbUtilsInit(span, config);
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
@@ -58,10 +61,6 @@ Promise.resolve().then(async () => {
   /* eslint-disable-next-line */
   fastify.register(require("@fastify/multipart"));
 
-  // fastify.addHook("onRequest", async (req) => {
-  //   console.log(`${req.method}-${req.url}`);
-  // });
-
   fastify.register(new UsersRoutes().getRoutes, {
     prefix: "/api/users",
   });
@@ -72,12 +71,18 @@ Promise.resolve().then(async () => {
   fastify.register(new MetricsRoutes().getRoutes, {
     prefix: "/api/v1/metrics",
   });
+  fastify.register(new LogsRoutes().getRoutes, {
+    prefix: "/api/v1/logs",
+  });
 
   fastify.register(new AnalyticsTracesRoutes().getRoutes, {
     prefix: "/api/analytics/traces",
   });
   fastify.register(new AnalyticsMetricsRoutes().getRoutes, {
     prefix: "/api/analytics/metrics",
+  });
+  fastify.register(new AnalyticsLogsRoutes().getRoutes, {
+    prefix: "/api/analytics/logs",
   });
 
   fastify.get("/api/status", async () => {

@@ -43,7 +43,11 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
     "SELECT COUNT(*) as nbmetrics FROM metrics"
   );
   signalData.metrics.count = metricsRowCount[0].nbmetrics;
-
+  const logsRowCount = await SqlDbUtilsQuerySQL(
+    span,
+    "SELECT COUNT(*) as nblogs FROM logs"
+  );
+  signalData.logs.count = logsRowCount[0].nblogs;
   span.end();
   setTimeout(() => {
     SelfMetricsRefreshMetrics();

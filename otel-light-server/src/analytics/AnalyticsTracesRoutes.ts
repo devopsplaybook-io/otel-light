@@ -3,6 +3,7 @@ import { AuthGetUserSession } from "../users/Auth";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { AnalyticsUtilsGetDefaultFromTime } from "./AnalyticsUtils";
 
 export class AnalyticsTracesRoutes {
   //
@@ -20,26 +21,16 @@ export class AnalyticsTracesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
       const sqlParams = [];
-      let sqlWhere = " WHERE ";
-      let hasWheres = false;
-      if (req.query.from) {
-        sqlWhere += " rootSpan.startTime >= ? ";
-        sqlParams.push(req.query.from);
-        hasWheres = true;
-      }
+      const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
+      let sqlWhere = " WHERE rootSpan.startTime >= ? ";
+      sqlParams.push(fromTime);
+
       if (req.query.to) {
-        if (hasWheres) {
-          sqlWhere += " AND ";
-        }
-        sqlWhere += " rootSpan.startTime <= ? ";
+        sqlWhere += " AND rootSpan.startTime <= ? ";
         sqlParams.push(req.query.to);
-        hasWheres = true;
       }
       if (req.query.keywords) {
-        if (hasWheres) {
-          sqlWhere += " AND ";
-        }
-        sqlWhere += " rootSpan.keywords LIKE ? ";
+        sqlWhere += " AND keywords LIKE ? ";
         sqlParams.push(`%${req.query.keywords}%`);
       }
 

@@ -12,7 +12,9 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
 
   config = configIn;
   span.end();
-  MaintenancePerform();
+  MaintenancePerform().catch((err) => {
+    logger.error("Error during maintenance tasks: " + err.message);
+  });
 }
 
 // Private Functions
@@ -20,14 +22,31 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
 async function MaintenancePerform() {
   logger.info("Performing maintenance tasks");
   const span = StandardTracerStartSpan("MaintenancePerform");
-  const retentionMs = config.TRACES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
-  const traceDeleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
+
+  const traceRetentionMs = config.TRACES_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const traceDeleteTimestamp = (Date.now() - traceRetentionMs) * 1_000_000;
   await SqlDbUtilsNoTelemetryExecSQL("DELETE FROM traces WHERE startTime < ?", [
     traceDeleteTimestamp,
   ]);
+
+  const metricsRetentionMs =
+    config.METRICS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const metricsDeleteTimestamp = (Date.now() - metricsRetentionMs) * 1_000_000;
+  await SqlDbUtilsNoTelemetryExecSQL("DELETE FROM metrics WHERE time < ?", [
+    metricsDeleteTimestamp,
+  ]);
+
+  const logsRetentionMs = config.LOGS_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+  const logsDeleteTimestamp = (Date.now() - logsRetentionMs) * 1_000_000;
+  await SqlDbUtilsNoTelemetryExecSQL("DELETE FROM logs WHERE time < ?", [
+    logsDeleteTimestamp,
+  ]);
+
   span.end();
 
   setTimeout(() => {
-    MaintenancePerform();
+    MaintenancePerform().catch((err) => {
+      logger.error("Error during maintenance tasks: " + err.message);
+    });
   }, 6 * 3600 * 1000);
 }

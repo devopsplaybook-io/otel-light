@@ -23,3 +23,13 @@ CREATE TABLE IF NOT EXISTS metrics (
     rawMetric TEXT NOT NULL,
     keywords VARCHAR(4000) NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS logs (
+    serviceName VARCHAR(2000) NOT NULL,
+    serviceVersion VARCHAR(2000) NOT NULL,
+    severity VARCHAR(50) NOT NULL,
+    time INTEGER NOT NULL,
+    logText TEXT NOT NULL,
+    atttributes TEXT NOT NULL,
+    keywords VARCHAR(4000) NOT NULL
+);

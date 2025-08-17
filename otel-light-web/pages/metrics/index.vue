@@ -1,30 +1,6 @@
 <template>
   <div id="metrics-page">
-    <div id="search-options">
-      <input
-        type="search"
-        v-model="keywords"
-        placeholder="Search"
-        aria-label="Search"
-        v-on:input="filterChanged"
-      />
-      <div id="search-options-dates">
-        <label>From</label>
-        <input type="number" min="0" v-model.number="fromValue" />
-        <select v-model="fromUnit">
-          <option value="minutes">min. ago</option>
-          <option value="hours">h ago</option>
-          <option value="days">days ago</option>
-        </select>
-        <label>To</label>
-        <input type="number" min="0" v-model.number="toValue" />
-        <select v-model="toUnit">
-          <option value="minutes">min. ago</option>
-          <option value="hours">h ago</option>
-          <option value="days">days ago</option>
-        </select>
-      </div>
-    </div>
+    <SearchOptions @filterChanged="onFilterChanged" />
     <div id="metrics-list">
       <article
         v-for="metric of metrics"
@@ -41,37 +17,44 @@
 </template>
 
 <script>
-import { find, debounce } from "lodash";
+import { find, sortBy } from "lodash";
+import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import axios from "axios";
+import SearchOptions from "~/components/SearchOptions.vue";
 
 export default {
+  components: { SearchOptions },
   data() {
     return {
       metrics: [],
-      keywords: "",
       refreshIntervalId: null,
+      refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
-      fromValue: 10,
-      fromUnit: "minutes",
-      toValue: 0,
-      toUnit: "minutes",
+      filter: {
+        queryString: "",
+      },
     };
   },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
-    this.fetchMetrics();
+    this.refreshIntervalValue = RefreshIntervalService.get();
   },
-  mounted() {},
-  beforeUnmount() {},
-  watch: {
-    fromValue: "dateFilterChanged",
-    fromUnit: "dateFilterChanged",
-    toValue: "dateFilterChanged",
-    toUnit: "dateFilterChanged",
+  mounted() {
+    const interval = parseInt(this.refreshIntervalValue, 10);
+    if (interval > 0) {
+      this.refreshIntervalId = setInterval(() => {
+        this.fetchMetrics();
+      }, interval);
+    }
+  },
+  beforeUnmount() {
+    if (this.refreshIntervalId) {
+      clearInterval(this.refreshIntervalId);
+    }
   },
   methods: {
     processMetrics(metrics) {
@@ -95,43 +78,20 @@ export default {
         }
         metricContainer.data.push(metric);
       });
-      return formattedMetrics;
+      // Sort by serviceName, serviceVersion, name
+      return sortBy(formattedMetrics, [
+        "serviceName",
+        "serviceVersion",
+        "name",
+      ]);
     },
-
-    filterChanged: debounce(function () {
-      this.fetchMetrics();
-    }, 500),
-    dateFilterChanged() {
+    onFilterChanged(filter) {
+      this.filter.queryString = filter.queryString;
       this.fetchMetrics();
     },
-
     async fetchMetrics() {
-      function toNanoseconds(value, unit) {
-        if (!value) return 0;
-        const multipliers = {
-          minutes: 60,
-          hours: 60 * 60,
-          days: 24 * 60 * 60,
-        };
-        const secondsAgo = value * (multipliers[unit] || 1);
-        const nowNs = Date.now() * 1e6;
-        return nowNs - secondsAgo * 1e9;
-      }
-
-      const params = {};
-      if (this.keywords) {
-        params.keywords = this.keywords;
-      }
-
-      const fromNs = toNanoseconds(this.fromValue, this.fromUnit);
-      const toNs = toNanoseconds(this.toValue, this.toUnit);
-
-      if (fromNs > 0) params.from = fromNs;
-      if (toNs > 0) params.to = toNs;
-
-      const queryString = new URLSearchParams(params).toString();
       const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
-        queryString ? "?" + queryString : ""
+        this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
       axios.get(url, await AuthService.getAuthHeader()).then((response) => {
         this.metrics = this.processMetrics(response.data.metrics);
@@ -146,27 +106,6 @@ export default {
   display: grid;
   grid-template-rows: auto 1fr;
   height: 100%;
-}
-
-#search-options {
-  margin-bottom: 1rem;
-}
-
-select {
-  padding: 0.5em 1em;
-  height: 2.6rem;
-}
-#search-options input {
-  padding-top: 0.5em;
-  padding-bottom: 0.5em;
-  height: 2.6rem;
-}
-
-#search-options-dates {
-  display: grid;
-  grid-template-columns: auto 1fr auto auto 1fr auto;
-  align-items: center;
-  gap: 0.5rem;
 }
 
 #metrics-list {

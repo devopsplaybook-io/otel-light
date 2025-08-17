@@ -21,6 +21,7 @@ module.exports = {
           "http://localhost:9999/api/v1/traces",
         OPENTELEMETRY_COLLECTOR_HTTP_METRICS:
           "http://localhost:9999/api/v1/metrics",
+        OPENTELEMETRY_COLLECTOR_HTTP_LOGS: "http://localhost:9999/api/v1/logs",
         OPENTELEMETRY_COLLECTOR_AWS: true,
       },
     },
