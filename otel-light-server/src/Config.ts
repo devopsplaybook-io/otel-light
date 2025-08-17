@@ -19,8 +19,10 @@ export class Config implements ConfigInterface {
   public LOGS_RETENTION_DAYS = 30;
   public METRICS_RETENTION_DAYS = 30;
   public TRACES_RETENTION_DAYS = 30;
-  public OPENTELEMETRY_COLLECTOR_HTTP: string =
-    process.env.OPENTELEMETRY_COLLECTOR_HTTP || "";
+  public OPENTELEMETRY_COLLECTOR_HTTP_TRACES: string =
+    process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES || "";
+  public OPENTELEMETRY_COLLECTOR_HTTP_METRICS: string =
+    process.env.OPENTELEMETRY_COLLECTOR_HTTP_METRICS || "";
   public OPENTELEMETRY_COLLECTOR_AWS =
     process.env.OPENTELEMETRY_COLLECTOR_AWS === "true";
 
@@ -46,7 +48,8 @@ export class Config implements ConfigInterface {
     setIfSet("LOGS_RETENTION_DAYS");
     setIfSet("METRICS_RETENTION_DAYS");
     setIfSet("TRACES_RETENTION_DAYS");
-    setIfSet("OPENTELEMETRY_COLLECTOR_HTTP");
+    setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_TRACES");
+    setIfSet("OPENTELEMETRY_COLLECTOR_HTTP_METRICS");
     setIfSet("OPENTELEMETRY_COLLECTOR_AWS");
   }
 }

@@ -6,6 +6,9 @@ import { Logger } from "./utils-std-ts/Logger";
 import { UsersRoutes } from "./users/UsersRoutes";
 import {
   StandardTracerInitTelemetry,
+  StandardTracerMetricCreateCounter,
+  StandardTracerMetricCreateGauge,
+  StandardTracerMetricCreateObservableGauge,
   StandardTracerStartSpan,
 } from "./utils-std-ts/StandardTracer";
 import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
@@ -13,6 +16,9 @@ import { AuthInit } from "./users/Auth";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { MaintenanceInit } from "./Maintenance";
+import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
+import { SelfMetricsInit } from "./analytics/SelfMetrics";
+import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 
 const logger = new Logger("app");
 
@@ -34,10 +40,11 @@ Promise.resolve().then(async () => {
   await SqlDbUtilsInit(span, config);
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
+  await SelfMetricsInit(span, config);
 
   span.end();
 
-  // API
+  // APIs
 
   const fastify = Fastify({
     logger: config.LOG_LEVEL === "debug_tmp",
@@ -58,16 +65,24 @@ Promise.resolve().then(async () => {
   //   console.log(`${req.method}-${req.url}`);
   // });
 
-  fastify.register(new TracesRoutes().getRoutes, {
-    prefix: "/api/v1/traces",
-  });
-
   fastify.register(new UsersRoutes().getRoutes, {
     prefix: "/api/users",
   });
+
+  fastify.register(new TracesRoutes().getRoutes, {
+    prefix: "/api/v1/traces",
+  });
+  fastify.register(new MetricsRoutes().getRoutes, {
+    prefix: "/api/v1/metrics",
+  });
+
   fastify.register(new AnalyticsTracesRoutes().getRoutes, {
     prefix: "/api/analytics/traces",
   });
+  fastify.register(new AnalyticsMetricsRoutes().getRoutes, {
+    prefix: "/api/analytics/metrics",
+  });
+
   fastify.get("/api/status", async () => {
     return { started: true };
   });

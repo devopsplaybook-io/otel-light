@@ -1,15 +1,24 @@
 import opentelemetry, {
+  Counter,
   defaultTextMapGetter,
   defaultTextMapSetter,
+  Gauge,
+  Histogram,
+  ObservableGauge,
   ROOT_CONTEXT,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
 import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
+import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { AWSXRayIdGenerator } from "@opentelemetry/id-generator-aws-xray";
 import { resourceFromAttributes } from "@opentelemetry/resources";
+import {
+  MeterProvider,
+  PeriodicExportingMetricReader,
+} from "@opentelemetry/sdk-metrics";
 import { api } from "@opentelemetry/sdk-node";
 import {
   BatchSpanProcessor,
@@ -33,16 +42,19 @@ import { Logger } from "./Logger";
 let tracerInstance;
 const propagator = new W3CTraceContextPropagator();
 const logger = new Logger("StandardTracerApi");
-let meterProvider;
+let meterProvider: MeterProvider;
 let config;
+const METER_NAME = "default";
 
 //
 export function StandardTracerInitTelemetry(initConfig: Config) {
   config = initConfig;
   const spanProcessors = [];
-  if (config.OPENTELEMETRY_COLLECTOR_HTTP) {
+
+  // Traces
+  if (config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES) {
     const exporter = new OTLPTraceExporter({
-      url: config.OPENTELEMETRY_COLLECTOR_HTTP,
+      url: config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES,
       headers: {},
     });
     spanProcessors.push(new BatchSpanProcessor(exporter));
@@ -51,7 +63,7 @@ export function StandardTracerInitTelemetry(initConfig: Config) {
     const exporter = new CustomConsoleSpanExporter();
     spanProcessors.push(new BatchSpanProcessor(exporter));
   }
-  const provider = new NodeTracerProvider({
+  const traceProvider = new NodeTracerProvider({
     idGenerator: new AWSXRayIdGenerator(),
     resource: resourceFromAttributes({
       [ATTR_SERVICE_NAME]: `${config.SERVICE_ID}`,
@@ -60,10 +72,41 @@ export function StandardTracerInitTelemetry(initConfig: Config) {
     }),
     spanProcessors,
   });
-  provider.register();
+  traceProvider.register();
   const contextManager = new AsyncHooksContextManager();
   contextManager.enable();
   opentelemetry.context.setGlobalContextManager(contextManager);
+
+  // Metrics
+  if (config.OPENTELEMETRY_COLLECTOR_HTTP_METRICS) {
+    const collectorOptions = {
+      url: config.OPENTELEMETRY_COLLECTOR_HTTP_METRICS,
+      headers: {},
+      concurrencyLimit: 1,
+    };
+    const metricExporter = new OTLPMetricExporter(collectorOptions);
+    meterProvider = new MeterProvider({
+      resource: resourceFromAttributes({
+        [ATTR_SERVICE_NAME]: `${config.SERVICE_ID}`,
+        [ATTR_SERVICE_VERSION]: `${config.VERSION}`,
+        [ATTR_NETWORK_LOCAL_ADDRESS]: os.hostname(),
+      }),
+      readers: [
+        new PeriodicExportingMetricReader({
+          exporter: metricExporter,
+          exportIntervalMillis: 10 * 1000,
+        }),
+      ],
+    });
+  } else {
+    meterProvider = new MeterProvider({
+      resource: resourceFromAttributes({
+        [ATTR_SERVICE_NAME]: `${config.SERVICE_ID}`,
+        [ATTR_SERVICE_VERSION]: `${config.VERSION}`,
+        [ATTR_NETWORK_LOCAL_ADDRESS]: os.hostname(),
+      }),
+    });
+  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,11 +132,6 @@ export function StandardTracerStartSpan(name, parentSpan?: Span): Span {
     ATTR_HTTP_ROUTE,
     `${config.SERVICE_ID}-${config.VERSION}-${name}`
   );
-  span.setAttribute(
-    ATTR_SERVICE_NAME,
-    `${config.SERVICE_ID}-${config.VERSION}`
-  );
-
   return span;
 }
 
@@ -164,11 +202,28 @@ export function StandardTracerInitFastify(fastify: FastifyInstance) {
   });
 }
 
-export function StandardTracerMetricAdd(key: string, value = 1): void {
-  const meter = meterProvider.getMeter("default");
-  const counter = meter.createCounter(`${config.SERVICE_ID}-${key}`);
-  counter.add(value, { key: "value" });
-  logger.info(`+ Metric: ${config.SERVICE_ID}-${key}: ${value}`);
+export function StandardTracerMetricCreateCounter(key: string): Counter {
+  const meter = meterProvider.getMeter(METER_NAME);
+  return meter.createCounter(`${config.SERVICE_ID}.${key}`);
+}
+
+export function StandardTracerMetricCreateHistorgram(key: string): Histogram {
+  const meter = meterProvider.getMeter(METER_NAME);
+  return meter.createHistogram(`${config.SERVICE_ID}.${key}`);
+}
+
+export function StandardTracerMetricCreateObservableGauge(
+  key: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  callback: (observableResult: any) => void,
+  description = null
+): ObservableGauge {
+  const meter = meterProvider.getMeter(METER_NAME);
+  const observableGauge = meter.createObservableGauge(key, description);
+
+  observableGauge.addCallback(callback);
+
+  return observableGauge;
 }
 
 class CustomConsoleSpanExporter extends ConsoleSpanExporter {
@@ -194,12 +249,6 @@ class CustomConsoleSpanExporter extends ConsoleSpanExporter {
           `${status.code === 0 ? "OK" : "ERROR"} ${duration}ns`
       );
     });
-    resultCallback({ code: 0 });
-  }
-}
-
-class NoSpanExporter extends ConsoleSpanExporter {
-  export(spans, resultCallback) {
     resultCallback({ code: 0 });
   }
 }

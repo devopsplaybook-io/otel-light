@@ -1,6 +1,7 @@
 export interface ConfigInterface {
   SERVICE_ID: string;
   VERSION: number;
-  OPENTELEMETRY_COLLECTOR_HTTP: string;
+  OPENTELEMETRY_COLLECTOR_HTTP_TRACES: string;
+  OPENTELEMETRY_COLLECTOR_HTTP_METRICS: string;
   OPENTELEMETRY_COLLECTOR_AWS: boolean;
 }

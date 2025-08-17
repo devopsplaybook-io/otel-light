@@ -1,6 +1,10 @@
 <template>
   <div class="trace-summary">
-    <span>{{ this.trace.serviceName }}</span
+    <span
+      >{{ this.trace.serviceName
+      }}{{
+        this.trace.serviceVersion ? ":" + this.trace.serviceVersion : ""
+      }}</span
     ><span>{{ this.trace.name }}</span>
     <span>{{
       new Date(this.trace.startTime / 1_000_000).toLocaleString()

@@ -9,7 +9,7 @@
     "lint": "eslint src || true",
     "test": "jest --coverage || true",
     "////": "-----------------------------------------------------------------",
-    "dev": "ts-node-dev ./src/app.ts",
+    "dev": "ts-node-dev ./src/App.ts",
     "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'"
   },
   "dependencies": {
