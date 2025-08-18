@@ -8,6 +8,7 @@
         <b>Time</b>
         <b>Duration</b>
         <b>ID</b>
+        <b>Errors</b>
         <b>Spans</b>
       </div>
       <div v-for="trace of traces" :key="trace.traceId">
@@ -116,7 +117,7 @@ export default {
 .trace-summary {
   min-width: 1200px;
   display: grid;
-  grid-template-columns: 3fr 3fr 3fr 2fr 2fr 1fr;
+  grid-template-columns: 3fr 3fr 3fr 2fr 2fr 1fr 1fr;
   gap: 1rem;
   width: 100%;
 }

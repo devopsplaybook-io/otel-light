@@ -42,7 +42,8 @@ export class AnalyticsTracesRoutes {
           "COUNT(*) as spanCount, " +
           "rootSpan.name AS name, " +
           "rootSpan.serviceName AS serviceName, " +
-          "rootSpan.serviceVersion AS serviceVersion " +
+          "rootSpan.serviceVersion AS serviceVersion, " +
+          "SUM(t.statusCode) AS statusCodeSum " +
           "FROM traces t " +
           "LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL " +
           sqlWhere +

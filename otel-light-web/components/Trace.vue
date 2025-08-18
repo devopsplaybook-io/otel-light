@@ -1,20 +1,18 @@
 <template>
-  <div class="trace-summary">
+  <div
+    class="trace-summary"
+    :class="{ 'trace-summary-errors': trace.statusCodeSum > 0 }"
+  >
     <span
-      >{{ this.trace.serviceName
-      }}{{
-        this.trace.serviceVersion ? ":" + this.trace.serviceVersion : ""
-      }}</span
-    ><span>{{ this.trace.name }}</span>
-    <span>{{
-      new Date(this.trace.startTime / 1_000_000).toLocaleString()
-    }}</span>
+      >{{ trace.serviceName
+      }}{{ trace.serviceVersion ? ":" + trace.serviceVersion : "" }}</span
+    ><span>{{ trace.name }}</span>
+    <span>{{ new Date(trace.startTime / 1_000_000).toLocaleString() }}</span>
     <span>{{ durationText }}</span>
-    <span>{{ this.trace.traceId }}</span>
+    <span>{{ trace.traceId }}</span>
+    <span>{{ trace.statusCodeSum > 0 ? "Yes" : "No" }}</span>
     <span
-      >{{ this.trace.spanCount }} span{{
-        this.trace.spanCount === 1 ? "" : "s"
-      }}</span
+      >{{ trace.spanCount }} span{{ trace.spanCount === 1 ? "" : "s" }}</span
     >
   </div>
 </template>
@@ -35,6 +33,7 @@ export default {
     };
   },
   async created() {
+    console.log(this.trace);
     this.durationText = getDurationText(
       this.trace.endTime - this.trace.startTime
     );
@@ -43,4 +42,8 @@ export default {
 };
 </script>
 
-<style></style>
+<style scoped>
+.trace-summary-errors {
+  background-color: #d9352622;
+}
+</style>

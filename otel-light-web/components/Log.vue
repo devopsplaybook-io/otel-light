@@ -6,7 +6,20 @@
     >
     <span>{{ new Date(this.log.time / 1_000_000).toLocaleString() }}</span>
     <span>{{ this.log.severity }}</span>
-    <span>{{ this.log.logText }}</span>
+    <span @click="showLogDialog" style="cursor: pointer">{{
+      this.log.logText
+    }}</span>
+    <dialog ref="logDialog" class="log-dialog">
+      <article>
+        <header>Log Details</header>
+        <section>
+          <pre>{{ log.logText }}</pre>
+        </section>
+        <footer>
+          <button @click.stop="closeLogDialog">Close</button>
+        </footer>
+      </article>
+    </dialog>
   </div>
 </template>
 
@@ -18,12 +31,21 @@ export default {
       default: null,
     },
   },
-  data() {
-    return {};
+  methods: {
+    showLogDialog(event) {
+      if (event) event.stopPropagation();
+      this.$refs.logDialog.showModal();
+    },
+    closeLogDialog() {
+      this.$refs.logDialog.close();
+    },
   },
-  async created() {},
-  methods: {},
 };
 </script>
 
-<style></style>
+<style>
+.log-dialog pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+</style>

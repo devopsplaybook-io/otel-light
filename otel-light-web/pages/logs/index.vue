@@ -34,6 +34,7 @@ export default {
       filter: {
         queryString: "",
       },
+      selectedLog: null,
     };
   },
   async created() {

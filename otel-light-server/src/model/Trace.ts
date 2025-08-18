@@ -6,6 +6,7 @@ export class Trace {
   startTime: number;
   endTime: number;
   spanCount: number;
+  statusCodeSum: number;
 
   constructor(data?: Partial<Trace>) {
     if (data) {
