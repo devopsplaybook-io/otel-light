@@ -19,6 +19,7 @@ import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
+import { StandardMeterInitTelemetry } from "./utils-std-ts/StandardMeter";
 
 const logger = new Logger("app");
 
@@ -34,6 +35,7 @@ Promise.resolve().then(async () => {
   });
 
   StandardTracerInitTelemetry(config);
+  StandardMeterInitTelemetry(config);
 
   const span = StandardTracerStartSpan("init");
 

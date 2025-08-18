@@ -1,24 +1,15 @@
 import opentelemetry, {
-  Counter,
   defaultTextMapGetter,
   defaultTextMapSetter,
-  Gauge,
-  Histogram,
-  ObservableGauge,
   ROOT_CONTEXT,
   SpanStatusCode,
   trace,
 } from "@opentelemetry/api";
 import { AsyncHooksContextManager } from "@opentelemetry/context-async-hooks";
 import { W3CTraceContextPropagator } from "@opentelemetry/core";
-import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { OTLPTraceExporter } from "@opentelemetry/exporter-trace-otlp-http";
 import { AWSXRayIdGenerator } from "@opentelemetry/id-generator-aws-xray";
 import { resourceFromAttributes } from "@opentelemetry/resources";
-import {
-  MeterProvider,
-  PeriodicExportingMetricReader,
-} from "@opentelemetry/sdk-metrics";
 import { api } from "@opentelemetry/sdk-node";
 import {
   BatchSpanProcessor,
@@ -40,16 +31,13 @@ import { Config } from "../Config";
 
 let tracerInstance;
 const propagator = new W3CTraceContextPropagator();
-let meterProvider: MeterProvider;
 let config;
-const METER_NAME = "default";
 
 //
 export function StandardTracerInitTelemetry(initConfig: Config) {
   config = initConfig;
   const spanProcessors = [];
 
-  // Traces
   if (config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES) {
     const exporter = new OTLPTraceExporter({
       url: config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES,
@@ -74,37 +62,6 @@ export function StandardTracerInitTelemetry(initConfig: Config) {
   const contextManager = new AsyncHooksContextManager();
   contextManager.enable();
   opentelemetry.context.setGlobalContextManager(contextManager);
-
-  // Metrics
-  if (config.OPENTELEMETRY_COLLECTOR_HTTP_METRICS) {
-    const collectorOptions = {
-      url: config.OPENTELEMETRY_COLLECTOR_HTTP_METRICS,
-      headers: {},
-      concurrencyLimit: 1,
-    };
-    const metricExporter = new OTLPMetricExporter(collectorOptions);
-    meterProvider = new MeterProvider({
-      resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: `${config.SERVICE_ID}`,
-        [ATTR_SERVICE_VERSION]: `${config.VERSION}`,
-        [ATTR_NETWORK_LOCAL_ADDRESS]: os.hostname(),
-      }),
-      readers: [
-        new PeriodicExportingMetricReader({
-          exporter: metricExporter,
-          exportIntervalMillis: 10 * 1000,
-        }),
-      ],
-    });
-  } else {
-    meterProvider = new MeterProvider({
-      resource: resourceFromAttributes({
-        [ATTR_SERVICE_NAME]: `${config.SERVICE_ID}`,
-        [ATTR_SERVICE_VERSION]: `${config.VERSION}`,
-        [ATTR_NETWORK_LOCAL_ADDRESS]: os.hostname(),
-      }),
-    });
-  }
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -197,30 +154,6 @@ export function StandardTracerInitFastify(fastify: FastifyInstance) {
     span.status.code = SpanStatusCode.ERROR;
     span.recordException(error);
   });
-}
-
-export function StandardTracerMetricCreateCounter(key: string): Counter {
-  const meter = meterProvider.getMeter(METER_NAME);
-  return meter.createCounter(`${config.SERVICE_ID}.${key}`);
-}
-
-export function StandardTracerMetricCreateHistorgram(key: string): Histogram {
-  const meter = meterProvider.getMeter(METER_NAME);
-  return meter.createHistogram(`${config.SERVICE_ID}.${key}`);
-}
-
-export function StandardTracerMetricCreateObservableGauge(
-  key: string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  callback: (observableResult: any) => void,
-  description = null
-): ObservableGauge {
-  const meter = meterProvider.getMeter(METER_NAME);
-  const observableGauge = meter.createObservableGauge(key, description);
-
-  observableGauge.addCallback(callback);
-
-  return observableGauge;
 }
 
 class CustomConsoleSpanExporter extends ConsoleSpanExporter {

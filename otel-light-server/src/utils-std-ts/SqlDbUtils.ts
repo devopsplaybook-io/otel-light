@@ -3,6 +3,7 @@ import { Config } from "../Config";
 import * as fs from "fs-extra";
 import { Logger } from "./Logger";
 import { Span } from "@opentelemetry/sdk-trace-base";
+import { SpanStatusCode } from "@opentelemetry/api";
 import { StandardTracerStartSpan } from "./StandardTracer";
 
 const logger = new Logger("SqlDbutils");
@@ -55,15 +56,19 @@ export function SqlDbUtilsExecSQL(
   context: Span,
   sql: string,
   params = []
-): Promise<void> {
+): Promise<number> {
   const span = StandardTracerStartSpan("SqlDbUtilsExecSQL", context);
   return new Promise((resolve, reject) => {
-    database.run(sql, params, (error) => {
-      span.end();
+    database.run(sql, params, function (error) {
       if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        span.end();
         reject(error);
       } else {
-        resolve();
+        span.addEvent(`Changed Rows: ${this.changes}`);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: "test" });
+        span.end();
+        resolve(this.changes);
       }
     });
   });
@@ -77,10 +82,12 @@ export async function SqlDbUtilsExecSQLFile(
   const sql = (await fs.readFile(filename)).toString();
   return new Promise((resolve, reject) => {
     database.exec(sql, (error) => {
-      span.end();
       if (error) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        span.end();
         reject(error);
       } else {
+        span.end();
         resolve();
       }
     });
@@ -100,12 +107,12 @@ export function SqlDbUtilsQuerySQL(
   }
   return new Promise((resolve, reject) => {
     database.all(sql, params, (error, rows) => {
-      span.end();
       if (error) {
-        logger.error(`SQL ERROR: ${sql}`);
-        console.log(error);
+        span.setStatus({ code: SpanStatusCode.ERROR, message: error.message });
+        span.end();
         reject(error);
       } else {
+        span.end();
         resolve(rows);
       }
     });

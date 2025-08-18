@@ -1,10 +1,8 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
-import {
-  StandardTracerMetricCreateObservableGauge,
-  StandardTracerStartSpan,
-} from "../utils-std-ts/StandardTracer";
+import { StandardTracerStartSpan } from "../utils-std-ts/StandardTracer";
 import { SqlDbUtilsQuerySQL } from "../utils-std-ts/SqlDbUtils";
+import { StandardMeterCreateObservableGauge } from "../utils-std-ts/StandardMeter";
 
 const signalData = {
   traces: { count: 0 },
@@ -15,7 +13,7 @@ const signalData = {
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function SelfMetricsInit(context: Span, configIn: Config) {
   const span = StandardTracerStartSpan("SelfMetricsInit", context);
-  StandardTracerMetricCreateObservableGauge(
+  StandardMeterCreateObservableGauge(
     "signals.storage",
     (observableResult) => {
       observableResult.observe(signalData.traces.count, { signal: "traces" });

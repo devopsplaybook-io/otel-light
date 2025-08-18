@@ -4,10 +4,25 @@
       v-for="span of sortedTraceSpans"
       :key="span.spanId"
       class="span-bar-container"
+      :class="{
+        'span-error':
+          span.rawSpan && span.rawSpan.status && span.rawSpan.status.code !== 0,
+      }"
     >
       <div class="span-name">
         {{ span.name }}
         <small>({{ span.durationText }})</small>
+        <!-- Show button if events exist -->
+        <i
+          v-if="
+            span.rawSpan &&
+            span.rawSpan.events &&
+            span.rawSpan.events.length > 0
+          "
+          class="span-event-link bi bi-braces-asterisk"
+          @click="showEvents(span.rawSpan.events)"
+        >
+        </i>
       </div>
       <div
         class="span-bar"
@@ -17,6 +32,20 @@
         }"
       ></div>
     </div>
+    <dialog ref="eventsDialog" class="events-dialog">
+      <article>
+        <header>Span Events</header>
+        <section>
+          <p>Events for Span:</p>
+          <pre v-for="(event, index) in eventsDialogContent" :key="index">{{
+            event.name
+          }}</pre>
+        </section>
+        <footer>
+          <button @click="closeEventsDialog">Close</button>
+        </footer>
+      </article>
+    </dialog>
   </div>
 </template>
 
@@ -66,6 +95,7 @@ export default {
   data() {
     return {
       durationText: "",
+      eventsDialogContent: [],
     };
   },
   computed: {
@@ -90,7 +120,22 @@ export default {
       return buildSpanTree(spans);
     },
   },
-  methods: {},
+  methods: {
+    showEvents(events) {
+      this.eventsDialogContent = events;
+      this.$nextTick(() => {
+        if (this.$refs.eventsDialog) {
+          this.$refs.eventsDialog.showModal();
+        }
+      });
+    },
+    closeEventsDialog() {
+      if (this.$refs.eventsDialog) {
+        this.$refs.eventsDialog.close();
+      }
+      this.eventsDialogContent = [];
+    },
+  },
 };
 </script>
 
@@ -128,5 +173,12 @@ export default {
   height: 100%;
   background: #017fc0dd;
   z-index: 1;
+}
+.span-error .span-bar {
+  background: #d93526;
+}
+.span-event-link {
+  margin-left: 0.5em;
+  cursor: pointer;
 }
 </style>
