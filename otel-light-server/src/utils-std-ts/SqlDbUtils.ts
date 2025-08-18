@@ -65,8 +65,7 @@ export function SqlDbUtilsExecSQL(
         span.end();
         reject(error);
       } else {
-        span.addEvent(`Changed Rows: ${this.changes}`);
-        span.setStatus({ code: SpanStatusCode.ERROR, message: "test" });
+        span.addEvent(`Impacted Rows: ${this.changes}`);
         span.end();
         resolve(this.changes);
       }
