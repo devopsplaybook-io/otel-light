@@ -8,28 +8,24 @@
       @input="emitFilterChanged"
     />
     <div id="search-options-dates">
-      <input
-        type="number"
-        min="0"
-        v-model.number="fromValue"
-        @input="emitFilterChanged"
-      />
-      <select v-model="fromUnit" @change="emitFilterChanged">
-        <option value="minutes">min. ago</option>
-        <option value="hours">h ago</option>
-        <option value="days">days ago</option>
+      <select v-model="from" @change="emitFilterChanged">
+        <option
+          v-for="option in timeOptions"
+          :key="option.value"
+          :value="option.value"
+        >
+          {{ option.label }}
+        </option>
       </select>
       <span><i class="bi bi-chevron-double-right" /></span>
-      <input
-        type="number"
-        min="0"
-        v-model.number="toValue"
-        @input="emitFilterChanged"
-      />
-      <select v-model="toUnit" @change="emitFilterChanged">
-        <option value="minutes">min. ago</option>
-        <option value="hours">h ago</option>
-        <option value="days">days ago</option>
+      <select v-model="to" @change="emitFilterChanged">
+        <option
+          v-for="option in timeOptions"
+          :key="option.value"
+          :value="option.value"
+        >
+          {{ option.label }}
+        </option>
       </select>
     </div>
   </div>
@@ -43,27 +39,37 @@ export default {
   data() {
     return {
       keywords: "",
-      fromValue: 10,
-      fromUnit: "minutes",
-      toValue: 0,
-      toUnit: "minutes",
+      from: 10 * 60, // 10 min ago (in seconds)
+      to: 0, // now (0 seconds ago)
+      timeOptions: [
+        { label: "1 min ago", value: 1 * 60 },
+        { label: "5 min ago", value: 5 * 60 },
+        { label: "10 min ago", value: 10 * 60 },
+        { label: "30 min ago", value: 30 * 60 },
+        { label: "1 h ago", value: 1 * 60 * 60 },
+        { label: "2 h ago", value: 2 * 60 * 60 },
+        { label: "6 h ago", value: 6 * 60 * 60 },
+        { label: "12 h ago", value: 12 * 60 * 60 },
+        { label: "1 day ago", value: 24 * 60 * 60 },
+        { label: "2 days ago", value: 2 * 24 * 60 * 60 },
+        { label: "5 days ago", value: 3 * 24 * 60 * 60 },
+        { label: "10 days ago", value: 3 * 24 * 60 * 60 },
+        { label: "30 days ago", value: 3 * 24 * 60 * 60 },
+        { label: "90 days ago", value: 90 * 24 * 60 * 60 },
+        { label: "180 days ago", value: 180 * 24 * 60 * 60 },
+        { label: "1 year ago", value: 365 * 24 * 60 * 60 },
+        { label: "all", value: 99999 * 24 * 60 * 60 },
+      ],
     };
   },
   created() {
-    // Bind debounced version to instance
     this.emitFilterChanged = debounce(this.emitFilterChangedRaw, 500);
     this.emitFilterChangedRaw();
   },
   methods: {
     emitFilterChangedRaw() {
-      function toNanoseconds(value, unit) {
-        if (!value) return 0;
-        const multipliers = {
-          minutes: 60,
-          hours: 60 * 60,
-          days: 24 * 60 * 60,
-        };
-        const secondsAgo = value * (multipliers[unit] || 1);
+      function toNanoseconds(secondsAgo) {
+        if (!secondsAgo) return 0;
         const nowNs = Date.now() * 1e6;
         return nowNs - secondsAgo * 1e9;
       }
@@ -73,8 +79,8 @@ export default {
         params.keywords = this.keywords;
       }
 
-      const fromNs = toNanoseconds(this.fromValue, this.fromUnit);
-      const toNs = toNanoseconds(this.toValue, this.toUnit);
+      const fromNs = toNanoseconds(this.from);
+      const toNs = toNanoseconds(this.to);
 
       if (fromNs > 0) params.from = fromNs;
       if (toNs > 0) params.to = toNs;
@@ -100,9 +106,12 @@ export default {
 }
 #search-options-dates {
   display: grid;
-  grid-template-columns: 1fr auto auto 1fr auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 0.5rem;
+}
+#search-options-dates span {
+  padding-bottom: 0.6rem;
 }
 select {
   padding: 0.5em 1em;

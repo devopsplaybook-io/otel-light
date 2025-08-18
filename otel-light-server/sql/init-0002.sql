@@ -13,6 +13,9 @@ CREATE TABLE IF NOT EXISTS traces (
     keywords VARCHAR(4000) NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_traces_startTime ON traces(startTime);
+CREATE INDEX IF NOT EXISTS idx_traces_traceId ON traces(traceId);
+
 CREATE TABLE IF NOT EXISTS metrics (
     name VARCHAR(2000) NOT NULL,
     serviceName VARCHAR(2000) NOT NULL,
@@ -24,6 +27,8 @@ CREATE TABLE IF NOT EXISTS metrics (
     keywords VARCHAR(4000) NOT NULL
 );
 
+CREATE INDEX IF NOT EXISTS idx_metrics_time ON metrics(time);
+
 CREATE TABLE IF NOT EXISTS logs (
     serviceName VARCHAR(2000) NOT NULL,
     serviceVersion VARCHAR(2000) NOT NULL,
@@ -33,3 +38,5 @@ CREATE TABLE IF NOT EXISTS logs (
     atttributes TEXT NOT NULL,
     keywords VARCHAR(4000) NOT NULL
 );
+
+CREATE INDEX IF NOT EXISTS idx_logs_time ON logs(time);

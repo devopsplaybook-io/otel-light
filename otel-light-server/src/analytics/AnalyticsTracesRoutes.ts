@@ -3,8 +3,11 @@ import { AuthGetUserSession } from "../users/Auth";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
-import { AnalyticsUtilsGetDefaultFromTime } from "./AnalyticsUtils";
 import { SpanStatusCode } from "@opentelemetry/api";
+import {
+  AnalyticsUtilsGetDefaultFromTime,
+  AnalyticsUtilsResultLimit,
+} from "./AnalyticsUtils";
 
 export class AnalyticsTracesRoutes {
   //
@@ -58,7 +61,12 @@ export class AnalyticsTracesRoutes {
         traces.push(new Trace(rawTrace));
       });
 
-      return res.status(200).send({ traces });
+      const response = { traces };
+      if (rawTraces.length >= AnalyticsUtilsResultLimit) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (response as any).warning = "To much data. Results are truncated";
+      }
+      return res.status(200).send(response);
     });
 
     fastify.get<{

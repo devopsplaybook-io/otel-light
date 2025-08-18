@@ -2,7 +2,10 @@ import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
 import { Metric } from "../model/Metric";
-import { AnalyticsUtilsGetDefaultFromTime } from "./AnalyticsUtils";
+import {
+  AnalyticsUtilsResultLimit,
+  AnalyticsUtilsGetDefaultFromTime,
+} from "./AnalyticsUtils";
 
 export class AnalyticsMetricsRoutes {
   //
@@ -34,7 +37,7 @@ export class AnalyticsMetricsRoutes {
       }
 
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        "SELECT * FROM metrics " + sqlWhere,
+        `SELECT * FROM metrics ${sqlWhere} LIMIT ${AnalyticsUtilsResultLimit}`,
         sqlParams
       );
       const metrics = [];
@@ -42,7 +45,12 @@ export class AnalyticsMetricsRoutes {
         metrics.push(new Metric(rawMetric));
       });
 
-      return res.status(200).send({ metrics });
+      const response = { metrics };
+      if (rawMetrics.length >= AnalyticsUtilsResultLimit) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (response as any).warning = "To much data. Results are truncated";
+      }
+      return res.status(200).send(response);
     });
   }
 }

@@ -3,15 +3,19 @@
     <SearchOptions @filterChanged="onFilterChanged" />
     <div id="traces">
       <div class="trace-summary">
-        <b>Service</b>
-        <b>Name</b>
-        <b>Time</b>
-        <b>Duration</b>
-        <b>ID</b>
-        <b>Errors</b>
-        <b>Spans</b>
+        <b @click="sortBy('service')" :class="headerClass('service')"
+          >Service</b
+        >
+        <b @click="sortBy('name')" :class="headerClass('name')">Name</b>
+        <b @click="sortBy('time')" :class="headerClass('time')">Time</b>
+        <b @click="sortBy('duration')" :class="headerClass('duration')"
+          >Duration</b
+        >
+        <b @click="sortBy('traceId')" :class="headerClass('traceId')">ID</b>
+        <b @click="sortBy('errors')" :class="headerClass('errors')">Errors</b>
+        <b @click="sortBy('spans')" :class="headerClass('spans')">Spans</b>
       </div>
-      <div v-for="trace of traces" :key="trace.traceId">
+      <div v-for="trace of sortedTraces" :key="trace.traceId">
         <Trace
           @click="toggleTrace(trace.traceId)"
           style="cursor: pointer"
@@ -34,7 +38,7 @@ import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
-import { handleError } from "~~/services/EventBus";
+import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
@@ -48,6 +52,8 @@ export default {
       filter: {
         queryString: "",
       },
+      sortKey: "time",
+      sortOrder: "desc",
     };
   },
   async created() {
@@ -68,6 +74,36 @@ export default {
     if (this.refreshIntervalId) {
       clearInterval(this.refreshIntervalId);
     }
+  },
+  computed: {
+    sortedTraces() {
+      if (!this.traces) return [];
+      const tracesCopy = [...this.traces];
+      const keyMap = {
+        service: "serviceName",
+        name: "name",
+        time: "startTime",
+        duration: "duration",
+        traceId: "traceId",
+        errors: "errors",
+        spans: "spans",
+      };
+      const key = keyMap[this.sortKey] || this.sortKey;
+      const order = this.sortOrder;
+      return tracesCopy.sort((a, b) => {
+        let aVal = a[key];
+        let bVal = b[key];
+        // Handle undefined/null values
+        aVal = aVal === undefined || aVal === null ? "" : aVal;
+        bVal = bVal === undefined || bVal === null ? "" : bVal;
+        if (typeof aVal === "string" && typeof bVal === "string") {
+          return order === "asc"
+            ? aVal.localeCompare(bVal)
+            : bVal.localeCompare(aVal);
+        }
+        return order === "asc" ? aVal - bVal : bVal - aVal;
+      });
+    },
   },
   methods: {
     onFilterChanged(filter) {
@@ -106,8 +142,30 @@ export default {
         .get(url, await AuthService.getAuthHeader())
         .then((response) => {
           this.traces = response.data.traces;
+          if (response.data.warning) {
+            EventBus.emit(EventTypes.ALERT_MESSAGE, {
+              type: "warning",
+              text: response.data.warning,
+            });
+          }
         })
         .catch(handleError);
+    },
+    sortBy(key) {
+      if (this.sortKey === key) {
+        this.sortOrder = this.sortOrder === "asc" ? "desc" : "asc";
+      } else {
+        this.sortKey = key;
+        this.sortOrder = "asc";
+      }
+    },
+    headerClass(key) {
+      return {
+        sortable: true,
+        sorted: this.sortKey === key,
+        asc: this.sortKey === key && this.sortOrder === "asc",
+        desc: this.sortKey === key && this.sortOrder === "desc",
+      };
     },
   },
 };
@@ -125,6 +183,18 @@ export default {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.trace-summary b {
+  cursor: pointer;
+  user-select: none;
+}
+.trace-summary b.asc::after {
+  content: " ▲";
+  font-size: 0.8em;
+}
+.trace-summary b.desc::after {
+  content: " ▼";
+  font-size: 0.8em;
 }
 </style>
 

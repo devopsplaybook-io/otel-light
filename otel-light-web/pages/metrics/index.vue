@@ -22,7 +22,7 @@ import { find, sortBy } from "lodash";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
-import { handleError } from "~~/services/EventBus";
+import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
@@ -100,6 +100,12 @@ export default {
         .get(url, await AuthService.getAuthHeader())
         .then((response) => {
           this.metrics = this.processMetrics(response.data.metrics);
+          if (response.data.warning) {
+            EventBus.emit(EventTypes.ALERT_MESSAGE, {
+              type: "warning",
+              text: response.data.warning,
+            });
+          }
         })
         .catch(handleError)
         .finally(() => {
