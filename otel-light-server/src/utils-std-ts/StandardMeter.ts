@@ -1,5 +1,4 @@
 import { Counter, Histogram, ObservableGauge } from "@opentelemetry/api";
-import { W3CTraceContextPropagator } from "@opentelemetry/core";
 import { OTLPMetricExporter } from "@opentelemetry/exporter-metrics-otlp-http";
 import { resourceFromAttributes } from "@opentelemetry/resources";
 import {

@@ -43,11 +43,9 @@ async function MaintenancePerform() {
     const settings = new Settings(rawSettings[0]);
     for (const deleteRule of settings.content.deleteRules || []) {
       let tableName;
-      let timeColumn = "time";
       switch (deleteRule.signalType) {
         case "traces":
           tableName = "traces";
-          timeColumn = "startTime";
           break;
         case "metrics":
           tableName = "metrics";
@@ -63,19 +61,45 @@ async function MaintenancePerform() {
       if (!deleteRule.pattern) continue;
       const retentionMs = deleteRule.periodHours * 60 * 60 * 1000;
       const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
-      const nbRows = await SqlDbUtilsExecSQL(
-        span,
-        `DELETE FROM ${tableName} WHERE ${timeColumn} < ? AND keywords LIKE ?`,
-        [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
-      );
+      let nbRows = 0;
+      if (deleteRule.signalType === "traces") {
+        nbRows += await SqlDbUtilsExecSQL(
+          span,
+          `DELETE FROM traces WHERE traceId IN (SELECT traceId FROM traces WHERE startTime < ? AND keywords LIKE ?)`,
+          [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
+        );
+        nbRows += await SqlDbUtilsExecSQL(
+          span,
+          `DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?`,
+          [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
+        );
+      } else {
+        nbRows += await SqlDbUtilsExecSQL(
+          span,
+          `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?`,
+          [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
+        );
+      }
       logger.info(
         `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern}) deleted ${nbRows} rows`
       );
     }
+
+    const deleteTimestamp = (Date.now() - 60 * 60 * 1000) * 1_000_000;
+    const ndOrphanTraces = await SqlDbUtilsExecSQL(
+      span,
+      "DELETE FROM traces  WHERE traceId " +
+        " IN ( SELECT traceId FROM traces GROUP BY traceId " +
+        "  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0 " +
+        "         AND MAX(startTime) < ? )",
+      [deleteTimestamp]
+    );
+    logger.info(`Traces: Deleted ${ndOrphanTraces} orphan traces`);
   } catch (err) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     logger.error("Error during maintenance tasks: " + err.message);
   }
+
   span.end();
 
   setTimeout(() => {
