@@ -34,7 +34,7 @@ export class AnalyticsLogsRoutes {
       }
 
       const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
-        "SELECT * FROM logs " + sqlWhere,
+        "SELECT * FROM logs " + sqlWhere+" ORDER BY time DESC",
         sqlParams
       );
       const logs = [];
