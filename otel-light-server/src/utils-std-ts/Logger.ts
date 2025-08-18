@@ -31,7 +31,7 @@ export function LoggerInit(context: Span, config: Config) {
         new BatchLogRecordProcessor(exporter, {
           maxQueueSize: 100,
           scheduledDelayMillis:
-            config.OPENTELEMETRY_COLLECTOR_EXPORT_INTERVAL_SECONDS,
+            config.OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS * 1000,
         }),
       ],
       resource: resourceFromAttributes({

@@ -38,7 +38,9 @@ export function StandardMeterInitTelemetry(initConfig: Config) {
       readers: [
         new PeriodicExportingMetricReader({
           exporter: metricExporter,
-          exportIntervalMillis: 60 * 1000,
+          exportIntervalMillis:
+            config.OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS *
+            1000,
         }),
       ],
     });
