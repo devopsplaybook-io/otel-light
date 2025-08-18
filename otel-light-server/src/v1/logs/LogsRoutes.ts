@@ -24,6 +24,9 @@ export class LogsRoutes {
               find(logRecord.attributes, { key: "service.version" })?.value
                 ?.stringValue || serviceVersion;
             const keywords = `${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
+            if (!logRecord.body.stringValue) {
+              console.log(logRecord.body);
+            }
             await SqlDbUtilsNoTelemetryExecSQL(
               "INSERT INTO logs (serviceName, serviceVersion, time, severity, logText, atttributes, keywords) " +
                 " VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -32,7 +35,7 @@ export class LogsRoutes {
                 serviceVersion,
                 logRecord.timeUnixNano,
                 logRecord.severityText,
-                logRecord.body.stringValue,
+                logRecord.body.stringValue || "",
                 JSON.stringify(logRecord.attributes),
                 keywords.toLowerCase(),
               ]
