@@ -33,7 +33,6 @@ export default {
     };
   },
   async created() {
-    console.log(this.trace);
     this.durationText = getDurationText(
       this.trace.endTime - this.trace.startTime
     );
