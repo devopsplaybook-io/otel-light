@@ -1,5 +1,10 @@
 import { FastifyInstance } from "fastify";
-import { SemanticAttributes } from "@opentelemetry/semantic-conventions";
+import {
+  ATTR_HTTP_REQUEST_METHOD,
+  ATTR_HTTP_RESPONSE_STATUS_CODE,
+  ATTR_URL_PATH,
+  SemanticAttributes,
+} from "@opentelemetry/semantic-conventions";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { Config } from "./Config";
 import { Span } from "@opentelemetry/sdk-trace-base";
@@ -34,8 +39,8 @@ export async function StandardTracerApiRegisterHooks(
     );
     api.context.with(callerContext, () => {
       const span = StandardTracerStartSpan(spanName);
-      span.setAttribute(SemanticAttributes.HTTP_METHOD, req.method);
-      span.setAttribute(SemanticAttributes.HTTP_URL, urlName);
+      span.setAttribute(ATTR_HTTP_REQUEST_METHOD, req.method);
+      span.setAttribute(ATTR_URL_PATH, urlName);
       /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
       (req as any).tracerSpanApi = span;
     });
@@ -49,7 +54,7 @@ export async function StandardTracerApiRegisterHooks(
     } else {
       span.status.code = SpanStatusCode.OK;
     }
-    span.setAttribute(SemanticAttributes.HTTP_STATUS_CODE, reply.statusCode);
+    span.setAttribute(ATTR_HTTP_RESPONSE_STATUS_CODE, reply.statusCode);
     span.end();
   });
 

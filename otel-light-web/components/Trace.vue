@@ -1,7 +1,7 @@
 <template>
   <div
     class="trace-summary"
-    :class="{ 'trace-summary-errors': trace.statusCodeSum > 0 }"
+    :class="{ 'trace-summary-errors': trace.nbErrors > 0 }"
   >
     <span
       >{{ trace.serviceName
@@ -10,7 +10,7 @@
     <span>{{ new Date(trace.startTime / 1_000_000).toLocaleString() }}</span>
     <span>{{ durationText }}</span>
     <span>{{ trace.traceId }}</span>
-    <span>{{ trace.statusCodeSum > 0 ? "Yes" : "No" }}</span>
+    <span>{{ trace.nbErrors }}</span>
     <span
       >{{ trace.spanCount }} span{{ trace.spanCount === 1 ? "" : "s" }}</span
     >
@@ -43,6 +43,6 @@ export default {
 
 <style scoped>
 .trace-summary-errors {
-  background-color: #d9352622;
+  background-color: #ff950033;
 }
 </style>

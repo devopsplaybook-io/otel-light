@@ -29,6 +29,13 @@ spec:
             - mountPath: /data
               name: pod-volume
           imagePullPolicy: Always
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
       volumes:
         - name: pod-volume
           persistentVolumeClaim:

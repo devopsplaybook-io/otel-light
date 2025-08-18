@@ -4,6 +4,7 @@ import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
 import { AnalyticsUtilsGetDefaultFromTime } from "./AnalyticsUtils";
+import { SpanStatusCode } from "@opentelemetry/api";
 
 export class AnalyticsTracesRoutes {
   //
@@ -20,7 +21,8 @@ export class AnalyticsTracesRoutes {
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
       }
-      const sqlParams = [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sqlParams: any[] = [SpanStatusCode.ERROR];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere = " WHERE rootSpan.startTime >= ? ";
       sqlParams.push(fromTime);
@@ -43,7 +45,7 @@ export class AnalyticsTracesRoutes {
           "rootSpan.name AS name, " +
           "rootSpan.serviceName AS serviceName, " +
           "rootSpan.serviceVersion AS serviceVersion, " +
-          "SUM(t.statusCode) AS statusCodeSum " +
+          "COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors " +
           "FROM traces t " +
           "LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL " +
           sqlWhere +
