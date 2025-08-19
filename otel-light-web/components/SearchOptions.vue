@@ -39,10 +39,10 @@ export default {
   data() {
     return {
       keywords: "",
-      from: 10 * 60, // 10 min ago (in seconds)
+      from: 30 * 60, // 10 min ago (in seconds)
       to: 0, // now (0 seconds ago)
       timeOptions: [
-        { label: "1 min ago", value: 1 * 60 },
+        { label: "now", value: 0 },
         { label: "5 min ago", value: 5 * 60 },
         { label: "10 min ago", value: 10 * 60 },
         { label: "30 min ago", value: 30 * 60 },

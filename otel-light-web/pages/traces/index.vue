@@ -12,7 +12,9 @@
           >Duration</b
         >
         <b @click="sortBy('traceId')" :class="headerClass('traceId')">ID</b>
-        <b @click="sortBy('errors')" :class="headerClass('errors')">Errors</b>
+        <b @click="sortBy('nbErrors')" :class="headerClass('nbErrors')"
+          >Errors</b
+        >
         <b @click="sortBy('spans')" :class="headerClass('spans')">Spans</b>
       </div>
       <div v-for="trace of sortedTraces" :key="trace.traceId">
@@ -85,7 +87,7 @@ export default {
         time: "startTime",
         duration: "duration",
         traceId: "traceId",
-        errors: "errors",
+        nbErrors: "nbErrors",
         spans: "spans",
       };
       const key = keyMap[this.sortKey] || this.sortKey;
@@ -142,6 +144,9 @@ export default {
         .get(url, await AuthService.getAuthHeader())
         .then((response) => {
           this.traces = response.data.traces;
+          for (const trace of this.traces) {
+            trace.duration = trace.endTime - trace.startTime;
+          }
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
               type: "warning",
