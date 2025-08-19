@@ -5,6 +5,7 @@ import { Metric } from "../model/Metric";
 import {
   AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
+  AnalyticsUtilsCompressJson,
 } from "./AnalyticsUtils";
 
 export class AnalyticsMetricsRoutes {
@@ -45,7 +46,10 @@ export class AnalyticsMetricsRoutes {
         metrics.push(new Metric(rawMetric));
       });
 
-      const response = { metrics };
+      const response = {
+        metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
+        compressed: true,
+      };
       if (rawMetrics.length >= AnalyticsUtilsResultLimit) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (response as any).warning = "To much data. Results are truncated";

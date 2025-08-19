@@ -38,6 +38,7 @@
 <script>
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
+import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
@@ -142,8 +143,8 @@ export default {
       }`;
       axios
         .get(url, await AuthService.getAuthHeader())
-        .then((response) => {
-          this.traces = response.data.traces;
+        .then(async (response) => {
+          this.traces = await UtilsDecompressJson(response.data.traces);
           for (const trace of this.traces) {
             trace.duration = trace.endTime - trace.startTime;
           }

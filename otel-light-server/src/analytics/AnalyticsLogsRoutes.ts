@@ -5,6 +5,7 @@ import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelem
 import {
   AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
+  AnalyticsUtilsCompressJson,
 } from "./AnalyticsUtils";
 
 export class AnalyticsLogsRoutes {
@@ -45,7 +46,10 @@ export class AnalyticsLogsRoutes {
         logs.push(new Log(rawLog));
       });
 
-      const response = { logs };
+      const response = {
+        logs: await AnalyticsUtilsCompressJson(logs, "gzip"),
+        compressed: true,
+      };
       if (rawLogs.length >= AnalyticsUtilsResultLimit) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (response as any).warning = "To much data. Results are truncated";

@@ -107,4 +107,13 @@ export default {
 .menu-links .active {
   color: #3cabff;
 }
+.menu-links {
+  font-weight: bold;
+}
+:root[data-theme="light"] .menu-links .inactive {
+  opacity: 0.8;
+}
+:root[data-theme="light"] .menu-links .active {
+  color: #033452;
+}
 </style>

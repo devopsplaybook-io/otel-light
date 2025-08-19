@@ -18,6 +18,7 @@
 <script>
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
+import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
@@ -67,8 +68,8 @@ export default {
       }`;
       axios
         .get(url, await AuthService.getAuthHeader())
-        .then((response) => {
-          this.logs = response.data.logs;
+        .then(async (response) => {
+          this.logs = await UtilsDecompressJson(response.data.logs);
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
               type: "warning",

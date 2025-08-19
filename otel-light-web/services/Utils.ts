@@ -35,7 +35,9 @@ export function UtilsRelativeTime(date: string) {
   }
 }
 
-export async function UtilsDecompressData(compressedData: string) {
+export async function UtilsDecompressData(
+  compressedData: string
+): Promise<string> {
   const binaryString = atob(compressedData);
   const byteArray = new Uint8Array(binaryString.length);
   for (let i = 0; i < binaryString.length; i++) {
@@ -65,4 +67,10 @@ export function getDurationText(durationNs: number): string {
   } else {
     return `${(durationNs / 1_000_000_000).toFixed(2)} s`;
   }
+}
+
+export async function UtilsDecompressJson(
+  compressedData: string
+): Promise<any> {
+  return JSON.parse(await UtilsDecompressData(compressedData));
 }

@@ -5,6 +5,7 @@ import { Span } from "../model/Span";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
+  AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
@@ -61,7 +62,10 @@ export class AnalyticsTracesRoutes {
         traces.push(new Trace(rawTrace));
       });
 
-      const response = { traces };
+      const response = {
+        traces: await AnalyticsUtilsCompressJson(traces, "gzip"),
+        compressed: true,
+      };
       if (rawTraces.length >= AnalyticsUtilsResultLimit) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (response as any).warning = "To much data. Results are truncated";

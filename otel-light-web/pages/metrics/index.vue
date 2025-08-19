@@ -20,6 +20,7 @@
 import axios from "axios";
 import { find, sortBy } from "lodash";
 import SearchOptions from "~/components/SearchOptions.vue";
+import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
@@ -98,8 +99,10 @@ export default {
       }`;
       axios
         .get(url, await AuthService.getAuthHeader())
-        .then((response) => {
-          this.metrics = this.processMetrics(response.data.metrics);
+        .then(async (response) => {
+          this.metrics = this.processMetrics(
+            await UtilsDecompressJson(response.data.metrics)
+          );
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
               type: "warning",
@@ -131,5 +134,16 @@ export default {
 
 header kbd {
   font-size: 0.7em;
+}
+</style>
+
+<style>
+:root[data-theme="dark"] .apexcharts-xaxis text,
+:root[data-theme="dark"] .apexcharts-yaxis text {
+  fill: #eee !important;
+}
+:root[data-theme="light"] .apexcharts-xaxis text,
+:root[data-theme="light"] .apexcharts-yaxis text {
+  fill: #333 !important;
 }
 </style>
