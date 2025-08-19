@@ -5,7 +5,6 @@ import {
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
-
 export class LogsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -24,9 +23,15 @@ export class LogsRoutes {
               find(logRecord.attributes, { key: "service.version" })?.value
                 ?.stringValue || serviceVersion;
             const keywords = `${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
-            let logText = logRecord.body.stringValue || "";
-            if (!logRecord.body.stringValue) {
-              console.log(JSON.stringify(logRecord.body));
+            let logText = "";
+            if (logRecord.body.stringValue) {
+              logText = logRecord.body.stringValue || "";
+            } else if (logRecord.body.kvlistValue) {
+              logText =
+                "Key Values: \n" +
+                JSON.stringify(logRecord.body.kvlistValue.values, null, 2);
+            } else {
+              console.log("Unknown Log Body" + JSON.stringify(logRecord.body));
               logText = "Log Object: \n" + JSON.stringify(logRecord.body);
             }
             await SqlDbUtilsNoTelemetryExecSQL(
