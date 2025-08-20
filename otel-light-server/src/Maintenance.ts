@@ -100,11 +100,13 @@ async function MaintenancePerform(): Promise<void> {
   }
 
   await MaintenanceMetricsCompress(
+    span,
     (Date.now() - config.METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS * 3_600_000) *
       1_000_000,
     60 * 1_000_000_000
   );
   await MaintenanceMetricsCompress(
+    span,
     (Date.now() -
       config.METRICS_COMPRESS_HOUR_THRESHOLD_DAYS * 24 * 3_600_000) *
       1_000_000,
@@ -123,10 +125,11 @@ async function MaintenancePerform(): Promise<void> {
 // Private Function
 
 async function MaintenanceMetricsCompress(
+  context: Span,
   timeLimit: number,
   timeGroup: number
 ) {
-  const span = StandardTracerStartSpan("MaintenanceMetricsCompress");
+  const span = StandardTracerStartSpan("MaintenanceMetricsCompress", context);
   try {
     logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
     const deletedRows = await SqlDbUtilsExecSQL(
