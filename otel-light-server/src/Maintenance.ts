@@ -132,14 +132,16 @@ async function MaintenanceMetricsCompress(
     const deletedRows = await SqlDbUtilsExecSQL(
       span,
       `DELETE FROM metrics 
-       WHERE rowid NOT IN (
+       WHERE time < ? AND rowid NOT IN (
          SELECT MAX(rowid) 
          FROM metrics 
          WHERE time < ?
          GROUP BY 
+           serviceName,
+           serviceVersion,
            (time / ?)
        )`,
-      [timeLimit, timeGroup]
+      [timeLimit, timeLimit, timeGroup]
     );
     logger.info(`Compression: Deleted ${deletedRows} duplicate metric entries`);
   } catch (err) {
