@@ -1,11 +1,11 @@
 import { FastifyInstance } from "fastify";
+import { Metric } from "../model/Metric";
 import { AuthGetUserSession } from "../users/Auth";
 import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
-import { Metric } from "../model/Metric";
 import {
-  AnalyticsUtilsResultLimit,
-  AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsGetDefaultFromTime,
+  AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
 
 export class AnalyticsMetricsRoutes {
@@ -38,7 +38,7 @@ export class AnalyticsMetricsRoutes {
       }
 
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT * FROM metrics ${sqlWhere} LIMIT ${AnalyticsUtilsResultLimit}`,
+        `SELECT * FROM metrics ${sqlWhere} LIMIT ${AnalyticsUtilsResultLimitMetrics}`,
         sqlParams
       );
       const metrics = [];
@@ -50,7 +50,7 @@ export class AnalyticsMetricsRoutes {
         metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
         compressed: true,
       };
-      if (rawMetrics.length >= AnalyticsUtilsResultLimit) {
+      if (rawMetrics.length >= AnalyticsUtilsResultLimitMetrics) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (response as any).warning = "To much data. Results are truncated";
       }
