@@ -134,12 +134,13 @@ async function MaintenanceMetricsCompress(
     logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
     const deletedRows = await SqlDbUtilsExecSQL(
       span,
-      `DELETE FROM metrics 
+      `DELETE FROM metrics
        WHERE time < ? AND rowid NOT IN (
-         SELECT MAX(rowid) 
-         FROM metrics 
+         SELECT MAX(rowid)
+         FROM metrics
          WHERE time < ?
-         GROUP BY 
+         GROUP BY
+           name,
            serviceName,
            serviceVersion,
            (time / ?)
