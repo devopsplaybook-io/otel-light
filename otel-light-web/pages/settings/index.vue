@@ -8,7 +8,7 @@
         class="delete-rule-row"
       >
         <select v-model="rule.signalType">
-          <option disabled value="">Signal Type</option>
+          <option disabled value="">Type</option>
           <option value="traces">Trace</option>
           <option value="metrics">Metric</option>
           <option value="logs">Log</option>
@@ -148,6 +148,18 @@ export default {
 
 #settings button {
   margin-right: 0.5rem;
+}
+
+#settings input,
+#settings select,
+#settings option {
+  font-size: 0.8rem;
+}
+#settings input {
+  padding: 0.5rem 0.5rem;
+}
+#settings select {
+  padding: 0.5rem 1.3rem 0.5rem 0.5rem;
 }
 
 .log-expanded {

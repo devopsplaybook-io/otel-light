@@ -1,7 +1,6 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "./Config";
 import { Logger } from "./utils-std-ts/Logger";
-import { SqlDbUtilsNoTelemetryExecSQL } from "./utils-std-ts/SqlDbUtilsNoTelemetry";
 import { StandardTracerStartSpan } from "./utils-std-ts/StandardTracer";
 import {
   SqlDbUtilsExecSQL,
@@ -25,7 +24,7 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
 
 // Private Functions
 
-async function MaintenancePerform() {
+async function MaintenancePerform(): Promise<void> {
   const span = StandardTracerStartSpan("MaintenancePerform");
   try {
     logger.info("Performing maintenance tasks");
@@ -100,6 +99,18 @@ async function MaintenancePerform() {
     logger.error("Error during maintenance tasks: " + err.message);
   }
 
+  await MaintenanceMetricsCompress(
+    (Date.now() - config.METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS * 3_600_000) *
+      1_000_000,
+    60 * 1_000_000_000
+  );
+  await MaintenanceMetricsCompress(
+    (Date.now() -
+      config.METRICS_COMPRESS_HOUR_THRESHOLD_DAYS * 24 * 3_600_000) *
+      1_000_000,
+    3600 * 1_000_000_000
+  );
+
   span.end();
 
   setTimeout(() => {
@@ -107,4 +118,33 @@ async function MaintenancePerform() {
       logger.error("Error during maintenance tasks: " + err.message);
     });
   }, 6 * 3600 * 1000);
+}
+
+// Private Function
+
+async function MaintenanceMetricsCompress(
+  timeLimit: number,
+  timeGroup: number
+) {
+  const span = StandardTracerStartSpan("MaintenanceMetricsCompress");
+  try {
+    logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
+    const deletedRows = await SqlDbUtilsExecSQL(
+      span,
+      `DELETE FROM metrics 
+       WHERE rowid NOT IN (
+         SELECT MAX(rowid) 
+         FROM metrics 
+         WHERE time < ?
+         GROUP BY 
+           (time / ?)
+       )`,
+      [timeLimit, timeGroup]
+    );
+    logger.info(`Compression: Deleted ${deletedRows} duplicate metric entries`);
+  } catch (err) {
+    span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+    logger.error("Error during compression: " + err.message);
+  }
+  span.end();
 }

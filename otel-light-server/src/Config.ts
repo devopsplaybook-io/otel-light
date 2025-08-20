@@ -27,6 +27,9 @@ export class Config implements ConfigInterface {
   public OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS = 60;
   public OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS = 60;
 
+  public METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS = 6;
+  public METRICS_COMPRESS_HOUR_THRESHOLD_DAYS = 7;
+
   public async reload(): Promise<void> {
     const content = await fse.readJson(this.CONFIG_FILE);
     const setIfSet = (field: string, displayLog = true) => {
@@ -52,5 +55,7 @@ export class Config implements ConfigInterface {
     setIfSet("OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS");
     setIfSet("OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS");
     setIfSet("OPENTELEMETRY_COLLECTOR_AWS");
+    setIfSet("METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS");
+    setIfSet("METRICS_COMPRESS_HOUR_THRESHOLD_DAYS");
   }
 }
