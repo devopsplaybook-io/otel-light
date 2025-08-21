@@ -24,15 +24,12 @@ import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
-import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
   components: { SearchOptions },
   data() {
     return {
       metrics: [],
-      refreshIntervalId: null,
-      refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
       filter: {
         queryString: "",
@@ -44,20 +41,7 @@ export default {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
-    this.refreshIntervalValue = RefreshIntervalService.get();
-  },
-  mounted() {
-    const interval = parseInt(this.refreshIntervalValue, 10);
-    if (interval > 0) {
-      this.refreshIntervalId = setInterval(() => {
-        this.fetchMetrics();
-      }, interval);
-    }
-  },
-  beforeUnmount() {
-    if (this.refreshIntervalId) {
-      clearInterval(this.refreshIntervalId);
-    }
+    this.fetchMetrics();
   },
   methods: {
     processMetrics(metrics) {

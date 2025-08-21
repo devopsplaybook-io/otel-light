@@ -41,7 +41,9 @@
       <h1>Preferences</h1>
       <h3>Refresh</h3>
       <div>
-        <label for="refresh-interval">Auto-refresh interval:</label>
+        <label for="refresh-interval"
+          >Auto-refresh interval (Traces and Logs):</label
+        >
         <select
           id="refresh-interval"
           v-model="refreshInterval"
