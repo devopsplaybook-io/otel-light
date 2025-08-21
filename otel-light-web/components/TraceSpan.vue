@@ -174,9 +174,9 @@ export default {
 
 .span-bar-container {
   position: relative;
-  width: 94%;
   margin-bottom: 0.5rem;
-  margin-left: 3%;
+  margin-left: 1rem;
+  margin-right: 1rem;
   overflow: visible;
 }
 .span-bar-container,
@@ -212,13 +212,5 @@ export default {
   opacity: 0.5;
   border-left: 1px dashed red;
   width: 2px;
-}
-
-.span-bar-container {
-  position: relative;
-  width: 94%;
-  margin-bottom: 0.5rem;
-  margin-left: 3%;
-  overflow: visible;
 }
 </style>
