@@ -1,7 +1,7 @@
 <template>
   <div class="trace-span-list">
     <div
-      v-for="span of sortedTraceSpans"
+      v-for="(span, index) of sortedTraceSpans"
       :key="span.spanId"
       class="span-bar-container"
       :class="{
@@ -9,10 +9,14 @@
           span.rawSpan && span.rawSpan.status && span.rawSpan.status.code !== 0,
       }"
     >
+      <div
+        v-if="span.parentSpanId && findParentIndex(span) !== -1"
+        class="span-connector"
+        :style="getConnectorStyle(span, index)"
+      ></div>
       <div class="span-name">
         {{ span.name }}
         <small>({{ span.durationText }})</small>
-        <!-- Show button if events exist -->
         <i
           v-if="
             span.rawSpan &&
@@ -101,19 +105,22 @@ export default {
   computed: {
     sortedTraceSpans() {
       if (!this.traceSpans || !Array.isArray(this.traceSpans)) return [];
-      // Clone to avoid mutating original
+      const minTime = Math.min(
+        ...this.traceSpans.map((span) => span.startTime)
+      );
+      const maxTime = Math.max(...this.traceSpans.map((span) => span.endTime));
       const spans = this.traceSpans.map((span) => ({ ...span }));
       spans.forEach((span) => {
         span.startPercent = (
-          (100 * (span.startTime - this.trace.startTime)) /
-          (this.trace.endTime - this.trace.startTime)
+          (100 * (span.startTime - minTime)) /
+          (maxTime - minTime)
         ).toFixed(0);
         span.endPercent = (
-          (100 * (span.endTime - this.trace.startTime)) /
-          (this.trace.endTime - this.trace.startTime)
+          (100 * (span.endTime - minTime)) /
+          (maxTime - minTime)
         ).toFixed(0);
         if (span.endPercent === span.startPercent) {
-          span.endPercent = span.endPercent + 1;
+          span.endPercent = Number(span.endPercent) + 0.5;
         }
         span.durationText = getDurationText(span.endTime - span.startTime);
       });
@@ -121,6 +128,24 @@ export default {
     },
   },
   methods: {
+    findParentIndex(span) {
+      if (!span.parentSpanId) return -1;
+      return this.sortedTraceSpans.findIndex(
+        (s) => s.spanId === span.parentSpanId
+      );
+    },
+    getConnectorStyle(span, currentIndex) {
+      const parentIndex = this.findParentIndex(span);
+      if (parentIndex === -1) return {};
+      const lineHeight = 1.5;
+      const marginBottom = 0.5;
+      const height = (currentIndex - parentIndex) * (lineHeight + marginBottom);
+      return {
+        left: `${span.startPercent}%`,
+        height: height + "rem",
+        top: -height + "rem",
+      };
+    },
     showEvents(events) {
       this.eventsDialogContent = events;
       this.$nextTick(() => {
@@ -150,9 +175,9 @@ export default {
 .span-bar-container {
   position: relative;
   width: 94%;
-  overflow: hidden;
   margin-bottom: 0.5rem;
   margin-left: 3%;
+  overflow: visible;
 }
 .span-bar-container,
 .span-name {
@@ -180,5 +205,20 @@ export default {
 .span-event-link {
   margin-left: 0.5em;
   cursor: pointer;
+}
+.span-connector {
+  position: absolute;
+  z-index: 0;
+  opacity: 0.5;
+  border-left: 1px dashed red;
+  width: 2px;
+}
+
+.span-bar-container {
+  position: relative;
+  width: 94%;
+  margin-bottom: 0.5rem;
+  margin-left: 3%;
+  overflow: visible;
 }
 </style>

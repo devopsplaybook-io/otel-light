@@ -15,7 +15,9 @@
         <b @click="sortBy('nbErrors')" :class="headerClass('nbErrors')"
           >Errors</b
         >
-        <b @click="sortBy('spans')" :class="headerClass('spans')">Spans</b>
+        <b @click="sortBy('spanCount')" :class="headerClass('spanCount')"
+          >Spans</b
+        >
       </div>
       <div v-for="trace of sortedTraces" :key="trace.traceId">
         <Trace
@@ -89,7 +91,7 @@ export default {
         duration: "duration",
         traceId: "traceId",
         nbErrors: "nbErrors",
-        spans: "spans",
+        spanCount: "spanCount",
       };
       const key = keyMap[this.sortKey] || this.sortKey;
       const order = this.sortOrder;
@@ -178,8 +180,11 @@ export default {
 </script>
 
 <style>
-.trace-summary {
+.trace-summary,
+.trace-span-expanded {
   min-width: 1200px;
+}
+.trace-summary {
   display: grid;
   grid-template-columns: 3fr 3fr 3fr 2fr 2fr 1fr 1fr;
   gap: 1rem;
