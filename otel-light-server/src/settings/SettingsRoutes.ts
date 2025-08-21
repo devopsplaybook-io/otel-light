@@ -44,7 +44,6 @@ export class SettingsRoutes {
         if (!userSession.isAuthenticated) {
           return res.status(403).send({ error: "Access Denied" });
         }
-        console.log(req.body);
         await SqlDbUtilsExecSQL(
           StandardTracerGetSpanFromRequest(req),
           "DELETE FROM settings WHERE category = ?",

@@ -35,6 +35,7 @@ export default {
         queryString: "",
       },
       loading: false,
+      fetchTime: null,
     };
   },
   async created() {
@@ -77,6 +78,8 @@ export default {
       this.fetchMetrics();
     },
     async fetchMetrics() {
+      const fetchTime = new Date();
+      this.fetchTime = fetchTime;
       this.loading = true;
       const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
         this.filter.queryString ? "?" + this.filter.queryString : ""
@@ -84,6 +87,9 @@ export default {
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
+          if (fetchTime < this.fetchTime) {
+            return;
+          }
           this.metrics = this.processMetrics(
             await UtilsDecompressJson(response.data.metrics)
           );

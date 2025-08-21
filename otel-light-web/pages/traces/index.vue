@@ -59,6 +59,7 @@ export default {
       },
       sortKey: "time",
       sortOrder: "desc",
+      fetchTime: null,
     };
   },
   async created() {
@@ -140,12 +141,17 @@ export default {
       }
     },
     async fetchTraces() {
+      const fetchTime = new Date();
+      this.fetchTime = fetchTime;
       const url = `${(await Config.get()).SERVER_URL}/analytics/traces${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
+          if (fetchTime < this.fetchTime) {
+            return;
+          }
           this.traces = await UtilsDecompressJson(response.data.traces);
           for (const trace of this.traces) {
             trace.duration = trace.endTime - trace.startTime;

@@ -30,5 +30,5 @@ export async function AnalyticsUtilsCompressJson(
   return compressedBuffer.toString("base64");
 }
 
-export const AnalyticsUtilsResultLimit = 2000;
+export const AnalyticsUtilsResultLimit = 1000;
 export const AnalyticsUtilsResultLimitMetrics = 10000;

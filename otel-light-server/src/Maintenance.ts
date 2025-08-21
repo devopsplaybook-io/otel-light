@@ -61,22 +61,29 @@ async function MaintenancePerform(): Promise<void> {
       const retentionMs = deleteRule.periodHours * 60 * 60 * 1000;
       const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
       let nbRows = 0;
+
+      const formatPattern = (patternIn) => {
+        return ("%" + patternIn + "%")
+          .toLowerCase()
+          .replace(/\*/g, "%")
+          .replace(/%+/g, "%");
+      };
       if (deleteRule.signalType === "traces") {
         nbRows += await SqlDbUtilsExecSQL(
           span,
-          `DELETE FROM traces WHERE traceId IN (SELECT traceId FROM traces WHERE startTime < ? AND keywords LIKE ?)`,
-          [deleteTimestamp, deleteRule.pattern.toLowerCase().replace("*", "%")]
+          `SELECT * FROM traces tp, traces tc  WHERE tp.traceId = tc.traceId AND tp.startTime < ? AND tp.keywords LIKE ?`,
+          [deleteTimestamp, formatPattern(deleteRule.pattern)]
         );
         nbRows += await SqlDbUtilsExecSQL(
           span,
           `DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?`,
-          [deleteTimestamp, deleteRule.pattern.toLowerCase().replace("*", "%")]
+          [deleteTimestamp, formatPattern(deleteRule.pattern)]
         );
       } else {
         nbRows += await SqlDbUtilsExecSQL(
           span,
           `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?`,
-          [deleteTimestamp, deleteRule.pattern.toLowerCase().replace("*", "%")]
+          [deleteTimestamp, formatPattern(deleteRule.pattern)]
         );
       }
       logger.info(

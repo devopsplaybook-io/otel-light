@@ -36,6 +36,7 @@ export default {
         queryString: "",
       },
       selectedLog: null,
+      fetchTime: null,
     };
   },
   async created() {
@@ -63,12 +64,17 @@ export default {
       this.fetchLogs();
     },
     async fetchLogs() {
+      const fetchTime = new Date();
+      this.fetchTime = fetchTime;
       const url = `${(await Config.get()).SERVER_URL}/analytics/logs${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
+          if (fetchTime < this.fetchTime) {
+            return;
+          }
           this.logs = await UtilsDecompressJson(response.data.logs);
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
