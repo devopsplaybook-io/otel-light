@@ -49,6 +49,27 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
     },
     { description: "Count of logs per services" }
   );
+  StandardMeterCreateObservableGauge(
+    "signals.totals",
+    (observableResult) => {
+      const totalTraces = signalData.traces.reduce(
+        (sum, service) => sum + (service.traces || 0),
+        0
+      );
+      observableResult.observe(totalTraces, { signal: "traces" });
+      const totalMetrics = signalData.metrics.reduce(
+        (sum, service) => sum + (service.metrics || 0),
+        0
+      );
+      observableResult.observe(totalMetrics, { signal: "metrics" });
+      const totalLogs = signalData.logs.reduce(
+        (sum, service) => sum + (service.logs || 0),
+        0
+      );
+      observableResult.observe(totalLogs, { signal: "logs" });
+    },
+    { description: "Total count of each signal type across all services" }
+  );
   SelfMetricsRefreshMetrics();
 
   span.end();
