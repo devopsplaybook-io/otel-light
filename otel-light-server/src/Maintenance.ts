@@ -65,18 +65,18 @@ async function MaintenancePerform(): Promise<void> {
         nbRows += await SqlDbUtilsExecSQL(
           span,
           `DELETE FROM traces WHERE traceId IN (SELECT traceId FROM traces WHERE startTime < ? AND keywords LIKE ?)`,
-          [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
+          [deleteTimestamp, deleteRule.pattern.toLowerCase().replace("*", "%")]
         );
         nbRows += await SqlDbUtilsExecSQL(
           span,
           `DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?`,
-          [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
+          [deleteTimestamp, deleteRule.pattern.toLowerCase().replace("*", "%")]
         );
       } else {
         nbRows += await SqlDbUtilsExecSQL(
           span,
           `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?`,
-          [deleteTimestamp, deleteRule.pattern.replace("*", "%")]
+          [deleteTimestamp, deleteRule.pattern.toLowerCase().replace("*", "%")]
         );
       }
       logger.info(
