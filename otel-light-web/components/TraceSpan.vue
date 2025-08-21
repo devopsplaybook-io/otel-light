@@ -42,7 +42,7 @@
         <section>
           <p>Events for Span:</p>
           <pre v-for="(event, index) in eventsDialogContent" :key="index">{{
-            event.name
+            getSpanEventText(event)
           }}</pre>
         </section>
         <footer>
@@ -160,6 +160,13 @@ export default {
       }
       this.eventsDialogContent = [];
     },
+    getSpanEventText(event) {
+      let text = event.name + "\n";
+      for (const attribute of event.attributes) {
+        text += `  ${attribute.key}: ${attribute.value.stringValue}\n`;
+      }
+      return text;
+    },
   },
 };
 </script>
@@ -212,5 +219,12 @@ export default {
   opacity: 0.5;
   border-left: 1px dashed red;
   width: 2px;
+}
+
+.events-dialog pre {
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-width: 90vw;
+  overflow-wrap: anywhere;
 }
 </style>
