@@ -52,7 +52,7 @@ export class AnalyticsLogsRoutes {
       };
       if (rawLogs.length >= AnalyticsUtilsResultLimit) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (response as any).warning = "To much data. Results are truncated";
+        (response as any).warning = "Too much data. Results are truncated";
       }
       return res.status(200).send(response);
     });
