@@ -3,7 +3,6 @@ import {
   ATTR_HTTP_REQUEST_METHOD,
   ATTR_HTTP_RESPONSE_STATUS_CODE,
   ATTR_URL_PATH,
-  SemanticAttributes,
 } from "@opentelemetry/semantic-conventions";
 import { SpanStatusCode } from "@opentelemetry/api";
 import { Config } from "./Config";

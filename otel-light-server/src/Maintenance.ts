@@ -61,7 +61,6 @@ async function MaintenancePerform(): Promise<void> {
       const retentionMs = deleteRule.periodHours * 60 * 60 * 1000;
       const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
       let nbRows = 0;
-
       const formatPattern = (patternIn) => {
         return ("%" + patternIn + "%")
           .toLowerCase()

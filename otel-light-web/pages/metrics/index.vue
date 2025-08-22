@@ -11,6 +11,11 @@
           {{ metric.name }}
         </header>
         <MetricDataGauge v-if="metric.type == 'gauge'" :metric="metric" />
+        <MetricDataHistogram
+          v-if="metric.type == 'histogram'"
+          :metric="metric"
+        />
+        <MetricDataSum v-if="metric.type == 'sum'" :metric="metric" />
       </article>
     </div>
   </div>
@@ -20,13 +25,15 @@
 import axios from "axios";
 import { find, sortBy } from "lodash";
 import SearchOptions from "~/components/SearchOptions.vue";
+import MetricDataHistogram from "~/components/MetricDataHistogram.vue";
+import MetricDataSum from "~/components/MetricDataSum.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 
 export default {
-  components: { SearchOptions },
+  components: { SearchOptions, MetricDataHistogram, MetricDataSum },
   data() {
     return {
       metrics: [],

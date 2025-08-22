@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { find } from "lodash";
 import { SqlDbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/SqlDbUtilsNoTelemetry";
 import {
+  SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
@@ -12,6 +13,9 @@ export class LogsRoutes {
     fastify.post("/", async (req, res) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (req.body as any).resourceLogs.forEach((resourceLog) => {
+        if (!SignalUtilsCheckAuthHeader(req)) {
+          return res.status(401).send({});
+        }
         let serviceName = SignalUtilsGetServiceName(resourceLog.resource);
         let serviceVersion = SignalUtilsGetServiceVersion(resourceLog.resource);
         resourceLog.scopeLogs.forEach((scopeLog) => {

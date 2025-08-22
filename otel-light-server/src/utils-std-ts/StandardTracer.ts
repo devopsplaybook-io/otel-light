@@ -39,9 +39,15 @@ export function StandardTracerInitTelemetry(initConfig: Config) {
   const spanProcessors = [];
 
   if (config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES) {
+    const exporterHeaders: Record<string, string> = {};
+    if (config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
+      exporterHeaders[
+        "Authorization"
+      ] = `Bearer ${config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER}`;
+    }
     const exporter = new OTLPTraceExporter({
       url: config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES,
-      headers: {},
+      headers: exporterHeaders,
     });
     spanProcessors.push(new BatchSpanProcessor(exporter));
   }
@@ -104,6 +110,10 @@ export function StandardTracerGetTracer(): any {
 export function StandardTracerAppendHeader(context: Span, headers = {}): any {
   if (!headers) {
     headers = {};
+  }
+  // Add Authorization header if present in config
+  if (config && config.OPENTELEMETRY_COLLECTOR_AUTHORIZATION) {
+    headers["Authorization"] = config.OPENTELEMETRY_COLLECTOR_AUTHORIZATION;
   }
   propagator.inject(
     trace.setSpanContext(ROOT_CONTEXT, context.spanContext()),

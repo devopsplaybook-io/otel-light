@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { find } from "lodash";
 import { SqlDbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/SqlDbUtilsNoTelemetry";
 import {
+  SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
@@ -11,6 +12,10 @@ export class TracesRoutes {
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
     fastify.post("/", async (req, res) => {
+      if (!SignalUtilsCheckAuthHeader(req)) {
+        console.log("wrong header");
+        return res.status(401).send({});
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (req.body as any).resourceSpans.forEach((resourceSpan) => {
         let serviceName = SignalUtilsGetServiceName(resourceSpan.resource);

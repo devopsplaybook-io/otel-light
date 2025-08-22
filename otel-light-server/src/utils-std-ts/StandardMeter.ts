@@ -28,6 +28,10 @@ export function StandardMeterInitTelemetry(initConfig: Config) {
       headers: {},
       concurrencyLimit: 1,
     };
+    if (config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
+      collectorOptions.headers["Authorization"] =
+        config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
+    }
     const metricExporter = new OTLPMetricExporter(collectorOptions);
     meterProvider = new MeterProvider({
       resource: resourceFromAttributes({
@@ -58,6 +62,11 @@ export function StandardMeterInitTelemetry(initConfig: Config) {
 export function StandardMeterCreateCounter(key: string): Counter {
   const meter = meterProvider.getMeter(METER_NAME);
   return meter.createCounter(`${config.SERVICE_ID}.${key}`);
+}
+
+export function StandardMeterCreateUpDownCounter(key: string): Counter {
+  const meter = meterProvider.getMeter(METER_NAME);
+  return meter.createUpDownCounter(`${config.SERVICE_ID}.${key}`);
 }
 
 export function StandardMeterCreateHistorgram(key: string): Histogram {

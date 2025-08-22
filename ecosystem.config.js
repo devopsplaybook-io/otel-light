@@ -22,6 +22,7 @@ module.exports = {
         OPENTELEMETRY_COLLECTOR_HTTP_METRICS:
           "http://localhost:9999/api/v1/metrics",
         OPENTELEMETRY_COLLECTOR_HTTP_LOGS: "http://localhost:9999/api/v1/logs",
+        OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "ABCD",
       },
     },
     {

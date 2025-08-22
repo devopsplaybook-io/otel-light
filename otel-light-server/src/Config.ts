@@ -28,6 +28,8 @@ export class Config implements ConfigInterface {
   public OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS = 60;
   public METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS = 12;
   public METRICS_COMPRESS_HOUR_THRESHOLD_DAYS = 7;
+  public OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER =
+    process.env.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER || "";
 
   public async reload(): Promise<void> {
     const content = await fse.readJson(this.CONFIG_FILE);

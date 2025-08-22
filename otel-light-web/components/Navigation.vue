@@ -86,7 +86,8 @@ export default {
   },
   methods: {
     routeUpdated(newRoute) {
-      this.activeRoute = newRoute.fullPath.split("?")[0];
+      const segments = newRoute.fullPath.split("?")[0].split("/");
+      this.activeRoute = segments.length > 1 ? `/${segments[1]}` : "/";
     },
   },
 };

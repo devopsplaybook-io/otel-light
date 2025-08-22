@@ -20,6 +20,7 @@ import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { StandardMeterInitTelemetry } from "./utils-std-ts/StandardMeter";
+import { SignalUtilsInit } from "./v1/SignalUtils";
 
 const logger = new Logger("app");
 
@@ -39,6 +40,7 @@ Promise.resolve().then(async () => {
 
   const span = StandardTracerStartSpan("init");
 
+  await SignalUtilsInit(span, config);
   await LoggerInit(span, config);
   await SqlDbUtilsInit(span, config);
   await AuthInit(span, config);

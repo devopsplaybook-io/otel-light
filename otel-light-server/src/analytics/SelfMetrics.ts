@@ -2,7 +2,12 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
 import { StandardTracerStartSpan } from "../utils-std-ts/StandardTracer";
 import { SqlDbUtilsQuerySQL } from "../utils-std-ts/SqlDbUtils";
-import { StandardMeterCreateObservableGauge } from "../utils-std-ts/StandardMeter";
+import {
+  StandardMeterCreateCounter,
+  StandardMeterCreateHistorgram,
+  StandardMeterCreateObservableGauge,
+  StandardMeterCreateUpDownCounter,
+} from "../utils-std-ts/StandardMeter";
 
 const signalData = {
   traces: [],
@@ -70,6 +75,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
     },
     { description: "Total count of each signal type across all services" }
   );
+
   SelfMetricsRefreshMetrics();
 
   span.end();
