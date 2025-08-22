@@ -1,103 +1,70 @@
-# otel-light
+# OTEL Light
 
-otel-light is a lightweight, easy-to-use OpenTelemetry (OTel) instrumentation library designed for rapid integration and minimal overhead. It provides essential observability features for your applications, enabling distributed tracing and metrics collection with minimal configuration.
+**OTEL Light** is a lightweight, easy-to-use [OpenTelemetry (OTel)](https://opentelemetry.io/) service designed for small and resource-constrained environments. This is ideal for development environments or home labs.
 
 ## Features
 
-- Minimal setup and configuration
-- Supports distributed tracing and metrics
-- Compatible with OpenTelemetry Collector and exporters
-- Lightweight and fast
-- Suitable for microservices and serverless environments
+- HTTP API for ingestion of Traces, Logs, and Metrics
+- User interface to visualize telemetry signals
+- Administration interface for login and maintenance rule management
+- All-in-one container deployment
+- Low memory footprint (<100MB)
+- Supports up to 1 million signals (Traces, Logs, Metrics)
 
-## Installation
+## Specification
 
-# Deployment
+- Deployed as a single container
+- Target memory usage: <100MB
+- Ingestion via HTTP API (use an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) for other protocols)
+- Storage optimized for fewer than 1 million signals
 
-FeedWatcher is designed to be deployed as a container.
+## Quick Start
 
-- The Docker image is: `didierhoarau/otel-light` [https://hub.docker.com/r/didierhoarau/otel-light](https://hub.docker.com/r/didierhoarau/otel-light)
-- This image exposes port `8080`
-- The volume is located at `/data`
+### Docker
 
-## Docker
-
-You can, for example, run the following command to run FeedWatcher in Docker:
+Run OTEL Light in Docker:
 
 ```bash
 mkdir -p data
-docker run --name otel-light -p 8080:8080 -v "$(pwd)/data:/data" -d didierhoarau/otel-light
+docker run --name otel-light -p 8080:8080 -v "$(pwd)/data:/data" -d devopsplaybookio/otel-light
 ```
 
-## Kubernetes
+- Docker image: [`devopsplaybookio/otel-light`](https://hub.docker.com/r/devopsplaybookio/otel-light)
+- Exposes port: `8080`
+- Data volume: `/data`
 
-The following manifest can be used to deploy in Kubernetes:
+### Kubernetes
 
-```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: otel-light
-  labels:
-    app: otel-light
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: otel-light
-  template:
-    metadata:
-      labels:
-        app: otel-light
-    spec:
-      containers:
-        - image: otel-light
-          name: otel-light
-          resources:
-            limits:
-              memory: 500Mi
-              cpu: 1
-            requests:
-              memory: 200Mi
-              cpu: 100m
-          volumeMounts:
-            - mountPath: /data
-              name: pod-volume
-          imagePullPolicy: Always
-          readinessProbe:
-            httpGet:
-              path: /api/status
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
-      volumes:
-        - name: pod-volume
-          persistentVolumeClaim:
-            claimName: otel-light
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: otel-light
-spec:
-  ports:
-    - name: tcp
-      port: 8080
-      targetPort: 8080
-  selector:
-    app: otel-light
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: otel-light
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
+Deploy OTEL Light on Kubernetes:
+
+```bash
+git clone https://github.com/DidierHoarau/otel-light
+cd otel-light/docs/deployments/kubernetes/otel-light
+kubectl kustomize . | kubectl apply -f -
 ```
 
-Check the [docs/deployments](docs/deployments) for more examples of deployments.
+> **Note:** To expose the service externally, use an Ingress or a NodePort service.
+
+## More Deployment Examples
+
+See [docs/deployments](docs/deployments) for additional deployment options.
+
+## Configuration
+
+Configuration can be provided via a JSON configuration file (e.g., using a ConfigMap) or environment variables.
+
+| Parameter                                               | Description                                      | Default | Availability                        |
+| ------------------------------------------------------- | ------------------------------------------------ | ------- | ----------------------------------- |
+| OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS    | Interval (in seconds) to export logs             | 60      | Config file                         |
+| OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics          | 60      | Config file                         |
+| METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed | 12      | Config file                         |
+| METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed    | 7       | Config file                         |
+| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTEL collection         | (empty) | Config file or environment variable |
+
+## Contributing
+
+Contributions are welcome! Please open issues or pull requests on [GitHub](https://github.com/DidierHoarau/otel-light).
+
+## License
+
+See [LICENSE](LICENSE) for details.

@@ -28,6 +28,9 @@ spec:
           volumeMounts:
             - mountPath: /data
               name: pod-volume
+            - name: config-volume
+              mountPath: /opt/app/otel-light/config.json
+              subPath: config.json
           imagePullPolicy: Always
           readinessProbe:
             httpGet:
@@ -40,3 +43,6 @@ spec:
         - name: pod-volume
           persistentVolumeClaim:
             claimName: otel-light
+        - name: config-volume
+          configMap:
+            name: otel-light-config

@@ -17,11 +17,14 @@ export class Config implements ConfigInterface {
   public JWT_KEY: string = uuidv4();
   public LOG_LEVEL = "info";
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES: string =
-    process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES || "";
+    process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES ||
+    "http://localhost:8080/api/v1/traces";
   public OPENTELEMETRY_COLLECTOR_HTTP_METRICS: string =
-    process.env.OPENTELEMETRY_COLLECTOR_HTTP_METRICS || "";
+    process.env.OPENTELEMETRY_COLLECTOR_HTTP_METRICS ||
+    "http://localhost:8080/api/v1/metrics";
   public OPENTELEMETRY_COLLECTOR_HTTP_LOGS: string =
-    process.env.OPENTELEMETRY_COLLECTOR_HTTP_LOGS || "";
+    process.env.OPENTELEMETRY_COLLECTOR_HTTP_LOGS ||
+    "http://localhost:8080/api/v1/logs";
   public OPENTELEMETRY_COLLECTOR_AWS =
     process.env.OPENTELEMETRY_COLLECTOR_AWS === "true";
   public OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS = 60;
@@ -58,5 +61,6 @@ export class Config implements ConfigInterface {
     setIfSet("OPENTELEMETRY_COLLECTOR_AWS");
     setIfSet("METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS");
     setIfSet("METRICS_COMPRESS_HOUR_THRESHOLD_DAYS");
+    setIfSet("OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER", false);
   }
 }

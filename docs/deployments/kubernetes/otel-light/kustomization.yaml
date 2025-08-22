@@ -6,7 +6,8 @@ resources:
   - base/pvc.yaml
   - base/deployment.yaml
   - base/service.yaml
+  - base/configmap.yaml
 images:
   - name: otel-light
     newTag: latest
-    newName: didierhoarau/otel-light
+    newName: devopsplaybookio/otel-light
