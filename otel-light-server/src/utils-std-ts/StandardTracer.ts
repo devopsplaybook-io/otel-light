@@ -77,21 +77,23 @@ export function StandardTracerGetSpanFromRequest(req: any): Span {
 }
 
 export function StandardTracerStartSpan(name, parentSpan?: Span): Span {
+  const sanitizedName = String(name).replace(/[^a-zA-Z0-9-_/]/g, "_");
   const tracer = StandardTracerGetTracer();
 
   if (parentSpan) {
     return tracer.startSpan(
-      name,
+      sanitizedName,
       undefined,
       opentelemetry.trace.setSpan(opentelemetry.context.active(), parentSpan)
     ) as Span;
   }
 
-  const span = tracer.startSpan(name) as Span;
+  const span = tracer.startSpan(sanitizedName) as Span;
+
   span.setAttribute(ATTR_HTTP_REQUEST_METHOD, `BACKEND`);
   span.setAttribute(
     ATTR_HTTP_ROUTE,
-    `${config.SERVICE_ID}-${config.VERSION}-${name}`
+    `${config.SERVICE_ID}-${config.VERSION}-${sanitizedName}`
   );
   return span;
 }
@@ -100,7 +102,7 @@ export function StandardTracerStartSpan(name, parentSpan?: Span): Span {
 export function StandardTracerGetTracer(): any {
   if (!tracerInstance) {
     tracerInstance = opentelemetry.trace.getTracer(
-      `${config.SERVICE_ID}-${config.VERSION}`
+      `${config.SERVICE_ID}:${config.VERSION}`
     );
   }
   return tracerInstance;
@@ -110,10 +112,6 @@ export function StandardTracerGetTracer(): any {
 export function StandardTracerAppendHeader(context: Span, headers = {}): any {
   if (!headers) {
     headers = {};
-  }
-  // Add Authorization header if present in config
-  if (config && config.OPENTELEMETRY_COLLECTOR_AUTHORIZATION) {
-    headers["Authorization"] = config.OPENTELEMETRY_COLLECTOR_AUTHORIZATION;
   }
   propagator.inject(
     trace.setSpanContext(ROOT_CONTEXT, context.spanContext()),

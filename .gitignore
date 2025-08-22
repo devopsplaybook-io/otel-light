@@ -8,3 +8,4 @@ node_modules/
 coverage
 /docs/dev/env.sh
 .vscode
+/env-dev.js

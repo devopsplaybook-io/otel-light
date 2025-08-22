@@ -86,9 +86,9 @@ export class Logger {
     this.display("error", message, SeverityNumber.ERROR);
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private display(
     level: string,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     message: any,
     severityNumber = SeverityNumber.INFO
   ): void {
