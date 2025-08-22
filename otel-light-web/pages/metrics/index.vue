@@ -139,8 +139,14 @@ header kbd {
 :root[data-theme="dark"] .apexcharts-yaxis text {
   fill: #eee !important;
 }
+:root[data-theme="dark"] .apexcharts-legend-text {
+  color: #eee !important;
+}
 :root[data-theme="light"] .apexcharts-xaxis text,
 :root[data-theme="light"] .apexcharts-yaxis text {
   fill: #333 !important;
+}
+:root[data-theme="light"] .apexcharts-legend-text {
+  color: #333 !important;
 }
 </style>
