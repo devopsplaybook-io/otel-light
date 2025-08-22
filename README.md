@@ -11,6 +11,12 @@
 - Low memory footprint (<100MB)
 - Supports up to 1 million signals (Traces, Logs, Metrics)
 
+![](docs/images/Traces.png?raw=true)
+
+![](docs/images/Metrics.png?raw=true)
+
+![](docs/images/Logs.png?raw=true)
+
 ## Specification
 
 - Deployed as a single container
@@ -47,7 +53,7 @@ kubectl kustomize . | kubectl apply -f -
 
 ## More Deployment Examples
 
-See [docs/deployments](docs/deployments) for additional deployment options.
+See [`docs/deployments`](docs/deployments) for additional deployment options.
 
 ## Configuration
 
@@ -61,10 +67,22 @@ Configuration can be provided via a JSON configuration file (e.g., using a Confi
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed    | 7       | Config file                         |
 | OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTEL collection         | (empty) | Config file or environment variable |
 
+## Client Application
+
+To send telemetry data, configure your application to send Traces, Metrics, and Logs to the following HTTP endpoints:
+
+- Traces: `http://<otel-light-url>/api/v1/traces`
+- Metrics: `http://<otel-light-url>/api/v1/metrics`
+- Logs: `http://<otel-light-url>/api/v1/logs`
+
+> **Tip:** Log collection can also be set up using an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/).
+
+If you have set the `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` parameter, you must set the HTTP `Authorization` header to:
+
+```
+Bearer <value of OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER>
+```
+
 ## Contributing
 
 Contributions are welcome! Please open issues or pull requests on [GitHub](https://github.com/DidierHoarau/otel-light).
-
-## License
-
-See [LICENSE](LICENSE) for details.
