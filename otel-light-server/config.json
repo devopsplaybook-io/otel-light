@@ -1,0 +1,8 @@
+{
+  "CORS_POLICY_ORIGIN": "*",
+  "JWT_KEY": "dev",
+  "processors": {
+    "system": "processors-system",
+    "user": "processors-user"
+  }
+}

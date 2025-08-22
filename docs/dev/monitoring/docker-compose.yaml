@@ -1,0 +1,18 @@
+# https://hub.docker.com/r/otel/opentelemetry-collector-contrib/tags#!
+version: "3"
+
+services:
+  otel:
+    image: otel/opentelemetry-collector-contrib:0.59.0
+    ports:
+      - 4318:4318
+      - 4317:4317
+    volumes:
+      - ./collector-gateway.yaml:/etc/collector-gateway.yaml
+    command: ["--config=/etc/collector-gateway.yaml"]
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"

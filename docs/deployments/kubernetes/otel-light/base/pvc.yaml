@@ -1,0 +1,11 @@
+kind: "PersistentVolumeClaim"
+apiVersion: "v1"
+metadata:
+  name: otel-light
+spec:
+  accessModes:
+    - ReadWriteOnce
+  volumeMode: Filesystem
+  resources:
+    requests:
+      storage: 100Gi
