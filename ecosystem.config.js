@@ -1,3 +1,9 @@
+const fs = require("fs");
+let devEnv = {};
+if (fs.existsSync("./env-dev.js")) {
+  devEnv = require("./env-dev");
+}
+
 module.exports = {
   apps: [
     {
@@ -15,6 +21,7 @@ module.exports = {
       args: "run dev",
       autorestart: false,
       env_development: {
+        ...devEnv,
         DEV_MODE: "true",
         DATA_DIR: "../docs/dev/data",
         OPENTELEMETRY_COLLECTOR_HTTP_TRACES:

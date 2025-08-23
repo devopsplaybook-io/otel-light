@@ -44,8 +44,16 @@ docker run --name otel-light -p 8080:8080 -v "$(pwd)/data:/data" -d devopsplaybo
 Deploy OTEL Light on Kubernetes:
 
 ```bash
-git clone https://github.com/DidierHoarau/otel-light
+git clone https://github.com/devopsplaybook-io/otel-light
 cd otel-light/docs/deployments/kubernetes/otel-light
+kubectl kustomize . | kubectl apply -f -
+```
+
+To launch the application with the service exposed as a NodePort (for local cluster access):
+
+```bash
+git clone https://github.com/devopsplaybook-io/otel-light
+cd otel-light/docs/deployments/kubernetes/otel-light-nodeports
 kubectl kustomize . | kubectl apply -f -
 ```
 
@@ -58,6 +66,8 @@ See [`docs/deployments`](docs/deployments) for additional deployment options.
 ## Configuration
 
 Configuration can be provided via a JSON configuration file (e.g., using a ConfigMap) or environment variables.
+
+See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.yaml) for an example configuration.
 
 | Parameter                                               | Description                                      | Default | Availability                        |
 | ------------------------------------------------------- | ------------------------------------------------ | ------- | ----------------------------------- |
