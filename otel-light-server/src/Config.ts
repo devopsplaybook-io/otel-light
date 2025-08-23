@@ -37,13 +37,25 @@ export class Config implements ConfigInterface {
   public async reload(): Promise<void> {
     const content = await fse.readJson(this.CONFIG_FILE);
     const setIfSet = (field: string, displayLog = true) => {
-      if (content[field]) {
+      let fromEnv = false;
+      if (process.env[field]) {
+        this[field] = process.env[field];
+        fromEnv = true;
+      } else if (content[field]) {
         this[field] = content[field];
       }
       if (displayLog) {
-        logger.info(`Configuration Value: ${field}: ${this[field]}`);
+        logger.info(
+          `Configuration Value: ${field}: ${this[field]} (from ${
+            fromEnv ? "Environment" : "Config"
+          })`
+        );
       } else {
-        logger.info(`Configuration Value: ${field}: ********************`);
+        logger.info(
+          `Configuration Value: ${field}: ******************** (from ${
+            fromEnv ? "Environment" : "Config"
+          })`
+        );
       }
     };
     logger.info(`Configuration Value: CONFIG_FILE: ${this.CONFIG_FILE}`);
