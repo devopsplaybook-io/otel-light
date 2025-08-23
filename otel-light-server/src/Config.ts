@@ -39,7 +39,7 @@ export class Config implements ConfigInterface {
     const setIfSet = (field: string, displayLog = true) => {
       let fromEnv = false;
       if (process.env[field]) {
-        this[field] = content[field];
+        this[field] = process.env[field];
         fromEnv = true;
       } else if (content[field]) {
         this[field] = content[field];
