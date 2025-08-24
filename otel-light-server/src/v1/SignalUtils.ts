@@ -32,7 +32,6 @@ export function SignalUtilsGetServiceVersion(resource: any): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function SignalUtilsCheckAuthHeader(req: any): boolean {
-  console.log(config, config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER)
   if (!config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
     return true;
   }
