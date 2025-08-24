@@ -23,8 +23,9 @@ export function LoggerInit(context: Span, config: Config) {
   if (config.OPENTELEMETRY_COLLECTOR_HTTP_LOGS) {
     const exporterHeaders: Record<string, string> = {};
     if (config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
-      exporterHeaders["Authorization"] =
-        config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
+      exporterHeaders[
+        "Authorization"
+      ] = `Bearer ${config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER}`;
     }
     const exporter = new OTLPLogExporter({
       url: config.OPENTELEMETRY_COLLECTOR_HTTP_LOGS,

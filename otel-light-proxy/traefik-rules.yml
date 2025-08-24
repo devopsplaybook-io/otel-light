@@ -6,6 +6,9 @@ http:
     server:
       service: service-server
       rule: PathPrefix(`/api/`)
+    server-signals:
+      service: service-server
+      rule: PathPrefix(`/v1/`)
 
   services:
     service-web:

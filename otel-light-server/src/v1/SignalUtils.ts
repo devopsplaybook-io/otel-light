@@ -36,8 +36,7 @@ export function SignalUtilsCheckAuthHeader(req: any): boolean {
     return true;
   }
   return (
-    !!req.headers["authorization"] &&
-    req.headers["authorization"].replace("Bearer ", "") ===
-      config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER
+    (req.headers["authorization"] || "").replace("Bearer ", "") ===
+    config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER
   );
 }

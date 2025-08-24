@@ -71,13 +71,13 @@ Promise.resolve().then(async () => {
   });
 
   fastify.register(new TracesRoutes().getRoutes, {
-    prefix: "/api/v1/traces",
+    prefix: "/v1/traces",
   });
   fastify.register(new MetricsRoutes().getRoutes, {
-    prefix: "/api/v1/metrics",
+    prefix: "/v1/metrics",
   });
   fastify.register(new LogsRoutes().getRoutes, {
-    prefix: "/api/v1/logs",
+    prefix: "/v1/logs",
   });
 
   fastify.register(new AnalyticsTracesRoutes().getRoutes, {

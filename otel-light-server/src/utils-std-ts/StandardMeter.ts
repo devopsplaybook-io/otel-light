@@ -29,8 +29,9 @@ export function StandardMeterInitTelemetry(initConfig: Config) {
       concurrencyLimit: 1,
     };
     if (config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
-      collectorOptions.headers["Authorization"] =
-        config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
+      collectorOptions.headers[
+        "Authorization"
+      ] = `Bearer ${config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER}`;
     }
     const metricExporter = new OTLPMetricExporter(collectorOptions);
     meterProvider = new MeterProvider({

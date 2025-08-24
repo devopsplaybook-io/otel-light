@@ -18,13 +18,13 @@ export class Config implements ConfigInterface {
   public LOG_LEVEL = "info";
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES: string =
     process.env.OPENTELEMETRY_COLLECTOR_HTTP_TRACES ||
-    "http://localhost:8080/api/v1/traces";
+    "http://localhost:8080/v1/traces";
   public OPENTELEMETRY_COLLECTOR_HTTP_METRICS: string =
     process.env.OPENTELEMETRY_COLLECTOR_HTTP_METRICS ||
-    "http://localhost:8080/api/v1/metrics";
+    "http://localhost:8080/v1/metrics";
   public OPENTELEMETRY_COLLECTOR_HTTP_LOGS: string =
     process.env.OPENTELEMETRY_COLLECTOR_HTTP_LOGS ||
-    "http://localhost:8080/api/v1/logs";
+    "http://localhost:8080/v1/logs";
   public OPENTELEMETRY_COLLECTOR_AWS =
     process.env.OPENTELEMETRY_COLLECTOR_AWS === "true";
   public OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS = 60;
@@ -37,13 +37,13 @@ export class Config implements ConfigInterface {
   public async reload(): Promise<void> {
     const content = await fse.readJson(this.CONFIG_FILE);
     const setIfSet = (field: string, displayLog = true) => {
-      let fromEnv = "Defaults";
+      let fromEnv = "defaults";
       if (process.env[field]) {
         this[field] = process.env[field];
-        fromEnv = "Environment";
+        fromEnv = "environment";
       } else if (content[field]) {
         this[field] = content[field];
-        fromEnv = "Config";
+        fromEnv = "config";
       }
       if (displayLog) {
         logger.info(
