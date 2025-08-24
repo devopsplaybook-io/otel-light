@@ -24,11 +24,10 @@ module.exports = {
         ...devEnv,
         DEV_MODE: "true",
         DATA_DIR: "../docs/dev/data",
-        OPENTELEMETRY_COLLECTOR_HTTP_TRACES:
-          "http://localhost:9999/api/v1/traces",
+        OPENTELEMETRY_COLLECTOR_HTTP_TRACES: "http://localhost:9999/v1/traces",
         OPENTELEMETRY_COLLECTOR_HTTP_METRICS:
-          "http://localhost:9999/api/v1/metrics",
-        OPENTELEMETRY_COLLECTOR_HTTP_LOGS: "http://localhost:9999/api/v1/logs",
+          "http://localhost:9999/v1/metrics",
+        OPENTELEMETRY_COLLECTOR_HTTP_LOGS: "http://localhost:9999/v1/logs",
         OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "ABCD",
       },
     },

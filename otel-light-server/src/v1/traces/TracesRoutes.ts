@@ -13,7 +13,6 @@ export class TracesRoutes {
     //
     fastify.post("/", async (req, res) => {
       if (!SignalUtilsCheckAuthHeader(req)) {
-        console.log("wrong header");
         return res.status(401).send({});
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

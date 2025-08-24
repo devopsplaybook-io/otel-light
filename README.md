@@ -81,9 +81,9 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 
 To send telemetry data, configure your application to send Traces, Metrics, and Logs to the following HTTP endpoints:
 
-- Traces: `http://<otel-light-url>/api/v1/traces`
-- Metrics: `http://<otel-light-url>/api/v1/metrics`
-- Logs: `http://<otel-light-url>/api/v1/logs`
+- Traces: `http://<otel-light-url>/v1/traces`
+- Metrics: `http://<otel-light-url>/v1/metrics`
+- Logs: `http://<otel-light-url>/v1/logs`
 
 > **Tip:** Log collection can also be set up using an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/).
 

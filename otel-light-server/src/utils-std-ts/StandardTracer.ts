@@ -43,7 +43,7 @@ export function StandardTracerInitTelemetry(initConfig: Config) {
     if (config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
       exporterHeaders[
         "Authorization"
-      ] = `Bearer ${config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER}`;
+      ] = `Bearer ${config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER}aaaa`;
     }
     const exporter = new OTLPTraceExporter({
       url: config.OPENTELEMETRY_COLLECTOR_HTTP_TRACES,
