@@ -88,8 +88,6 @@ export default {
   data() {
     return {
       traces: [],
-      refreshIntervalId: null,
-      refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
       filter: {
         queryString: "",
@@ -102,21 +100,7 @@ export default {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
-    this.refreshIntervalValue = RefreshIntervalService.get();
     this.fetchTraces();
-  },
-  mounted() {
-    const interval = parseInt(this.refreshIntervalValue, 10);
-    if (interval > 0) {
-      this.refreshIntervalId = setInterval(() => {
-        this.fetchTraces();
-      }, interval);
-    }
-  },
-  beforeUnmount() {
-    if (this.refreshIntervalId) {
-      clearInterval(this.refreshIntervalId);
-    }
   },
   computed: {
     groupedTraces() {
