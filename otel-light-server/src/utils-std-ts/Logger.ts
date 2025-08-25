@@ -15,7 +15,7 @@ import { StandardTracerStartSpan } from "./StandardTracer";
 import { OTLPLogExporter } from "@opentelemetry/exporter-logs-otlp-http";
 import { SeverityNumber } from "@opentelemetry/api-logs";
 
-let loggerOTEL;
+let loggerOTel;
 
 export function LoggerInit(context: Span, config: Config) {
   const span = StandardTracerStartSpan("LoggerInit", context);
@@ -47,7 +47,7 @@ export function LoggerInit(context: Span, config: Config) {
       }),
     });
 
-    loggerOTEL = loggerProvider.getLogger(
+    loggerOTel = loggerProvider.getLogger(
       `${config.SERVICE_ID}:${config.VERSION}`
     );
   }
@@ -105,9 +105,9 @@ export class Logger {
       // eslint:disable-next-line:no-console
       console.log(`${level} [${this.module}] ${JSON.stringify(message)}`);
     }
-    if (loggerOTEL) {
+    if (loggerOTel) {
       {
-        loggerOTEL.emit({
+        loggerOTel.emit({
           severityNumber,
           severityText: level,
           body: message,

@@ -1,6 +1,6 @@
-# OTEL Light
+# OTel Light
 
-**OTEL Light** is a lightweight, easy-to-use [OpenTelemetry (OTel)](https://opentelemetry.io/) service designed for small and resource-constrained environments. This is ideal for development environments or home labs.
+**OTel Light** is a lightweight, easy-to-use [OpenTelemetry (OTel)](https://opentelemetry.io/) service designed for small and resource-constrained environments. This is ideal for development environments or home labs.
 
 ## Features
 
@@ -30,7 +30,7 @@
 
 ### Docker
 
-Run OTEL Light in Docker:
+Run OTel Light in Docker:
 
 ```bash
 mkdir -p data
@@ -43,7 +43,7 @@ docker run --name otel-light -p 8080:8080 -v "$(pwd)/data:/data" -d devopsplaybo
 
 ### Kubernetes
 
-Deploy OTEL Light on Kubernetes:
+Deploy OTel Light on Kubernetes:
 
 ```bash
 git clone https://github.com/devopsplaybook-io/otel-light
@@ -77,7 +77,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics          | 60      | Config file                         |
 | METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed | 12      | Config file                         |
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed    | 7       | Config file                         |
-| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTEL collection         | (empty) | Config file or environment variable |
+| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection         | (empty) | Config file or environment variable |
 
 ## Client Application
 
