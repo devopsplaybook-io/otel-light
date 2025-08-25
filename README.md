@@ -13,6 +13,8 @@
 
 ![](docs/images/Traces.png?raw=true)
 
+![](docs/images/TracesStats.png?raw=true)
+
 ![](docs/images/Metrics.png?raw=true)
 
 ![](docs/images/Logs.png?raw=true)

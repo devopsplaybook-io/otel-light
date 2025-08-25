@@ -7,6 +7,9 @@
       aria-label="Search"
       @input="emitFilterChanged"
     />
+    <span class="search-button" @click="emitFilterChangedRaw" title="Refresh">
+      <i class="bi bi-arrow-clockwise"></i>
+    </span>
     <div id="search-options-dates">
       <select v-model="from" @change="emitFilterChanged">
         <option
@@ -99,12 +102,24 @@ export default {
 </script>
 
 <style scoped>
+#search-options {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 0.5rem;
+}
 #search-options input {
   padding-top: 0.5em;
   padding-bottom: 0.5em;
   height: 2.6rem;
 }
+.search-button {
+  height: 2.6rem;
+  padding: 0 0.5em;
+  font-size: 1.2em;
+}
 #search-options-dates {
+  grid-column: 1/3;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;

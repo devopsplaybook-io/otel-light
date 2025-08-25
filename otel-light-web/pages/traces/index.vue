@@ -34,6 +34,9 @@
         />
       </div>
     </div>
+    <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
+      <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
+    </button>
   </div>
 </template>
 
@@ -181,39 +184,14 @@ export default {
         desc: this.sortKey === key && this.sortOrder === "desc",
       };
     },
+    goToAnalytics() {
+      this.$router.push("/traces/stats");
+    },
   },
 };
 </script>
 
-<style>
-.trace-summary,
-.trace-span-expanded {
-  min-width: 1200px;
-}
-.trace-summary {
-  display: grid;
-  grid-template-columns: 3fr 3fr 3fr 2fr 2fr 1fr 1fr;
-  gap: 1rem;
-  width: 100%;
-}
-.trace-summary span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.trace-summary b {
-  cursor: pointer;
-  user-select: none;
-}
-.trace-summary b.asc::after {
-  content: " ▲";
-  font-size: 0.8em;
-}
-.trace-summary b.desc::after {
-  content: " ▼";
-  font-size: 0.8em;
-}
-</style>
+<style></style>
 
 <style scoped>
 #traces-page {
