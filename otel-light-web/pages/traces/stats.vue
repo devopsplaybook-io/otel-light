@@ -229,7 +229,7 @@ export default {
 }
 .trace-group-summary {
   display: grid;
-  grid-template-columns: 2fr 2fr 1fr 2fr 1fr 1fr 2fr 2fr;
+  grid-template-columns: 2fr 2fr 1fr 1fr 1fr 2fr 2fr 2fr;
   gap: 1rem;
   width: 100%;
 }
