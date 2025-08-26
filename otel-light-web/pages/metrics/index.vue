@@ -4,10 +4,10 @@
     <div v-if="!loading" id="metrics-list">
       <article
         v-for="metric of metrics"
-        :key="metric.serviceName + metric.serviceVersion + metric.name"
+        :key="metric.serviceName + metric.name"
       >
         <header>
-          <kbd>{{ metric.serviceName }}:{{ metric.serviceVersion }}</kbd>
+          <kbd>{{ metric.serviceName }}</kbd>
           {{ metric.name }}
         </header>
         <MetricDataGauge v-if="metric.type == 'gauge'" :metric="metric" />
@@ -57,14 +57,12 @@ export default {
       metrics.forEach((metric) => {
         let metricContainer = find(formattedMetrics, {
           serviceName: metric.serviceName,
-          serviceVersion: metric.serviceVersion,
           name: metric.name,
         });
 
         if (!metricContainer) {
           metricContainer = {
             serviceName: metric.serviceName,
-            serviceVersion: metric.serviceVersion,
             name: metric.name,
             type: metric.type,
             data: [],
@@ -73,12 +71,7 @@ export default {
         }
         metricContainer.data.push(metric);
       });
-      // Sort by serviceName, serviceVersion, name
-      return sortBy(formattedMetrics, [
-        "serviceName",
-        "serviceVersion",
-        "name",
-      ]);
+      return sortBy(formattedMetrics, ["serviceName", "name"]);
     },
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
