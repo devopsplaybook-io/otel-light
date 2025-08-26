@@ -26,7 +26,7 @@ export class LogsRoutes {
             serviceVersion =
               find(logRecord.attributes, { key: "service.version" })?.value
                 ?.stringValue || serviceVersion;
-            const keywords = `${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
+            const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
             let logText = "";
             if (logRecord.body.stringValue) {
               logText = logRecord.body.stringValue || "";

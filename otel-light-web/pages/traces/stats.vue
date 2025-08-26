@@ -6,9 +6,9 @@
         <b>Service</b>
         <b>Name</b>
         <b>Traces</b>
-        <b>Avg Duration</b>
         <b>Avg Spans</b>
         <b>Errors</b>
+        <b>Avg Duration</b>
         <b>P90</b>
         <b>P95</b>
       </div>
@@ -25,9 +25,9 @@
           <span>{{ group.serviceName }}:{{ group.serviceVersion }}</span>
           <span>{{ group.name }}</span>
           <span>{{ group.traceCount }}</span>
-          <span>{{ formatDuration(group.avgDuration) }}</span>
           <span>{{ group.avgSpanCount.toFixed(1) }}</span>
           <span>{{ group.nbErrors }}</span>
+          <span>{{ formatDuration(group.avgDuration) }}</span>
           <span>{{ formatDuration(group.p90) }}</span>
           <span>{{ formatDuration(group.p95) }}</span>
         </div>
@@ -73,7 +73,6 @@ import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
-import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import { getDurationText } from "../services/Utils";
 
 function percentile(arr, p) {

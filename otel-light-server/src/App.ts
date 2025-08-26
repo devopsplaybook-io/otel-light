@@ -51,10 +51,7 @@ Promise.resolve().then(async () => {
 
   // APIs
 
-  const fastify = Fastify({
-    logger: config.LOG_LEVEL === "debug_tmp",
-    ignoreTrailingSlash: true,
-  });
+  const fastify = Fastify({});
 
   if (config.CORS_POLICY_ORIGIN) {
     /* eslint-disable-next-line */
@@ -106,7 +103,6 @@ Promise.resolve().then(async () => {
   fastify.listen({ port: config.API_PORT, host: "0.0.0.0" }, (err) => {
     if (err) {
       logger.error(err);
-      fastify.log.error(err);
       process.exit(1);
     }
     logger.info("API Listening");

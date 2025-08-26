@@ -1,6 +1,0 @@
-{
-  "UPDATE_AUTO": false,
-  "UPDATE_URL_INFO": "https://s3-ap-southeast-1.amazonaws.com/telepathy-dist/telepathy-server-list",
-  "UPDATE_URL_BINARY": "https://s3-ap-southeast-1.amazonaws.com/telepathy-dist/telepathy-server-linux-x64",
-  "PORT_API": 3000
-}
