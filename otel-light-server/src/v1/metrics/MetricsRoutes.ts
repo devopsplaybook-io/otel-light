@@ -30,7 +30,7 @@ export class MetricsRoutes {
             else if (metric.exponentialHistogram)
               metricType = "exponentialHistogram";
             else if (metric.summary) metricType = "summary";
-            const keywords = `${serviceName} ${serviceVersion} ${metric.name}`;
+            const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metric.name}`;
             await SqlDbUtilsNoTelemetryExecSQL(
               "INSERT INTO metrics (name, serviceName, serviceVersion, type, time, atttributes, rawMetric, keywords) " +
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

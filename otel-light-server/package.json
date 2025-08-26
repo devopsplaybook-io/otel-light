@@ -18,7 +18,7 @@
     "@fastify/static": "^8.2.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.203.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.62.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.62.1",
     "@opentelemetry/exporter-logs-otlp-http": "^0.203.0",
     "@opentelemetry/exporter-trace-otlp-http": "^0.203.0",
     "@opentelemetry/id-generator-aws-xray": "^2.0.0",
@@ -30,7 +30,7 @@
     "@opentelemetry/semantic-conventions": "^1.36.0",
     "axios": "^1.11.0",
     "bcrypt": "^6.0.0",
-    "fastify": "^5.4.0",
+    "fastify": "^5.5.0",
     "fs-extra": "^11.3.1",
     "jsonwebtoken": "^9.0.2",
     "lodash": "^4.17.21",
@@ -46,18 +46,18 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
-    "@eslint/js": "^9.32.0",
+    "@eslint/js": "^9.34.0",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^30.0.0",
     "@types/lodash": "^4.17.20",
-    "@types/node": "^24.2.0",
+    "@types/node": "^24.3.0",
     "@types/sqlite3": "^5.1.0",
-    "eslint": "^9.32.0",
+    "eslint": "^9.34.0",
     "jest": "^30.0.5",
     "sinon": "^21.0.0",
     "ts-jest": "^29.4.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.2",
-    "typescript-eslint": "^8.39.0"
+    "typescript-eslint": "^8.41.0"
   }
 }

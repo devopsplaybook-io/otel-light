@@ -15,6 +15,14 @@
         :style="getConnectorStyle(span, index)"
       ></div>
       <div class="span-name">
+        <kbd
+          v-if="
+            trace.serviceName != span.serviceName ||
+            trace.serviceVersion != span.serviceVersion
+          "
+          class="span-service"
+          >{{ span.serviceName }}:{{ span.serviceVersion }}</kbd
+        >
         {{ span.name }}
         <small>({{ span.durationText }})</small>
         <i
@@ -226,5 +234,10 @@ export default {
   white-space: pre-wrap;
   max-width: 90vw;
   overflow-wrap: anywhere;
+}
+
+.span-service {
+  opacity: 0.5;
+  font-size: 0.5rem;
 }
 </style>
