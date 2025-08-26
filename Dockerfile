@@ -29,6 +29,7 @@ COPY --from=builder /opt/src/otel-light-server/dist /opt/app/otel-light/dist
 COPY --from=builder /opt/src/otel-light-web/.output/public /opt/app/otel-light/web
 COPY otel-light-server/config.json /opt/app/otel-light/config.json
 COPY otel-light-server/sql /opt/app/otel-light/sql
+COPY package.json /opt/app/otel-light/package.json
 
 WORKDIR /opt/app/otel-light
 
