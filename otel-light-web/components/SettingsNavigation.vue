@@ -10,14 +10,6 @@
             Maintenance
           </NuxtLink>
         </li>
-        <li>
-          <NuxtLink
-            to="/settings/tokens"
-            :class="isActive('/settings/tokens') ? 'active' : 'inactive'"
-          >
-            Tokens
-          </NuxtLink>
-        </li>
       </ul>
     </nav>
   </div>
