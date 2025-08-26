@@ -43,7 +43,7 @@ export class Config implements ConfigInterface {
         version = pkg.version;
       }
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    } catch (e) {
+    } catch (_e) {
       // fallback to default "1"
     }
     this.VERSION = version;
