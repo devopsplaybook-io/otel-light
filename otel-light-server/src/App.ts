@@ -1,28 +1,30 @@
+import { StandardMeter, StandardTracer } from "@devopsplaybook.io/otel-utils";
+import { StandardTracerFastifyRegisterHooks } from "@devopsplaybook.io/otel-utils-fastify";
 import Fastify from "fastify";
-import * as path from "path";
 import { watchFile } from "fs-extra";
-import { Config } from "./Config";
-import { Logger, LoggerInit } from "./utils-std-ts/Logger";
-import { UsersRoutes } from "./users/UsersRoutes";
-import {
-  StandardTracerInitTelemetry,
-  StandardTracerStartSpan,
-} from "./utils-std-ts/StandardTracer";
-import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
-import { AuthInit } from "./users/Auth";
-import { TracesRoutes } from "./v1/traces/TracesRoutes";
-import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
-import { MaintenanceInit } from "./Maintenance";
-import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
-import { SelfMetricsInit } from "./analytics/SelfMetrics";
-import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
-import { LogsRoutes } from "./v1/logs/LogsRoutes";
+import * as path from "path";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
+import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
+import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
+import { SelfMetricsInit } from "./analytics/SelfMetrics";
+import { Config } from "./Config";
+import { MaintenanceInit } from "./Maintenance";
+import {
+  OTelLogger,
+  OTelSetMeter,
+  OTelSetTracer,
+  OTelTracer,
+} from "./OTelContext";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
-import { StandardMeterInitTelemetry } from "./utils-std-ts/StandardMeter";
+import { AuthInit } from "./users/Auth";
+import { UsersRoutes } from "./users/UsersRoutes";
+import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
+import { LogsRoutes } from "./v1/logs/LogsRoutes";
+import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
+import { TracesRoutes } from "./v1/traces/TracesRoutes";
 
-const logger = new Logger("app");
+const logger = OTelLogger().createModuleLogger("app");
 
 logger.info("====== Starting otel-light Server ======");
 
@@ -35,13 +37,13 @@ Promise.resolve().then(async () => {
     config.reload();
   });
 
-  StandardTracerInitTelemetry(config);
-  StandardMeterInitTelemetry(config);
+  OTelSetTracer(new StandardTracer(config));
+  OTelSetMeter(new StandardMeter(config));
+  OTelLogger().initOTel(config);
 
-  const span = StandardTracerStartSpan("init");
+  const span = OTelTracer().startSpan("init");
 
   await SignalUtilsInit(span, config);
-  await LoggerInit(span, config);
   await SqlDbUtilsInit(span, config);
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
@@ -51,7 +53,9 @@ Promise.resolve().then(async () => {
 
   // APIs
 
-  const fastify = Fastify({});
+  const fastify = Fastify({
+    logger: config.LOG_LEVEL === process.env.FASTIFY_LOG_LEVEL,
+  });
 
   if (config.CORS_POLICY_ORIGIN) {
     /* eslint-disable-next-line */
@@ -62,6 +66,8 @@ Promise.resolve().then(async () => {
   }
   /* eslint-disable-next-line */
   fastify.register(require("@fastify/multipart"));
+
+  StandardTracerFastifyRegisterHooks(fastify, OTelTracer(), OTelLogger());
 
   fastify.register(new UsersRoutes().getRoutes, {
     prefix: "/api/users",

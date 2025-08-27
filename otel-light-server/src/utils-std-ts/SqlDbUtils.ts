@@ -1,12 +1,11 @@
+import { SpanStatusCode } from "@opentelemetry/api";
+import { Span } from "@opentelemetry/sdk-trace-base";
+import * as fs from "fs-extra";
 import { Database } from "sqlite3";
 import { Config } from "../Config";
-import * as fs from "fs-extra";
-import { Logger } from "./Logger";
-import { Span } from "@opentelemetry/sdk-trace-base";
-import { SpanStatusCode } from "@opentelemetry/api";
-import { StandardTracerStartSpan } from "./StandardTracer";
+import { OTelLogger, OTelTracer } from "../OTelContext";
 
-const logger = new Logger("SqlDbutils");
+const logger = OTelLogger().createModuleLogger("SqlDbutils");
 const SQL_DIR = `${__dirname}/../../sql`;
 
 let database;
@@ -15,7 +14,7 @@ export async function SqlDbUtilsInit(
   context: Span,
   config: Config
 ): Promise<void> {
-  const span = StandardTracerStartSpan("SqlDbUtilsInit", context);
+  const span = OTelTracer().startSpan("SqlDbUtilsInit", context);
   await fs.ensureDir(config.DATA_DIR);
   database = new Database(`${config.DATA_DIR}/database.db`);
   await SqlDbUtilsExecSQLFile(span, `${SQL_DIR}/init-0000.sql`);
@@ -57,7 +56,7 @@ export function SqlDbUtilsExecSQL(
   sql: string,
   params = []
 ): Promise<number> {
-  const span = StandardTracerStartSpan("SqlDbUtilsExecSQL", context);
+  const span = OTelTracer().startSpan("SqlDbUtilsExecSQL", context);
   return new Promise((resolve, reject) => {
     database.run(sql, params, function (error) {
       if (error) {
@@ -77,7 +76,7 @@ export async function SqlDbUtilsExecSQLFile(
   context: Span,
   filename: string
 ): Promise<void> {
-  const span = StandardTracerStartSpan("SqlDbUtilsExecSQLFile", context);
+  const span = OTelTracer().startSpan("SqlDbUtilsExecSQLFile", context);
   const sql = (await fs.readFile(filename)).toString();
   return new Promise((resolve, reject) => {
     database.exec(sql, (error) => {
@@ -100,7 +99,7 @@ export function SqlDbUtilsQuerySQL(
   debug = false
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
-  const span = StandardTracerStartSpan("SqlDbUtilsQuerySQL", context);
+  const span = OTelTracer().startSpan("SqlDbUtilsQuerySQL", context);
   if (debug) {
     console.log(sql);
   }

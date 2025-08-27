@@ -1,15 +1,12 @@
 import { find } from "lodash";
-import { Logger } from "../utils-std-ts/Logger";
-import { StandardTracerStartSpan } from "../utils-std-ts/StandardTracer";
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
+import { OTelTracer } from "../OTelContext";
 
-const logger = new Logger("SignalUtils");
 let config: Config;
 
 export async function SignalUtilsInit(context: Span, configIn: Config) {
-  const span = StandardTracerStartSpan("SignalUtilsInit", context);
-
+  const span = OTelTracer().startSpan("SignalUtilsInit", context);
   config = configIn;
   span.end();
 }

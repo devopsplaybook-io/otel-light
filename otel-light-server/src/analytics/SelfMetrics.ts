@@ -1,13 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
-import { StandardTracerStartSpan } from "../utils-std-ts/StandardTracer";
+import { OTelMeter, OTelTracer } from "../OTelContext";
 import { SqlDbUtilsQuerySQL } from "../utils-std-ts/SqlDbUtils";
-import {
-  StandardMeterCreateCounter,
-  StandardMeterCreateHistorgram,
-  StandardMeterCreateObservableGauge,
-  StandardMeterCreateUpDownCounter,
-} from "../utils-std-ts/StandardMeter";
 
 const signalData = {
   traces: [],
@@ -17,8 +11,8 @@ const signalData = {
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function SelfMetricsInit(context: Span, configIn: Config) {
-  const span = StandardTracerStartSpan("SelfMetricsInit", context);
-  StandardMeterCreateObservableGauge(
+  const span = OTelTracer().startSpan("SelfMetricsInit", context);
+  OTelMeter().createObservableGauge(
     "signals.traces",
     (observableResult) => {
       signalData.traces.forEach((service) => {
@@ -30,7 +24,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
     },
     { description: "Count of traces per services" }
   );
-  StandardMeterCreateObservableGauge(
+  OTelMeter().createObservableGauge(
     "signals.metrics",
     (observableResult) => {
       signalData.metrics.forEach((service) => {
@@ -42,7 +36,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
     },
     { description: "Count of metrics per services" }
   );
-  StandardMeterCreateObservableGauge(
+  OTelMeter().createObservableGauge(
     "signals.logs",
     (observableResult) => {
       signalData.logs.forEach((service) => {
@@ -54,7 +48,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
     },
     { description: "Count of logs per services" }
   );
-  StandardMeterCreateObservableGauge(
+  OTelMeter().createObservableGauge(
     "signals.totals",
     (observableResult) => {
       const totalTraces = signalData.traces.reduce(
@@ -84,7 +78,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
 // Private Functions
 
 async function SelfMetricsRefreshMetrics(): Promise<void> {
-  const span = StandardTracerStartSpan("SelfMetricsRefreshMetrics");
+  const span = OTelTracer().startSpan("SelfMetricsRefreshMetrics");
   // Traces
   const tracesRowCount = await SqlDbUtilsQuerySQL(
     span,
