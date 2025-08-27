@@ -1,11 +1,11 @@
 import { FastifyInstance } from "fastify";
+import { Settings } from "../model/Settings";
+import { OTelRequestSpan } from "../OTelContext";
 import { AuthGetUserSession } from "../users/Auth";
 import {
   SqlDbUtilsExecSQL,
   SqlDbUtilsQuerySQL,
 } from "../utils-std-ts/SqlDbUtils";
-import { Settings } from "../model/Settings";
-import { StandardTracerGetSpanFromRequest } from "../utils-std-ts/StandardTracer";
 
 export class SettingsRoutes {
   //
@@ -19,7 +19,7 @@ export class SettingsRoutes {
           return res.status(403).send({ error: "Access Denied" });
         }
         const rawSettings = await SqlDbUtilsQuerySQL(
-          StandardTracerGetSpanFromRequest(req),
+          OTelRequestSpan(req),
           "SELECT * FROM settings WHERE category = ?",
           [req.params.category]
         );
@@ -45,12 +45,12 @@ export class SettingsRoutes {
           return res.status(403).send({ error: "Access Denied" });
         }
         await SqlDbUtilsExecSQL(
-          StandardTracerGetSpanFromRequest(req),
+          OTelRequestSpan(req),
           "DELETE FROM settings WHERE category = ?",
           [req.params.category]
         );
         await SqlDbUtilsQuerySQL(
-          StandardTracerGetSpanFromRequest(req),
+          OTelRequestSpan(req),
           "INSERT INTO settings (category, content) VALUES (?, ?)",
           [req.params.category, JSON.stringify(req.body.content)]
         );

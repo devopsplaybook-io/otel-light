@@ -1,19 +1,18 @@
+import { SpanStatusCode } from "@opentelemetry/api";
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "./Config";
-import { Logger } from "./utils-std-ts/Logger";
-import { StandardTracerStartSpan } from "./utils-std-ts/StandardTracer";
+import { Settings } from "./model/Settings";
+import { OTelLogger, OTelTracer } from "./OTelContext";
 import {
   SqlDbUtilsExecSQL,
   SqlDbUtilsQuerySQL,
 } from "./utils-std-ts/SqlDbUtils";
-import { Settings } from "./model/Settings";
-import { SpanStatusCode } from "@opentelemetry/api";
 
-const logger = new Logger("Maintenance");
+const logger = OTelLogger().createModuleLogger("Maintenance");
 let config: Config;
 
 export async function MaintenanceInit(context: Span, configIn: Config) {
-  const span = StandardTracerStartSpan("MaintenanceInit", context);
+  const span = OTelTracer().startSpan("MaintenanceInit", context);
 
   config = configIn;
   span.end();
@@ -25,7 +24,7 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
 // Private Functions
 
 async function MaintenancePerform(): Promise<void> {
-  const span = StandardTracerStartSpan("MaintenancePerform");
+  const span = OTelTracer().startSpan("MaintenancePerform");
   try {
     logger.info("Performing maintenance tasks");
 
@@ -135,7 +134,7 @@ async function MaintenanceMetricsCompress(
   timeLimit: number,
   timeGroup: number
 ) {
-  const span = StandardTracerStartSpan("MaintenanceMetricsCompress", context);
+  const span = OTelTracer().startSpan("MaintenanceMetricsCompress", context);
   try {
     logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
     const deletedRows = await SqlDbUtilsExecSQL(

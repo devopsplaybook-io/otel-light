@@ -1,12 +1,12 @@
+import { ConfigOTelInterface } from "@devopsplaybook.io/otel-utils";
 import * as fse from "fs-extra";
-import * as path from "path";
 import { v4 as uuidv4 } from "uuid";
-import { Logger } from "./utils-std-ts/Logger";
-import { ConfigInterface } from "./utils-std-ts/models/ConfigInterface";
+import { OTelLogger } from "./OTelContext";
+import path from "path";
 
-const logger = new Logger("config");
+const logger = OTelLogger().createModuleLogger("config");
 
-export class Config implements ConfigInterface {
+export class Config implements ConfigOTelInterface {
   //
   public readonly CONFIG_FILE: string = "config.json";
   public readonly SERVICE_ID = "otel-light-server";
