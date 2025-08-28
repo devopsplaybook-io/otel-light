@@ -149,4 +149,7 @@ header kbd {
 :root[data-theme="light"] .apexcharts-legend-text {
   color: #333 !important;
 }
+.apexcharts-tooltip {
+  color: #333;
+}
 </style>
