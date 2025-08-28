@@ -13,7 +13,7 @@
     "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'"
   },
   "dependencies": {
-    "@devopsplaybook.io/otel-utils-fastify": "^1.0.0",
+    "@devopsplaybook.io/otel-utils-fastify": "^1.0.2-beta1",
     "@fastify/cors": "^11.1.0",
     "@fastify/multipart": "^9.0.3",
     "@fastify/static": "^8.2.0",

@@ -9,7 +9,7 @@
         <b>Log</b>
       </div>
       <div v-for="log of logs" :key="log.serviceName + log.time">
-        <Log :log="log" />
+        <LazyLog :log="log" hydrate-on-visible />
       </div>
     </div>
   </div>
