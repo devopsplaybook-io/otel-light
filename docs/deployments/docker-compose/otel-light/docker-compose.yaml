@@ -3,7 +3,7 @@ version: "3"
 
 services:
   otel:
-    image: didierhoarau/otel-light
+    image: devopsplaybookio/otel-light
     ports:
       - 8080:8080
     volumes:

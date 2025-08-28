@@ -55,9 +55,8 @@ async function MaintenancePerform(): Promise<void> {
           continue;
       }
       if (!tableName) continue;
-      if (!deleteRule.periodHours) continue;
       if (!deleteRule.pattern) continue;
-      const retentionMs = deleteRule.periodHours * 60 * 60 * 1000;
+      const retentionMs = Number(deleteRule.periodHours) * 60 * 60 * 1000;
       const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
       let nbRows = 0;
       const formatPattern = (patternIn) => {
@@ -124,7 +123,7 @@ async function MaintenancePerform(): Promise<void> {
     MaintenancePerform().catch((err) => {
       logger.error("Error during maintenance tasks: " + err.message);
     });
-  }, 6 * 3600 * 1000);
+  }, Math.max(config.MAINTENANCE_FREQUENCY_HOURS, 1) * 3600 * 1000);
 }
 
 // Private Function

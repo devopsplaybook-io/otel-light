@@ -18,6 +18,14 @@ spec:
       containers:
         - image: otel-light
           name: otel-light
+          imagePullPolicy: Always
+          readinessProbe:
+            httpGet:
+              path: /api/status
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
           resources:
             limits:
               memory: 500Mi
@@ -31,14 +39,6 @@ spec:
             - name: config-volume
               mountPath: /opt/app/otel-light/config.json
               subPath: config.json
-          imagePullPolicy: Always
-          readinessProbe:
-            httpGet:
-              path: /api/status
-              port: 8080
-            initialDelaySeconds: 5
-            periodSeconds: 10
-            failureThreshold: 3
       volumes:
         - name: pod-volume
           persistentVolumeClaim:
