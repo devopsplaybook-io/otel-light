@@ -20,17 +20,19 @@
         >
       </div>
       <div v-for="trace of sortedTraces" :key="trace.traceId">
-        <Trace
+        <LazyTrace
           @click="toggleTrace(trace.traceId)"
           style="cursor: pointer"
           :trace="trace"
           :class="traceSpans[trace.traceId] ? 'trace-expanded' : ''"
+          hydrate-on-visible
         />
-        <TraceSpan
+        <LazyTraceSpan
           v-if="traceSpans[trace.traceId]"
           :trace="trace"
           :traceSpans="traceSpans[trace.traceId]"
           :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
+          hydrate-on-visible
         />
       </div>
     </div>

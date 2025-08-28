@@ -10,12 +10,21 @@
           <kbd>{{ metric.serviceName }}</kbd>
           {{ metric.name }}
         </header>
-        <MetricDataGauge v-if="metric.type == 'gauge'" :metric="metric" />
-        <MetricDataHistogram
+        <LazyMetricDataGauge
+          v-if="metric.type == 'gauge'"
+          :metric="metric"
+          hydrate-on-visible
+        />
+        <LazyMetricDataHistogram
           v-if="metric.type == 'histogram'"
           :metric="metric"
+          hydrate-on-visible
         />
-        <MetricDataSum v-if="metric.type == 'sum'" :metric="metric" />
+        <LazyMetricDataSum
+          v-if="metric.type == 'sum'"
+          :metric="metric"
+          hydrate-on-visible
+        />
       </article>
     </div>
   </div>
@@ -25,15 +34,13 @@
 import axios from "axios";
 import { find, sortBy } from "lodash";
 import SearchOptions from "~/components/SearchOptions.vue";
-import MetricDataHistogram from "~/components/MetricDataHistogram.vue";
-import MetricDataSum from "~/components/MetricDataSum.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 
 export default {
-  components: { SearchOptions, MetricDataHistogram, MetricDataSum },
+  components: { SearchOptions },
   data() {
     return {
       metrics: [],
@@ -141,5 +148,8 @@ header kbd {
 }
 :root[data-theme="light"] .apexcharts-legend-text {
   color: #333 !important;
+}
+.apexcharts-tooltip {
+  color: #333;
 }
 </style>
