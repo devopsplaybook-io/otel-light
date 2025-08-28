@@ -71,13 +71,14 @@ Configuration can be provided via a JSON configuration file (e.g., using a Confi
 
 See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.yaml) for an example configuration.
 
-| Parameter                                               | Description                                      | Default | Availability                        |
-| ------------------------------------------------------- | ------------------------------------------------ | ------- | ----------------------------------- |
-| OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS    | Interval (in seconds) to export logs             | 60      | Config file                         |
-| OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics          | 60      | Config file                         |
-| METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed | 12      | Config file                         |
-| METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed    | 7       | Config file                         |
-| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection         | (empty) | Config file or environment variable |
+| Parameter                                               | Description                                           | Default | Availability                        |
+| ------------------------------------------------------- | ----------------------------------------------------- | ------- | ----------------------------------- |
+| OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS    | Interval (in seconds) to export logs                  | 60      | Config file or environment variable |
+| OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics               | 60      | Config file or environment variable |
+| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection              | (empty) | Config file or environment variable |
+| METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12      | Config file or environment variable |
+| METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7       | Config file or environment variable |
+| MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6       | Config file or environment variable |
 
 ## Client Application
 
