@@ -56,8 +56,7 @@ async function MaintenancePerform(): Promise<void> {
       }
       if (!tableName) continue;
       if (!deleteRule.pattern) continue;
-      const retentionMs =
-        (Number(deleteRule.periodHours) || 0) * 60 * 60 * 1000;
+      const retentionMs = Number(deleteRule.periodHours) * 60 * 60 * 1000;
       const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
       let nbRows = 0;
       const formatPattern = (patternIn) => {
