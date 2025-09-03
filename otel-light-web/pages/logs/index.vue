@@ -1,6 +1,6 @@
 <template>
   <div id="logs-page">
-    <SearchOptions @filterChanged="onFilterChanged" />
+    <SearchOptions ref="searchOptions" @filterChanged="onFilterChanged" />
     <div id="logs">
       <div class="log-summary">
         <b>Service</b>
@@ -49,7 +49,12 @@ export default {
     const interval = parseInt(this.refreshIntervalValue, 10);
     if (interval > 0) {
       this.refreshIntervalId = setInterval(() => {
-        this.fetchLogs();
+        if (
+          this.$refs.searchOptions &&
+          this.$refs.searchOptions.emitFilterChangedRaw
+        ) {
+          this.$refs.searchOptions.emitFilterChangedRaw();
+        }
       }, interval);
     }
   },

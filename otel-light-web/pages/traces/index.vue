@@ -1,6 +1,6 @@
 <template>
   <div id="traces-page">
-    <SearchOptions @filterChanged="onFilterChanged" />
+    <SearchOptions ref="searchOptions" @filterChanged="onFilterChanged" />
     <div id="traces">
       <div class="trace-summary">
         <b @click="sortBy('service')" :class="headerClass('service')"
@@ -77,7 +77,12 @@ export default {
     const interval = parseInt(this.refreshIntervalValue, 10);
     if (interval > 0) {
       this.refreshIntervalId = setInterval(() => {
-        this.fetchTraces();
+        if (
+          this.$refs.searchOptions &&
+          this.$refs.searchOptions.emitFilterChangedRaw
+        ) {
+          this.$refs.searchOptions.emitFilterChangedRaw();
+        }
       }, interval);
     }
   },
