@@ -22,4 +22,27 @@ export const PreferencesService = {
     );
     localStorage.setItem("UI_THEME", isDark ? "dark" : "light");
   },
+  //
+  getMetricAutoLoadSettings(): { [key: string]: boolean } {
+    const stored = localStorage.getItem("METRICS_AUTO_LOAD");
+    if (stored) {
+      try {
+        return JSON.parse(stored);
+      } catch (e) {
+        console.warn("Failed to parse metrics auto-load settings:", e);
+      }
+    }
+    return {};
+  },
+  //
+  setMetricAutoLoad(metricKey: string, autoLoad: boolean) {
+    const settings = this.getMetricAutoLoadSettings();
+    settings[metricKey] = autoLoad;
+    localStorage.setItem("METRICS_AUTO_LOAD", JSON.stringify(settings));
+  },
+  //
+  getMetricAutoLoad(metricKey: string): boolean {
+    const settings = this.getMetricAutoLoadSettings();
+    return settings[metricKey] !== false;
+  },
 };
