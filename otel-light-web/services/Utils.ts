@@ -75,12 +75,6 @@ export async function UtilsDecompressJson(
   return JSON.parse(await UtilsDecompressData(compressedData));
 }
 
-/**
- * Samples an array of data points to a maximum number of points, evenly spaced.
- * @param {Array} data - The array of data points.
- * @param {number} maxPoints - The maximum number of points to sample.
- * @returns {Array} The sampled array.
- */
 export function UtilsMetricSampleDataPoints(
   data: any[],
   maxPoints: number = 300
