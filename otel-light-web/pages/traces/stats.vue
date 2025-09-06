@@ -1,6 +1,6 @@
 <template>
   <div id="traces-page">
-    <SearchOptions @filterChanged="onFilterChanged" />
+    <SearchOptions @filterChanged="onFilterChanged" type="traces"/>
     <div id="traces">
       <div class="trace-group-summary">
         <b>Service</b>

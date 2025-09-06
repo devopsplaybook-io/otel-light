@@ -36,14 +36,22 @@
 
 <script>
 import { debounce } from "lodash";
+import { getDefaultTimeWindow } from "~/services/PreferencesService";
 export default {
   name: "SearchOptions",
   emits: ["filterChanged"],
+  props: {
+    type: {
+      type: String,
+      default: "traces",
+    },
+  },
   data() {
+    const defaultFrom = getDefaultTimeWindow(this.type);
     return {
       keywords: "",
-      from: 30 * 60, // 10 min ago (in seconds)
-      to: 0, // now (0 seconds ago)
+      from: defaultFrom,
+      to: 0,
       timeOptions: [
         { label: "now", value: 0 },
         { label: "5 min ago", value: 5 * 60 },
@@ -55,9 +63,9 @@ export default {
         { label: "12 h ago", value: 12 * 60 * 60 },
         { label: "1 day ago", value: 24 * 60 * 60 },
         { label: "2 days ago", value: 2 * 24 * 60 * 60 },
-        { label: "5 days ago", value: 3 * 24 * 60 * 60 },
-        { label: "10 days ago", value: 3 * 24 * 60 * 60 },
-        { label: "30 days ago", value: 3 * 24 * 60 * 60 },
+        { label: "5 days ago", value: 5 * 24 * 60 * 60 },
+        { label: "10 days ago", value: 10 * 24 * 60 * 60 },
+        { label: "30 days ago", value: 30 * 24 * 60 * 60 },
         { label: "90 days ago", value: 90 * 24 * 60 * 60 },
         { label: "180 days ago", value: 180 * 24 * 60 * 60 },
         { label: "1 year ago", value: 365 * 24 * 60 * 60 },

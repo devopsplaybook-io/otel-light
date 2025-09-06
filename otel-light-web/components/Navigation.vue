@@ -103,7 +103,7 @@ export default {
   font-size: 1.1em;
 }
 .menu-links .inactive {
-  opacity: 0.3;
+  opacity: 0.5;
 }
 .menu-links .active {
   color: #3cabff;
