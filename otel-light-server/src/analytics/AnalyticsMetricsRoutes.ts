@@ -85,7 +85,7 @@ export class AnalyticsMetricsRoutes {
       if (req.query.keywords?.trim()) {
         const kw = `%${req.query.keywords.trim()}%`;
         sqlWhere += " AND (name LIKE ? OR serviceName LIKE ?)";
-        sqlParams.push(kw, kw, kw);
+        sqlParams.push(kw, kw);
       }
 
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
