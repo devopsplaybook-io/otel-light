@@ -18,7 +18,6 @@ export class AnalyticsMetricsRoutes {
         to?: number;
         serviceName?: string;
         name?: string;
-        keywords?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -82,9 +81,11 @@ export class AnalyticsMetricsRoutes {
         sqlWhere += " AND time <= ? ";
         sqlParams.push(req.query.to);
       }
+
       if (req.query.keywords?.trim()) {
-        sqlWhere += " AND keywords LIKE ? ";
-        sqlParams.push(`%${req.query.keywords.trim()}%`);
+        const kw = `%${req.query.keywords.trim()}%`;
+        sqlWhere += " AND (name LIKE ? OR serviceName LIKE ?)";
+        sqlParams.push(kw, kw, kw);
       }
 
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(

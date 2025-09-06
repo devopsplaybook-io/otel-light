@@ -1,6 +1,6 @@
 <template>
   <div id="metrics-page">
-    <SearchOptions @filterChanged="onFilterChanged" />
+    <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
     <div v-if="!loading" id="metrics-list">
       <article
         v-for="metric of metricsNames"
@@ -119,9 +119,6 @@ export default {
     getMetricKey(metric) {
       return `${metric.serviceName}-${metric.name}`;
     },
-    getMetricAutoLoad(metric) {
-      return PreferencesService.getMetricAutoLoad(this.getMetricKey(metric));
-    },
     toggleMetricAutoLoad(metric, event) {
       const autoLoad = event.target.checked;
       PreferencesService.setMetricAutoLoad(this.getMetricKey(metric), autoLoad);
@@ -160,7 +157,7 @@ export default {
 }
 
 .metric-manual-load {
-  padding-top: 1rem;
+  padding-top: 2rem;
   width: 100%;
   text-align: center;
 }
@@ -169,5 +166,25 @@ export default {
   font-size: 3rem;
   opacity: 0.4;
   cursor: pointer;
+}
+</style>
+
+<style>
+:root[data-theme="dark"] .apexcharts-xaxis text,
+:root[data-theme="dark"] .apexcharts-yaxis text {
+  fill: #eee !important;
+}
+:root[data-theme="dark"] .apexcharts-legend-text {
+  color: #eee !important;
+}
+:root[data-theme="light"] .apexcharts-xaxis text,
+:root[data-theme="light"] .apexcharts-yaxis text {
+  fill: #333 !important;
+}
+:root[data-theme="light"] .apexcharts-legend-text {
+  color: #333 !important;
+}
+.apexcharts-tooltip {
+  color: #333;
 }
 </style>

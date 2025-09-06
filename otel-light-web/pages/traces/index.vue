@@ -1,6 +1,10 @@
 <template>
   <div id="traces-page">
-    <SearchOptions ref="searchOptions" @filterChanged="onFilterChanged" />
+    <SearchOptions
+      ref="searchOptions"
+      @filterChanged="onFilterChanged"
+      type="traces"
+    />
     <div id="traces">
       <div class="trace-summary">
         <b @click="sortBy('service')" :class="headerClass('service')"

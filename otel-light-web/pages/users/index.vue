@@ -61,6 +61,56 @@
       <button @click="toggleTheme" style="margin-bottom: 1em">
         Switch to {{ isDark ? "Light" : "Dark" }} Mode
       </button>
+
+      <h3>Default Time Window</h3>
+      <div>
+        <label for="default-time-traces">Traces:</label>
+        <select
+          id="default-time-traces"
+          v-model="defaultTimeWindow.traces"
+          @change="saveDefaultTimeWindow('traces')"
+        >
+          <option
+            v-for="option in timeWindowOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
+      <div>
+        <label for="default-time-metrics">Metrics:</label>
+        <select
+          id="default-time-metrics"
+          v-model="defaultTimeWindow.metrics"
+          @change="saveDefaultTimeWindow('metrics')"
+        >
+          <option
+            v-for="option in timeWindowOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
+      <div>
+        <label for="default-time-logs">Logs:</label>
+        <select
+          id="default-time-logs"
+          v-model="defaultTimeWindow.logs"
+          @change="saveDefaultTimeWindow('logs')"
+        >
+          <option
+            v-for="option in timeWindowOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
     </div>
   </div>
 </template>
@@ -76,7 +126,12 @@ import { AuthService } from "~~/services/AuthService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UserService } from "~~/services/UserService";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
-import { PreferencesService } from "~/services/PreferencesService";
+import {
+  PreferencesService,
+  TimeWindowOptions,
+  getDefaultTimeWindow,
+  setDefaultTimeWindow,
+} from "~/services/PreferencesService";
 
 export default {
   data() {
@@ -95,12 +150,21 @@ export default {
       isChangePasswordStarted: false,
       isDark,
       refreshInterval: RefreshIntervalService.get(),
+      defaultTimeWindow: {
+        traces: getDefaultTimeWindow("traces"),
+        metrics: getDefaultTimeWindow("metrics"),
+        logs: getDefaultTimeWindow("logs"),
+      },
+      timeWindowOptions: TimeWindowOptions,
     };
   },
   async created() {
     this.isInitialized = await UserService.isInitialized();
     AuthenticationStore().isAuthenticated = await AuthService.isAuthenticated();
     this.refreshInterval = RefreshIntervalService.get();
+    this.defaultTimeWindow.traces = getDefaultTimeWindow("traces");
+    this.defaultTimeWindow.metrics = getDefaultTimeWindow("metrics");
+    this.defaultTimeWindow.logs = getDefaultTimeWindow("logs");
   },
   methods: {
     async saveNew() {
@@ -211,6 +275,19 @@ export default {
     },
     toggleTheme() {
       PreferencesService.toggleTheme(this);
+    },
+    saveDefaultTimeWindow(type) {
+      setDefaultTimeWindow(type, this.defaultTimeWindow[type]);
+      EventBus.emit(EventTypes.ALERT_MESSAGE, {
+        type: "info",
+        text: `Default time window for ${type} set to ${this.getTimeWindowLabel(
+          this.defaultTimeWindow[type]
+        )}`,
+      });
+    },
+    getTimeWindowLabel(val) {
+      const opt = this.timeWindowOptions.find((o) => o.value === Number(val));
+      return opt ? opt.label : `${val} seconds ago`;
     },
   },
 };
