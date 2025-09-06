@@ -84,7 +84,8 @@ async function MaintenancePerform(): Promise<void> {
         );
       }
       logger.info(
-        `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern}) deleted ${nbRows} rows`
+        `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern}) deleted ${nbRows} rows`,
+        span
       );
     }
 
@@ -97,7 +98,7 @@ async function MaintenancePerform(): Promise<void> {
         "         AND MAX(startTime) < ? )",
       [deleteTimestamp]
     );
-    logger.info(`Traces: Deleted ${ndOrphanTraces} orphan traces`);
+    logger.info(`Traces: Deleted ${ndOrphanTraces} orphan traces`, span);
   } catch (err) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     logger.error("Error during maintenance tasks: " + err.message);
@@ -135,7 +136,7 @@ async function MaintenanceMetricsCompress(
 ) {
   const span = OTelTracer().startSpan("MaintenanceMetricsCompress", context);
   try {
-    logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
+    logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`, span);
     const deletedRows = await SqlDbUtilsExecSQL(
       span,
       `WITH KeepRows AS (
