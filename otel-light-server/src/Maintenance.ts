@@ -136,7 +136,6 @@ async function MaintenanceMetricsCompress(
   const span = OTelTracer().startSpan("MaintenanceMetricsCompress", context);
   try {
     logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
-
     const deletedRows = await SqlDbUtilsExecSQL(
       span,
       `WITH KeepRows AS (

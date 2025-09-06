@@ -1,6 +1,5 @@
 <template>
   <div id="metrics-page">
-    {{}}
     <SearchOptions @filterChanged="onFilterChanged" />
     <div v-if="!loading" id="metrics-list">
       <article
