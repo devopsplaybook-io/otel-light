@@ -35,14 +35,13 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(req.query.to);
       }
       if (req.query.serviceName?.trim()) {
-        sqlWhere += " AND serviceName LIKE ? ";
-        sqlParams.push(`%${req.query.serviceName.trim()}%`);
+        sqlWhere += " AND serviceName = ? ";
+        sqlParams.push(req.query.serviceName.trim());
       }
       if (req.query.name?.trim()) {
-        sqlWhere += " AND name LIKE ? ";
-        sqlParams.push(`%${req.query.name.trim()}%`);
+        sqlWhere += " AND name = ? ";
+        sqlParams.push(req.query.name.trim());
       }
-
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
         `SELECT * FROM metrics ${sqlWhere} LIMIT ${AnalyticsUtilsResultLimitMetrics}`,
         sqlParams
@@ -82,6 +81,10 @@ export class AnalyticsMetricsRoutes {
       if (req.query.to) {
         sqlWhere += " AND time <= ? ";
         sqlParams.push(req.query.to);
+      }
+      if (req.query.keywords?.trim()) {
+        sqlWhere += " AND keywords LIKE ? ";
+        sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
       const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(

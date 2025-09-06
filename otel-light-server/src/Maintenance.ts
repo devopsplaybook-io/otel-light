@@ -136,20 +136,22 @@ async function MaintenanceMetricsCompress(
   const span = OTelTracer().startSpan("MaintenanceMetricsCompress", context);
   try {
     logger.info(`Compression per ${timeGroup / 1_000_000_000} seconds`);
+
     const deletedRows = await SqlDbUtilsExecSQL(
       span,
       `DELETE FROM metrics
-       WHERE time < ? AND rowid NOT IN (
-         SELECT MAX(rowid)
-         FROM metrics
-         WHERE time < ?
-         GROUP BY
-           name,
-           serviceName,
-           serviceVersion,
-           (time / ?)
+       WHERE time < ? AND rowid IN (
+         SELECT m1.rowid
+         FROM metrics m1
+         WHERE m1.time < ? AND EXISTS (
+           SELECT 1 FROM metrics m2
+           WHERE m2.name = m1.name 
+           AND m2.serviceName = m1.serviceName
+           AND (m2.time / ?) = (m1.time / ?)
+           AND m2.rowid > m1.rowid
+         )
        )`,
-      [timeLimit, timeLimit, timeGroup]
+      [timeLimit, timeLimit, timeGroup, timeGroup]
     );
     logger.info(`Compression: Deleted ${deletedRows} duplicate metric entries`);
   } catch (err) {
