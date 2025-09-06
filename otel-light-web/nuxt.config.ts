@@ -14,17 +14,10 @@ export default defineNuxtConfig({
       link: [
         { rel: "icon", href: "/images/logo.png" },
         { rel: "stylesheet", href: "/styles.css" },
-        {
-          rel: "stylesheet",
-          href: "https://unpkg.com/@picocss/pico@latest/css/pico.min.css",
-        },
-        {
-          rel: "stylesheet",
-          href: "https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.3/font/bootstrap-icons.css",
-        },
       ],
     },
   },
+  css: ["~/assets/css/main.css"],
   modules: ["@pinia/nuxt", "@vite-pwa/nuxt"],
   imports: {
     dirs: ["./stores"],

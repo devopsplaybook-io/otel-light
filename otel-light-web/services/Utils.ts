@@ -74,3 +74,21 @@ export async function UtilsDecompressJson(
 ): Promise<any> {
   return JSON.parse(await UtilsDecompressData(compressedData));
 }
+
+/**
+ * Samples an array of data points to a maximum number of points, evenly spaced.
+ * @param {Array} data - The array of data points.
+ * @param {number} maxPoints - The maximum number of points to sample.
+ * @returns {Array} The sampled array.
+ */
+export function UtilsMetricSampleDataPoints(
+  data: any[],
+  maxPoints: number = 300
+): any[] {
+  if (!Array.isArray(data) || data.length <= maxPoints) return data;
+  const step = data.length / maxPoints;
+  return Array.from(
+    { length: maxPoints },
+    (_, i) => data[Math.floor(i * step)]
+  );
+}

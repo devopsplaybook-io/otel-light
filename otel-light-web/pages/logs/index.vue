@@ -1,6 +1,10 @@
 <template>
   <div id="logs-page">
-    <SearchOptions ref="searchOptions" @filterChanged="onFilterChanged" />
+    <SearchOptions
+      ref="searchOptions"
+      @filterChanged="onFilterChanged"
+      type="logs"
+    />
     <div id="logs">
       <div class="log-summary">
         <b>Service</b>

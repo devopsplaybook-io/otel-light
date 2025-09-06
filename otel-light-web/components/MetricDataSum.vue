@@ -4,13 +4,26 @@
 
 <script>
 import VueApexCharts from "vue3-apexcharts";
+import axios from "axios";
+import { UtilsDecompressJson, UtilsMetricSampleDataPoints } from "~/services/Utils";
+import { AuthService } from "~~/services/AuthService";
+import Config from "~~/services/Config";
+import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 
 export default {
   components: {
     apexchart: VueApexCharts,
   },
   props: {
-    metric: {
+    serviceName: {
+      type: String,
+      default: null,
+    },
+    name: {
+      type: String,
+      default: null,
+    },
+    filter: {
       type: Object,
       default: null,
     },
@@ -44,45 +57,78 @@ export default {
         },
       },
       chartSeries: [],
+      metrics: [],
     };
   },
   async created() {
-    const chartSeriesContainer = {};
-
-    this.metric.data.forEach((data) => {
-      data.data.sum.dataPoints.forEach((point) => {
-        const seriesName = this.attributesToString(point.attributes);
-        const timestamp = new Date(point.timeUnixNano / 1_000_000);
-
-        if (!chartSeriesContainer[seriesName]) {
-          chartSeriesContainer[seriesName] = [];
-        }
-
-        // Handle both double and integer values
-        const value =
-          point.asDouble !== undefined
-            ? point.asDouble
-            : point.asInt !== undefined
-            ? point.asInt
-            : 0;
-
-        chartSeriesContainer[seriesName].push([timestamp.getTime(), value]);
-      });
-    });
-
-    // Sort data points by timestamp and create series
-    Object.keys(chartSeriesContainer).forEach((seriesName) => {
-      const sortedData = chartSeriesContainer[seriesName].sort(
-        (a, b) => a[0] - b[0]
-      );
-
-      this.chartSeries.push({
-        name: seriesName,
-        data: sortedData,
-      });
-    });
+    this.fetchMetrics();
   },
   methods: {
+    async fetchMetrics() {
+      const fetchTime = new Date();
+      this.fetchTime = fetchTime;
+      this.loading = true;
+      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
+        this.filter.queryString
+          ? `?${this.filter.queryString}&serviceName=${this.serviceName}&name=${this.name}`
+          : `?serviceName=${this.serviceName}&name=${this.name}`
+      }`;
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then(async (response) => {
+          if (fetchTime < this.fetchTime) {
+            return;
+          }
+          this.metrics = UtilsMetricSampleDataPoints(await UtilsDecompressJson(response.data.metrics), 500);
+          if (response.data.warning) {
+            EventBus.emit(EventTypes.ALERT_MESSAGE, {
+              type: "warning",
+              text: response.data.warning,
+            });
+          }
+          this.displayMetrics();
+        })
+        .catch(handleError)
+        .finally(() => {
+          this.loading = false;
+        });
+    },
+    displayMetrics() {
+      const chartSeriesContainer = {};
+
+      this.metrics.forEach((data) => {
+        data.data.sum.dataPoints.forEach((point) => {
+          const seriesName = this.attributesToString(point.attributes);
+          const timestamp = new Date(point.timeUnixNano / 1_000_000);
+
+          if (!chartSeriesContainer[seriesName]) {
+            chartSeriesContainer[seriesName] = [];
+          }
+
+          // Handle both double and integer values
+          const value =
+            point.asDouble !== undefined
+              ? point.asDouble
+              : point.asInt !== undefined
+              ? point.asInt
+              : 0;
+
+          chartSeriesContainer[seriesName].push([timestamp.getTime(), value]);
+        });
+      });
+
+      // Sort data points by timestamp and create series
+      Object.keys(chartSeriesContainer).forEach((seriesName) => {
+        const sortedData = chartSeriesContainer[seriesName].sort(
+          (a, b) => a[0] - b[0]
+        );
+
+        this.chartSeries.push({
+          name: seriesName,
+          data: sortedData,
+        });
+      });
+    },
     attributesToString(attributes) {
       if (!attributes || attributes.length === 0) {
         return "default";
