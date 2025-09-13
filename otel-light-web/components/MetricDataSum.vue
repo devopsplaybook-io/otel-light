@@ -5,7 +5,10 @@
 <script>
 import VueApexCharts from "vue3-apexcharts";
 import axios from "axios";
-import { UtilsDecompressJson, UtilsMetricSampleDataPoints } from "~/services/Utils";
+import {
+  UtilsDecompressJson,
+  UtilsMetricSampleDataPoints,
+} from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
@@ -55,6 +58,9 @@ export default {
             format: "dd MMM yyyy HH:mm:ss",
           },
         },
+        legend: {
+          height: "25%",
+        },
       },
       chartSeries: [],
       metrics: [],
@@ -79,7 +85,10 @@ export default {
           if (fetchTime < this.fetchTime) {
             return;
           }
-          this.metrics = UtilsMetricSampleDataPoints(await UtilsDecompressJson(response.data.metrics), 500);
+          this.metrics = UtilsMetricSampleDataPoints(
+            await UtilsDecompressJson(response.data.metrics),
+            500
+          );
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
               type: "warning",
