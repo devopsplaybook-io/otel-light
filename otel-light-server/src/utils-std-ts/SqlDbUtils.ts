@@ -27,14 +27,14 @@ export async function SqlDbUtilsInit(
   if (dbVersionQuery[0].maxVerion) {
     dbVersionApplied = Number(dbVersionQuery[0].maxVerion);
   }
-  logger.info(`Current DB Version: ${dbVersionApplied}`);
+  logger.info(`Current DB Version: ${dbVersionApplied}`, span);
   for (const initFile of initFiles) {
     const regex = /init-(\d+).sql/g;
     const match = regex.exec(initFile);
     if (match) {
       const dbVersionInitFile = Number(match[1]);
       if (dbVersionInitFile > dbVersionApplied) {
-        logger.info(`Loading init file: ${initFile}`);
+        logger.info(`Loading init file: ${initFile}`, span);
         await SqlDbUtilsExecSQLFile(span, `${SQL_DIR}/${initFile}`);
         await SqlDbUtilsQuerySQL(
           span,
