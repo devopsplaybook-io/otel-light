@@ -38,10 +38,8 @@ export default {
         chart: { id: "line", animations: { enabled: false } },
         xaxis: { type: "datetime", title: { text: "Timestamp" } },
         stroke: { width: 3 },
-        legend: {
-          height: "25%",
-        },
       },
+      ledgend: { height: "100" },
       chartSeries: [],
       metrics: [],
     };

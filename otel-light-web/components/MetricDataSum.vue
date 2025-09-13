@@ -59,7 +59,7 @@ export default {
           },
         },
         legend: {
-          height: "25%",
+          height: "100",
         },
       },
       chartSeries: [],
