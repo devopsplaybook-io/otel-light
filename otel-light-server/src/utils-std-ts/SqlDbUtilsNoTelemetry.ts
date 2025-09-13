@@ -30,8 +30,7 @@ export function SqlDbUtilsNoTelemetryQuerySQL(
   return new Promise((resolve, reject) => {
     SqlDbUtilsInitGetDatabase().all(sql, params, (error, rows) => {
       if (error) {
-        console.log(error);
-        logger.error(`SQL ERROR: ${sql}`);
+        logger.error(`SQL ERROR: ${sql}`, error);
         reject(error);
       } else {
         resolve(rows);

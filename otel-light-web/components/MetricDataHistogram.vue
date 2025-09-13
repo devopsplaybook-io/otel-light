@@ -63,6 +63,9 @@ export default {
             },
           },
         },
+        legend: {
+          height: "100",
+        },
       },
       chartSeries: [],
       metrics: [],

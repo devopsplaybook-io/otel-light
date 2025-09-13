@@ -17,7 +17,7 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
   config = configIn;
   span.end();
   MaintenancePerform().catch((err) => {
-    logger.error("Error during maintenance tasks: " + err.message);
+    logger.error("Error during maintenance tasks", err);
   });
 }
 
@@ -26,7 +26,7 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
 async function MaintenancePerform(): Promise<void> {
   const span = OTelTracer().startSpan("MaintenancePerform");
   try {
-    logger.info("Performing maintenance tasks");
+    logger.info("Performing maintenance tasks", span);
 
     const rawSettings = await SqlDbUtilsQuerySQL(
       span,
@@ -101,7 +101,7 @@ async function MaintenancePerform(): Promise<void> {
     logger.info(`Traces: Deleted ${ndOrphanTraces} orphan traces`, span);
   } catch (err) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-    logger.error("Error during maintenance tasks: " + err.message);
+    logger.error("Error during maintenance tasks", err, span);
   }
 
   await MaintenanceMetricsCompress(
@@ -122,7 +122,7 @@ async function MaintenancePerform(): Promise<void> {
 
   setTimeout(() => {
     MaintenancePerform().catch((err) => {
-      logger.error("Error during maintenance tasks: " + err.message);
+      logger.error("Error during maintenance tasks", err, span);
     });
   }, Math.max(config.MAINTENANCE_FREQUENCY_HOURS, 1) * 3600 * 1000);
 }
@@ -149,10 +149,13 @@ async function MaintenanceMetricsCompress(
        WHERE time < ? AND rowid NOT IN (SELECT keep_rowid FROM KeepRows)`,
       [timeLimit, timeGroup, timeLimit]
     );
-    logger.info(`Compression: Deleted ${deletedRows} duplicate metric entries`);
+    logger.info(
+      `Compression: Deleted ${deletedRows} duplicate metric entries`,
+      span
+    );
   } catch (err) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
-    logger.error("Error during compression: " + err.message);
+    logger.error("Error during compression", err, span);
   }
   span.end();
 }
