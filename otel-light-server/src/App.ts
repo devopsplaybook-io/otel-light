@@ -25,6 +25,7 @@ import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
+import fastifyCompress from "@fastify/compress";
 
 const logger = OTelLogger().createModuleLogger("app");
 
@@ -57,6 +58,12 @@ Promise.resolve().then(async () => {
 
   const fastify = Fastify({
     logger: config.LOG_LEVEL === process.env.FASTIFY_LOG_LEVEL,
+  });
+
+  await fastify.register(fastifyCompress, {
+    global: true,
+    threshold: 1024,
+    encodings: ["gzip", "deflate"],
   });
 
   if (config.CORS_POLICY_ORIGIN) {
@@ -104,6 +111,11 @@ Promise.resolve().then(async () => {
   fastify.register(fastifyStatic, {
     root: path.join(__dirname, "../web"),
     prefix: "/",
+    maxAge: "1d", // Cache static files for 1 day
+    etag: true,
+    lastModified: true,
+    immutable: true,
+    cacheControl: true,
   });
 
   fastify.setNotFoundHandler((request, reply) => {
