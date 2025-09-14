@@ -102,24 +102,26 @@ Promise.resolve().then(async () => {
     return { started: true };
   });
 
-  /* eslint-disable-next-line */
-  fastify.register(require("@fastify/static"), {
-    root: path.join(__dirname, "../web"),
-    prefix: "/",
-  });
+  if (process.env.DEV_MODE) {
+    /* eslint-disable-next-line */
+    fastify.register(require("@fastify/static"), {
+      root: path.join(__dirname, "../web"),
+      prefix: "/",
+    });
 
-  fastify.setNotFoundHandler((request, reply) => {
-    if (
-      request.raw.url &&
-      !request.raw.url.startsWith("/api/") &&
-      !request.raw.url.startsWith("/v1/") &&
-      !path.extname(request.raw.url)
-    ) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return (reply as any).sendFile("index.html");
-    }
-    reply.status(404).send({ error: "Not Found" });
-  });
+    fastify.setNotFoundHandler((request, reply) => {
+      if (
+        request.raw.url &&
+        !request.raw.url.startsWith("/api/") &&
+        !request.raw.url.startsWith("/v1/") &&
+        !path.extname(request.raw.url)
+      ) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (reply as any).sendFile("index.html");
+      }
+      reply.status(404).send({ error: "Not Found" });
+    });
+  }
 
   fastify.listen({ port: config.API_PORT, host: "0.0.0.0" }, (err) => {
     if (err) {

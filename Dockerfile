@@ -20,9 +20,16 @@ RUN cd otel-light-web && \
 # RUN
 FROM node:22-alpine
 
-RUN apk add --no-cache kubectl gzip
 
-COPY entrypoint.sh /entrypoint.sh
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
+    apk add --no-cache --update \
+        nginx \
+        gzip
+    npm install -g pm2
+    
+COPY docker-config/entrypoint.sh /entrypoint.sh
+COPY docker-config/default.conf /etc/nginx/http.d/default.conf
+COPY docker-config/ecosystem.config.js /opt/app/cloudphotomanager/ecosystem.config.js
 
 COPY --from=builder /opt/src/otel-light-server/node_modules /opt/app/otel-light/node_modules
 COPY --from=builder /opt/src/otel-light-server/dist /opt/app/otel-light/dist
