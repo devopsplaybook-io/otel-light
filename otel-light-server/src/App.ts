@@ -1,5 +1,7 @@
 import { StandardMeter, StandardTracer } from "@devopsplaybook.io/otel-utils";
 import { StandardTracerFastifyRegisterHooks } from "@devopsplaybook.io/otel-utils-fastify";
+import fastifyCors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { watchFile } from "fs-extra";
 import * as path from "path";
@@ -23,8 +25,6 @@ import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
-import fastifyCors from "@fastify/cors";
-import fastifyStatic from "@fastify/static";
 
 const logger = OTelLogger().createModuleLogger("app");
 
