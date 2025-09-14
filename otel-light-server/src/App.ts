@@ -111,7 +111,7 @@ Promise.resolve().then(async () => {
   fastify.register(fastifyStatic, {
     root: path.join(__dirname, "../web"),
     prefix: "/",
-    maxAge: "1d", // Cache static files for 1 day
+    maxAge: "1d",
     etag: true,
     lastModified: true,
     immutable: true,
