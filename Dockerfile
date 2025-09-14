@@ -28,7 +28,7 @@ RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repos
     
 COPY docker-config/entrypoint.sh /entrypoint.sh
 COPY docker-config/default.conf /etc/nginx/http.d/default.conf
-COPY docker-config/ecosystem.config.js /opt/app/cloudphotomanager/ecosystem.config.js
+COPY docker-config/ecosystem.config.js /opt/app/otel-light/ecosystem.config.js
 
 COPY --from=builder /opt/src/otel-light-server/node_modules /opt/app/otel-light/node_modules
 COPY --from=builder /opt/src/otel-light-server/dist /opt/app/otel-light/dist
