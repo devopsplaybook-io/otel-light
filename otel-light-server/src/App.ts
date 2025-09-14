@@ -23,6 +23,8 @@ import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
+import fastifyCors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 
 const logger = OTelLogger().createModuleLogger("app");
 
@@ -58,14 +60,11 @@ Promise.resolve().then(async () => {
   });
 
   if (config.CORS_POLICY_ORIGIN) {
-    /* eslint-disable-next-line */
-    fastify.register(require("@fastify/cors"), {
+    fastify.register(fastifyCors, {
       origin: config.CORS_POLICY_ORIGIN,
       methods: "GET,PUT,POST,DELETE",
     });
   }
-  /* eslint-disable-next-line */
-  fastify.register(require("@fastify/multipart"));
 
   StandardTracerFastifyRegisterHooks(fastify, OTelTracer(), OTelLogger(), {
     ignoreList: ["GET-/api/status"],
@@ -102,8 +101,7 @@ Promise.resolve().then(async () => {
     return { started: true };
   });
 
-  /* eslint-disable-next-line */
-  fastify.register(require("@fastify/static"), {
+  fastify.register(fastifyStatic, {
     root: path.join(__dirname, "../web"),
     prefix: "/",
   });
