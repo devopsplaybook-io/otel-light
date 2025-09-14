@@ -20,11 +20,10 @@ RUN cd otel-light-web && \
 # RUN
 FROM node:22-alpine
 
-
 RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/community" >> /etc/apk/repositories && \
     apk add --no-cache --update \
         nginx \
-        gzip
+        gzip && \
     npm install -g pm2
     
 COPY docker-config/entrypoint.sh /entrypoint.sh
