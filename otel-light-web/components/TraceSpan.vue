@@ -15,6 +15,10 @@
         :style="getConnectorStyle(span, index)"
       ></div>
       <div class="span-name">
+        <i
+          v-if="span.spanId == highlightSpanId"
+          class="bi bi-arrow-right-circle"
+        ></i>
         <kbd
           v-if="
             trace.serviceName != span.serviceName ||
@@ -101,6 +105,10 @@ export default {
     },
     traceSpans: {
       type: Object,
+      default: null,
+    },
+    highlightSpanId: {
+      type: String,
       default: null,
     },
   },

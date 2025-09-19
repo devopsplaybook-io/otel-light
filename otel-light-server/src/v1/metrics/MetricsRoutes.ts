@@ -32,7 +32,7 @@ export class MetricsRoutes {
             else if (metric.summary) metricType = "summary";
             const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metric.name}`;
             await SqlDbUtilsNoTelemetryExecSQL(
-              "INSERT INTO metrics (name, serviceName, serviceVersion, type, time, atttributes, rawMetric, keywords) " +
+              "INSERT INTO metrics (name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords) " +
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
               [
                 metric.name,
