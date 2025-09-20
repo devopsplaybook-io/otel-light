@@ -27,6 +27,7 @@
               v-if="traceSpans"
               :trace="trace"
               :traceSpans="traceSpans"
+              :traceLogs="traceLogs"
               :highlightSpanId="logSpanId"
               class="trace-span-expanded"
               hydrate-on-visible
@@ -61,6 +62,7 @@ export default {
       traceSpans: [],
       isShowDialog: false,
       logSpanId: null,
+      traceLogs: [],
     };
   },
   methods: {
@@ -99,8 +101,19 @@ export default {
               await AuthService.getAuthHeader()
             );
           })
-          .then((response) => {
+          .then(async (response) => {
             this.traceSpans = response.data.spans;
+            return await axios.get(
+              `${
+                (
+                  await Config.get()
+                ).SERVER_URL
+              }/analytics/traces/${traceId}/logs`,
+              await AuthService.getAuthHeader()
+            );
+          })
+          .then((response) => {
+            return response.data.logs;
           })
           .catch(handleError);
       }

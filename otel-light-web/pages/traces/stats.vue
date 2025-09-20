@@ -1,6 +1,6 @@
 <template>
   <div id="traces-page">
-    <SearchOptions @filterChanged="onFilterChanged" type="traces"/>
+    <SearchOptions @filterChanged="onFilterChanged" type="traces" />
     <div id="traces">
       <div class="trace-group-summary">
         <b>Service</b>
@@ -53,6 +53,7 @@
               v-if="traceSpans[trace.traceId]"
               :trace="trace"
               :traceSpans="traceSpans[trace.traceId]"
+              :traceLogs="traceLogs[trace.traceId]"
               :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
               hydrate-on-visible
             />
@@ -90,6 +91,7 @@ export default {
     return {
       traces: [],
       traceSpans: {},
+      traceLogs: {},
       filter: {
         queryString: "",
       },
@@ -173,13 +175,24 @@ export default {
           return response.data.spans;
         });
     },
+    async getTraceLogs(traceId) {
+      return await axios
+        .get(
+          `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
+          await AuthService.getAuthHeader()
+        )
+        .then((response) => {
+          return response.data.logs;
+        });
+    },
     async toggleTrace(traceId) {
       if (this.traceSpans[traceId]) {
         delete this.traceSpans[traceId];
+        delete this.traceLogs[traceId];
       } else {
         if (!this.traceSpans[traceId]) {
-          const spans = await this.getTraceSpans(traceId);
-          this.traceSpans[traceId] = spans;
+          this.traceSpans[traceId] = await this.getTraceSpans(traceId);
+          this.traceLogs[traceId] = await this.getTraceLogs(traceId);
         }
       }
     },
