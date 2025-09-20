@@ -6,7 +6,6 @@ import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelem
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
-  AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
 
@@ -115,6 +114,28 @@ export class AnalyticsTracesRoutes {
       });
 
       return res.status(200).send({ spans });
+    });
+
+    fastify.get<{
+      Params: {
+        traceId: string;
+      };
+    }>("/:traceId/logs", async (req, res) => {
+      const userSession = await AuthGetUserSession(req);
+      if (!userSession.isAuthenticated) {
+        return res.status(403).send({ error: "Access Denied" });
+      }
+
+      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
+        "SELECT * FROM logs WHERE traceId = ?",
+        [req.params.traceId]
+      );
+      const logs = [];
+      rawLogs.forEach((rawLog) => {
+        logs.push(new Span(rawLog));
+      });
+
+      return res.status(200).send({ logs });
     });
   }
 }
