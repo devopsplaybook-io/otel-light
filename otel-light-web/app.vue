@@ -201,7 +201,8 @@ dialog article header {
   width: 15%;
   margin-left: auto;
   margin-right: auto;
-  margin-top: 25%;
+  margin-top: 20%;
+  margin-bottom: 20%;
   aspect-ratio: 1;
   background: var(--c) 0% 50%, var(--c) 50% 50%, var(--c) 100% 50%;
   background-size: 20% 100%;
