@@ -94,6 +94,14 @@ main {
   opacity: 0.9;
 }
 
+/* Signals */
+
+.trace-summary,
+.log-summary,
+.span-bar-container {
+  border-bottom: 1px dashed #666666aa;
+}
+
 /* Traces */
 
 .trace-summary,
@@ -122,6 +130,67 @@ main {
 .trace-summary b.desc::after {
   content: " ▼";
   font-size: 0.8em;
+}
+.trace-summary-errors {
+  background-color: #ff950033;
+}
+.trace-span-list {
+  padding-top: 1rem;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.5rem;
+  width: 100%;
+}
+
+.span-bar-container {
+  position: relative;
+  margin-bottom: 0.5rem;
+  margin-left: 1rem;
+  margin-right: 1rem;
+  overflow: visible;
+}
+.span-bar-container,
+.span-name {
+  height: 1.5rem;
+  line-height: 1.5rem;
+}
+.span-name {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  z-index: 2;
+  padding-left: 0.5rem;
+}
+.span-bar {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: #017fc0dd;
+  z-index: 1;
+}
+.span-error .span-bar {
+  background: #d93526;
+}
+.span-event-link {
+  margin-left: 0.5em;
+  cursor: pointer;
+}
+.span-connector {
+  position: absolute;
+  z-index: 0;
+  opacity: 0.5;
+  border-left: 1px dashed red;
+  width: 2px;
+}
+.events-dialog pre {
+  word-break: break-all;
+  white-space: pre-wrap;
+  max-width: 90vw;
+  overflow-wrap: anywhere;
+}
+.span-service {
+  opacity: 0.5;
+  font-size: 0.5rem;
 }
 
 /* Dialogs */
