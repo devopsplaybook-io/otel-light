@@ -125,16 +125,3 @@ export default {
   },
 };
 </script>
-
-<style>
-.log-dialog pre {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-
-.log-dialog kbd {
-  font-size: 0.7em;
-  margin-right: 0.5em;
-  margin-bottom: 0.5em;
-}
-</style>

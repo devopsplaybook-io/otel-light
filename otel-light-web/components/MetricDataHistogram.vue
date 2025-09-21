@@ -1,5 +1,8 @@
 <template>
-  <apexchart :options="chartOptions" :series="chartSeries" />
+  <div>
+    <div v-if="loading" class="loading-indicator"></div>
+    <apexchart v-else :options="chartOptions" :series="chartSeries" />
+  </div>
 </template>
 
 <script>
@@ -69,6 +72,7 @@ export default {
       },
       chartSeries: [],
       metrics: [],
+      loading: false,
     };
   },
   async created() {
@@ -76,9 +80,9 @@ export default {
   },
   methods: {
     async fetchMetrics() {
+      this.loading = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      this.loading = true;
       const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
         this.filter.queryString
           ? `?${this.filter.queryString}&serviceName=${this.serviceName}&name=${this.name}`

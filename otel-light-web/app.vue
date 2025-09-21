@@ -124,6 +124,34 @@ main {
   font-size: 0.8em;
 }
 
+/* Dialogs */
+
+dialog article {
+  max-width: 90vw;
+}
+dialog kbd {
+  font-size: 0.7em;
+  margin-right: 0.5em;
+  margin-bottom: 0.5em;
+}
+dialog pre {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+dialog article {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1rem;
+}
+dialog article section {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 70vh;
+}
+dialog article header {
+  font-size: 1.1em;
+  font-weight: bold;
+}
 /* Aninations */
 
 .fade-in-slow {
@@ -154,6 +182,46 @@ main {
   }
   100% {
     color: inherit;
+  }
+}
+
+/* Loading */
+
+@media (prefers-color-scheme: dark) {
+  .loading-indicator {
+    --c: no-repeat linear-gradient(#bcc6ce 0 0);
+  }
+}
+@media (prefers-color-scheme: light) {
+  .loading-indicator {
+    --c: no-repeat linear-gradient(#1d2832 0 0);
+  }
+}
+.loading-indicator {
+  width: 15%;
+  margin-left: auto;
+  margin-right: auto;
+  margin-top: 25%;
+  aspect-ratio: 1;
+  background: var(--c) 0% 50%, var(--c) 50% 50%, var(--c) 100% 50%;
+  background-size: 20% 100%;
+  animation: l1 2s infinite linear;
+}
+@keyframes l1 {
+  0% {
+    background-size: 20% 100%, 20% 100%, 20% 100%;
+  }
+  33% {
+    background-size: 20% 10%, 20% 100%, 20% 100%;
+  }
+  50% {
+    background-size: 20% 100%, 20% 10%, 20% 100%;
+  }
+  66% {
+    background-size: 20% 100%, 20% 100%, 20% 10%;
+  }
+  100% {
+    background-size: 20% 100%, 20% 100%, 20% 100%;
   }
 }
 </style>
