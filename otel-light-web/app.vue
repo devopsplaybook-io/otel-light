@@ -95,11 +95,13 @@ main {
 }
 
 /* Signals */
+
 .trace-summary,
 .log-summary,
 .span-bar-container {
   border-bottom: 1px dashed #666666aa;
 }
+
 /* Traces */
 
 .trace-summary,
