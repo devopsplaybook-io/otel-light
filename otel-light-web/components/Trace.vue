@@ -40,9 +40,3 @@ export default {
   methods: {},
 };
 </script>
-
-<style scoped>
-.trace-summary-errors {
-  background-color: #ff950033;
-}
-</style>
