@@ -15,6 +15,10 @@
         :style="getConnectorStyle(span, index)"
       ></div>
       <div class="span-name">
+        <i
+          v-if="span.spanId == highlightSpanId"
+          class="bi bi-arrow-right-circle"
+        ></i>
         <kbd
           v-if="
             trace.serviceName != span.serviceName ||
@@ -26,13 +30,8 @@
         {{ span.name }}
         <small>({{ span.durationText }})</small>
         <i
-          v-if="
-            span.rawSpan &&
-            span.rawSpan.events &&
-            span.rawSpan.events.length > 0
-          "
-          class="span-event-link bi bi-braces-asterisk"
-          @click="showEvents(span.rawSpan.events)"
+          class="span-event-link bi bi-card-text"
+          @click="showSpanDetails(span)"
         >
         </i>
       </div>
@@ -44,14 +43,39 @@
         }"
       ></div>
     </div>
-    <dialog ref="eventsDialog" class="events-dialog">
+    <dialog v-if="spanSelected" ref="eventsDialog" class="events-dialog">
       <article>
-        <header>Span Events</header>
+        <header>Span Details</header>
         <section>
-          <p>Events for Span:</p>
-          <pre v-for="(event, index) in eventsDialogContent" :key="index">{{
-            getSpanEventText(event)
-          }}</pre>
+          <kbd>trace.id: {{ spanSelected.rawSpan.traceId }}</kbd>
+          <kbd>span.id: {{ spanSelected.rawSpan.spanId }}</kbd>
+          <kbd
+            v-for="attribute of spanSelected.rawSpan.attributes"
+            :key="attribute.key"
+            >{{ attribute.key }}:
+            {{
+              attribute.value.stringValue
+                ? attribute.value.stringValue
+                : attribute.value.intValue
+                ? attribute.value.intValue
+                : ""
+            }}</kbd
+          >
+          <p
+            v-if="
+              spanSelected.rawSpan.events &&
+              spanSelected.rawSpan.events.length > 0
+            "
+          >
+            Events for Span:
+          </p>
+          <pre
+            v-for="(event, index) in spanSelected.rawSpan.events"
+            :key="index"
+            >{{ getSpanEventText(event) }}</pre
+          >
+          <p v-if="getSpanLogText(spanSelected)">Logs for Span:</p>
+          <pre>{{ getSpanLogText(spanSelected) }}</pre>
         </section>
         <footer>
           <button @click="closeEventsDialog">Close</button>
@@ -103,11 +127,19 @@ export default {
       type: Object,
       default: null,
     },
+    traceLogs: {
+      type: Object,
+      default: null,
+    },
+    highlightSpanId: {
+      type: String,
+      default: null,
+    },
   },
   data() {
     return {
       durationText: "",
-      eventsDialogContent: [],
+      spanSelected: null,
     };
   },
   computed: {
@@ -154,8 +186,8 @@ export default {
         top: -height + "rem",
       };
     },
-    showEvents(events) {
-      this.eventsDialogContent = events;
+    showSpanDetails(span) {
+      this.spanSelected = span;
       this.$nextTick(() => {
         if (this.$refs.eventsDialog) {
           this.$refs.eventsDialog.showModal();
@@ -166,12 +198,33 @@ export default {
       if (this.$refs.eventsDialog) {
         this.$refs.eventsDialog.close();
       }
-      this.eventsDialogContent = [];
+      this.spanSelected = null;
     },
     getSpanEventText(event) {
       let text = event.name + "\n";
       for (const attribute of event.attributes) {
         text += `  ${attribute.key}: ${attribute.value.stringValue}\n`;
+      }
+      return text;
+    },
+    getSpanEventText(event) {
+      let text = event.name + "\n";
+      for (const attribute of event.attributes) {
+        text += `  ${attribute.key}: ${attribute.value.stringValue}\n`;
+      }
+      return text;
+    },
+    getSpanLogText(span) {
+      let text = "";
+      for (const log of this.traceLogs) {
+        if (log.spanId !== span.spanId) {
+          continue;
+        }
+        text +=
+          new Date(log.time / 1_000_000).toISOString() +
+          ": " +
+          log.logText +
+          "\n";
       }
       return text;
     },

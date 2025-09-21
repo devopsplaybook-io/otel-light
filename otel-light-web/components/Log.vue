@@ -14,6 +14,25 @@
         <header>Log Details</header>
         <section>
           <pre>{{ log.logText }}</pre>
+          <kbd v-for="attribute of log.attributes" :key="attribute.key"
+            >{{ attribute.key }}: {{ attribute.value.stringValue }}</kbd
+          >
+          <div class="log-dialog-traces" v-if="trace">
+            <LazyTrace
+              :trace="trace"
+              class="trace-expanded"
+              hydrate-on-visible
+            />
+            <LazyTraceSpan
+              v-if="traceSpans"
+              :trace="trace"
+              :traceSpans="traceSpans"
+              :traceLogs="traceLogs"
+              :highlightSpanId="logSpanId"
+              class="trace-span-expanded"
+              hydrate-on-visible
+            />
+          </div>
         </section>
         <footer>
           <button @click.stop="closeLogDialog">Close</button>
@@ -24,6 +43,12 @@
 </template>
 
 <script>
+import axios from "axios";
+import { AuthService } from "~~/services/AuthService";
+import Config from "~~/services/Config";
+import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { UtilsDecompressJson } from "~/services/Utils";
+
 export default {
   props: {
     log: {
@@ -31,21 +56,72 @@ export default {
       default: null,
     },
   },
+  data() {
+    return {
+      trace: null,
+      traceSpans: [],
+      isShowDialog: false,
+      logSpanId: null,
+      traceLogs: [],
+    };
+  },
   methods: {
-    showLogDialog(event) {
+    async showLogDialog(event) {
+      this.isShowDialog = true;
       if (event) event.stopPropagation();
       this.$refs.logDialog.showModal();
+      if (!this.log.attributes) {
+        return;
+      }
+      const traceIdAttr = this.log.attributes.find(
+        (attr) => attr.key === "trace.id"
+      );
+      const spanIdAttr = this.log.attributes.find(
+        (attr) => attr.key === "span.id"
+      );
+      this.logSpanId =
+        spanIdAttr && spanIdAttr.value.stringValue
+          ? spanIdAttr.value.stringValue
+          : null;
+      if (traceIdAttr && traceIdAttr.value.stringValue) {
+        await axios
+          .get(
+            `${(await Config.get()).SERVER_URL}/analytics/traces?traceId=${
+              traceIdAttr.value.stringValue
+            }`,
+            await AuthService.getAuthHeader()
+          )
+          .then(async (response) => {
+            const traces = await UtilsDecompressJson(response.data.traces);
+            this.trace = traces && traces.length === 1 ? traces[0] : null;
+            return axios.get(
+              `${(await Config.get()).SERVER_URL}/analytics/traces/${
+                traceIdAttr.value.stringValue
+              }/spans`,
+              await AuthService.getAuthHeader()
+            );
+          })
+          .then(async (response) => {
+            this.traceSpans = response.data.spans;
+            return await axios.get(
+              `${
+                (
+                  await Config.get()
+                ).SERVER_URL
+              }/analytics/traces/${traceId}/logs`,
+              await AuthService.getAuthHeader()
+            );
+          })
+          .then((response) => {
+            return response.data.logs;
+          })
+          .catch(handleError);
+      }
     },
     closeLogDialog() {
+      this.isShowDialog = false;
       this.$refs.logDialog.close();
     },
   },
 };
 </script>
-
-<style>
-.log-dialog pre {
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-</style>

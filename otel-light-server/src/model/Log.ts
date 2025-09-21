@@ -4,12 +4,16 @@ export class Log {
   severity: string;
   time: number;
   logText: string;
-  atttributes: string;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  attributes: any;
   keywords: string;
 
   constructor(data?: Partial<Log>) {
     if (data) {
       Object.assign(this, data);
+      if (data.attributes && typeof data.attributes === "string") {
+        this.attributes = JSON.parse(data.attributes);
+      }
     }
   }
 }

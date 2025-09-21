@@ -1,5 +1,7 @@
 import { StandardMeter, StandardTracer } from "@devopsplaybook.io/otel-utils";
 import { StandardTracerFastifyRegisterHooks } from "@devopsplaybook.io/otel-utils-fastify";
+import fastifyCors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import Fastify from "fastify";
 import { watchFile } from "fs-extra";
 import * as path from "path";
@@ -23,6 +25,7 @@ import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
+import fastifyCompress from "@fastify/compress";
 
 const logger = OTelLogger().createModuleLogger("app");
 
@@ -57,15 +60,18 @@ Promise.resolve().then(async () => {
     logger: config.LOG_LEVEL === process.env.FASTIFY_LOG_LEVEL,
   });
 
+  await fastify.register(fastifyCompress, {
+    global: true,
+    threshold: 1024,
+    encodings: ["gzip", "deflate"],
+  });
+
   if (config.CORS_POLICY_ORIGIN) {
-    /* eslint-disable-next-line */
-    fastify.register(require("@fastify/cors"), {
+    fastify.register(fastifyCors, {
       origin: config.CORS_POLICY_ORIGIN,
       methods: "GET,PUT,POST,DELETE",
     });
   }
-  /* eslint-disable-next-line */
-  fastify.register(require("@fastify/multipart"));
 
   StandardTracerFastifyRegisterHooks(fastify, OTelTracer(), OTelLogger(), {
     ignoreList: ["GET-/api/status"],
@@ -102,10 +108,14 @@ Promise.resolve().then(async () => {
     return { started: true };
   });
 
-  /* eslint-disable-next-line */
-  fastify.register(require("@fastify/static"), {
+  fastify.register(fastifyStatic, {
     root: path.join(__dirname, "../web"),
     prefix: "/",
+    maxAge: "1d",
+    etag: true,
+    lastModified: true,
+    immutable: true,
+    cacheControl: true,
   });
 
   fastify.setNotFoundHandler((request, reply) => {

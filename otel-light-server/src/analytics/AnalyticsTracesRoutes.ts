@@ -6,7 +6,6 @@ import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelem
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
-  AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
 
@@ -19,24 +18,43 @@ export class AnalyticsTracesRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        traceId?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
       }
+
+      let sqlWhere = "";
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const sqlParams: any[] = [SpanStatusCode.ERROR];
-      const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE rootSpan.startTime >= ? ";
-      sqlParams.push(fromTime);
+      const appendWhereCondition = (where: string, condition: string) => {
+        if (where.length === 0) {
+          where = " WHERE ";
+        } else {
+          where += " AND ";
+        }
+        where += condition;
+        return where;
+      };
 
+      if (req.query.traceId) {
+        sqlWhere = appendWhereCondition(sqlWhere, "t.traceId = ?");
+        sqlParams.push(req.query.traceId);
+      }
+
+      if (req.query.from) {
+        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.startTime >= ?");
+        sqlParams.push(req.query.from);
+      }
       if (req.query.to) {
-        sqlWhere += " AND rootSpan.startTime <= ? ";
+        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.startTime <= ?");
         sqlParams.push(req.query.to);
       }
       if (req.query.keywords?.trim()) {
-        sqlWhere += " AND rootSpan.keywords LIKE ? ";
+        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.keywords LIKE ?");
         sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
@@ -51,7 +69,7 @@ export class AnalyticsTracesRoutes {
           "rootSpan.serviceVersion AS serviceVersion, " +
           "COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors " +
           "FROM traces t " +
-          "LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL " +
+          `LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL` +
           sqlWhere +
           " GROUP BY t.traceId " +
           " ORDER BY t.startTime DESC ",
@@ -96,6 +114,28 @@ export class AnalyticsTracesRoutes {
       });
 
       return res.status(200).send({ spans });
+    });
+
+    fastify.get<{
+      Params: {
+        traceId: string;
+      };
+    }>("/:traceId/logs", async (req, res) => {
+      const userSession = await AuthGetUserSession(req);
+      if (!userSession.isAuthenticated) {
+        return res.status(403).send({ error: "Access Denied" });
+      }
+
+      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
+        "SELECT * FROM logs WHERE traceId = ?",
+        [req.params.traceId]
+      );
+      const logs = [];
+      rawLogs.forEach((rawLog) => {
+        logs.push(new Span(rawLog));
+      });
+
+      return res.status(200).send({ logs });
     });
   }
 }
