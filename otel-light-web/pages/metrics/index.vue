@@ -156,6 +156,14 @@ export default {
   font-size: 0.7em;
 }
 
+.metric-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
+  max-width: 100%;
+}
+
 .metric-manual-load {
   padding-top: 2rem;
   width: 100%;

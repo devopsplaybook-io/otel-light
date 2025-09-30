@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="metric-chart">
     <div v-if="loading" class="loading-indicator"></div>
     <apexchart v-else :options="chartOptions" :series="chartSeries" />
   </div>
@@ -47,9 +47,6 @@ export default {
           title: { text: "Buckets" },
           categories: [],
         },
-        yaxis: {
-          title: { text: "Count" },
-        },
         plotOptions: {
           bar: {
             horizontal: false,
@@ -67,7 +64,7 @@ export default {
           },
         },
         legend: {
-          height: "100",
+          height: 80,
         },
       },
       chartSeries: [],

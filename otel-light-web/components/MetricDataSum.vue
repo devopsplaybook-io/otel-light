@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="metric-chart">
     <div v-if="loading" class="loading-indicator"></div>
     <apexchart v-else :options="chartOptions" :series="chartSeries" />
   </div>
@@ -44,10 +44,6 @@ export default {
         },
         xaxis: {
           type: "datetime",
-          title: { text: "Timestamp" },
-        },
-        yaxis: {
-          title: { text: "Sum Value" },
         },
         stroke: {
           curve: "smooth",
@@ -62,7 +58,7 @@ export default {
           },
         },
         legend: {
-          height: "100",
+          height: 80,
         },
       },
       chartSeries: [],
