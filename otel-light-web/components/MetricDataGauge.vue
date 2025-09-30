@@ -47,7 +47,7 @@ export default {
         xaxis: { type: "datetime" },
         stroke: { width: 3 },
       },
-      ledgend: { height: 80 },
+      legend: { height: 80 },
       chartSeries: [],
       metrics: [],
       loading: false,
