@@ -193,6 +193,10 @@ main {
   font-size: 0.5rem;
 }
 
+article .metric-chart {
+  height: 20rem;
+}
+
 /* Dialogs */
 
 dialog article {

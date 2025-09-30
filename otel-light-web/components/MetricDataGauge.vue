@@ -1,7 +1,12 @@
 <template>
-  <div>
+  <div class="metric-chart">
     <div v-if="loading" class="loading-indicator"></div>
-    <apexchart v-else :options="chartOptions" :series="chartSeries" />
+    <apexchart
+      v-else
+      :options="chartOptions"
+      :series="chartSeries"
+      height="100%"
+    />
   </div>
 </template>
 
@@ -38,11 +43,11 @@ export default {
     return {
       durationText: "",
       chartOptions: {
-        chart: { id: "line", animations: { enabled: false } },
-        xaxis: { type: "datetime", title: { text: "Timestamp" } },
+        chart: { height: "100%", id: "line", animations: { enabled: false } },
+        xaxis: { type: "datetime" },
         stroke: { width: 3 },
       },
-      ledgend: { height: "100" },
+      ledgend: { height: "80" },
       chartSeries: [],
       metrics: [],
       loading: false,
