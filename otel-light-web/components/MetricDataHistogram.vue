@@ -41,6 +41,9 @@ export default {
           id: "histogram",
           type: "bar",
           animations: { enabled: false },
+          toolbar: {
+            autoSelected: "selection",
+          },
         },
         xaxis: {
           type: "category",
