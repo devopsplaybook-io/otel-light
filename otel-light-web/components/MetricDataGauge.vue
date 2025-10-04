@@ -43,11 +43,18 @@ export default {
     return {
       durationText: "",
       chartOptions: {
-        chart: { height: "100%", id: "line", animations: { enabled: false } },
+        chart: {
+          height: "100%",
+          id: "line",
+          animations: { enabled: false },
+          toolbar: {
+            autoSelected: "selection",
+          },
+        },
         xaxis: { type: "datetime" },
         stroke: { width: 3 },
       },
-      ledgend: { height: 80 },
+      legend: { height: 80 },
       chartSeries: [],
       metrics: [],
       loading: false,

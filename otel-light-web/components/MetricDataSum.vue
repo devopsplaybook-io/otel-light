@@ -41,6 +41,9 @@ export default {
           id: "sum",
           type: "line",
           animations: { enabled: false },
+          toolbar: {
+            autoSelected: "selection",
+          },
         },
         xaxis: {
           type: "datetime",
