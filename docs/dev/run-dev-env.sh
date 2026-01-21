@@ -14,9 +14,9 @@ fi
 
 
 # Monitoring
-cd "${REPO_DIR}/docs/dev/monitoring"
-# docker compose down || true
-# docker compose up -d || true
+cd "${REPO_DIR}/docs/dev/postgres"
+docker compose down || true
+docker compose up -d || true
 
 
 # Server

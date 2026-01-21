@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
 import { Log } from "../model/Log";
-import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
@@ -37,9 +37,9 @@ export class AnalyticsLogsRoutes {
         sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
-      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${AnalyticsUtilsResultLimit}`,
-        sqlParams
+      const rawLogs = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_LOGS(sqlWhere, AnalyticsUtilsResultLimit),
+        sqlParams,
       );
       const logs = [];
       rawLogs.forEach((rawLog) => {
@@ -58,3 +58,9 @@ export class AnalyticsLogsRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_LOGS: (sqlWhere: string, limit: number) => `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+};

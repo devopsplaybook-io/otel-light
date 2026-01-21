@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { Metric } from "../model/Metric";
 import { AuthGetUserSession } from "../users/Auth";
-import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetDefaultFromTime,
@@ -41,9 +41,9 @@ export class AnalyticsMetricsRoutes {
         sqlWhere += " AND name = ? ";
         sqlParams.push(req.query.name.trim());
       }
-      const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT * FROM metrics ${sqlWhere} LIMIT ${AnalyticsUtilsResultLimitMetrics}`,
-        sqlParams
+      const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics),
+        sqlParams,
       );
       const metrics = [];
       rawMetrics.forEach((rawMetric) => {
@@ -88,9 +88,9 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(kw, kw);
       }
 
-      const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
-        sqlParams
+      const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_METRICS_NAMES(sqlWhere),
+        sqlParams,
       );
       const metricsNames: {
         serviceName: string;
@@ -113,3 +113,10 @@ export class AnalyticsMetricsRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_METRICS: (sqlWhere: string, limit: number) => `SELECT * FROM metrics ${sqlWhere} LIMIT ${limit}`,
+  GET_METRICS_NAMES: (sqlWhere: string) => `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
+};

@@ -6,7 +6,7 @@ import { Config } from "../Config";
 import { User } from "../model/User";
 import { UserSession } from "../model/UserSession";
 import { OTelLogger, OTelTracer } from "../OTelContext";
-import { SqlDbUtilsQuerySQL } from "../utils-std-ts/SqlDbUtils";
+import { DbUtilsQuerySQL } from "../utils-std-ts/DbUtils";
 
 const logger = OTelLogger().createModuleLogger(path.basename(__filename));
 let config: Config;
@@ -14,16 +14,16 @@ let config: Config;
 export async function AuthInit(context: Span, configIn: Config) {
   config = configIn;
   const span = OTelTracer().startSpan("AuthInit", context);
-  const authKeyRaw = await SqlDbUtilsQuerySQL(
+  const authKeyRaw = await DbUtilsQuerySQL(
     span,
-    'SELECT * FROM metadata WHERE type="auth_token"'
+    SQL_QUERIES.GET_AUTH_TOKEN[configIn.DATABASE_TYPE],
   );
   if (authKeyRaw.length == 0) {
     configIn.JWT_KEY = uuidv4();
-    await SqlDbUtilsQuerySQL(
+    await DbUtilsQuerySQL(
       span,
-      'INSERT INTO metadata (type, value, dateCreated) VALUES ("auth_token", ?, ?)',
-      [configIn.JWT_KEY, new Date().toISOString()]
+      SQL_QUERIES.INSERT_AUTH_TOKEN[configIn.DATABASE_TYPE],
+      [configIn.JWT_KEY, new Date().toISOString()],
     );
   } else {
     configIn.JWT_KEY = authKeyRaw[0].value;
@@ -38,14 +38,15 @@ export async function AuthGenerateJWT(user: User): Promise<string> {
       userId: user.id,
       userName: user.name,
     },
-    config.JWT_KEY
+    config.JWT_KEY,
   );
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function AuthMustBeAuthenticated(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   req: any,
-  res: any
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  res: any,
 ): Promise<void> {
   let authenticated = false;
   if (req.headers.authorization) {
@@ -70,7 +71,7 @@ export async function AuthGetUserSession(req: any): Promise<UserSession> {
     try {
       const info = jwt.verify(
         req.headers.authorization.split(" ")[1],
-        config.JWT_KEY
+        config.JWT_KEY,
       );
       userSession.userId = info.userId;
       userSession.isAuthenticated = true;
@@ -80,3 +81,17 @@ export async function AuthGetUserSession(req: any): Promise<UserSession> {
   }
   return userSession;
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_AUTH_TOKEN: {
+    postgres:
+      "SELECT value FROM metadata WHERE \"type\" = 'auth_token' LIMIT 1",
+    sqlite: 'SELECT value FROM metadata WHERE type = "auth_token" LIMIT 1',
+  },
+  INSERT_AUTH_TOKEN: {
+    postgres: 'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'auth_token\', ?, ?)',
+    sqlite: 'INSERT INTO metadata (type, value, dateCreated) VALUES ("auth_token", ?, ?)',
+  },
+};

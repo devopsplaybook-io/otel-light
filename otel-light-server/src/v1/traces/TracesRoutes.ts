@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { find } from "lodash";
-import { SqlDbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
@@ -19,7 +19,7 @@ export class TracesRoutes {
       (req.body as any).resourceSpans.forEach((resourceSpan) => {
         let serviceName = SignalUtilsGetServiceName(resourceSpan.resource);
         let serviceVersion = SignalUtilsGetServiceVersion(
-          resourceSpan.resource
+          resourceSpan.resource,
         );
         resourceSpan.scopeSpans.forEach((scopeSpan) => {
           scopeSpan.spans.forEach(async (span) => {
@@ -31,9 +31,8 @@ export class TracesRoutes {
                 ?.stringValue || serviceVersion;
 
             const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`;
-            await SqlDbUtilsNoTelemetryExecSQL(
-              "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords) " +
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            await DbUtilsNoTelemetryExecSQL(
+              SQL_QUERIES.INSERT_TRACE,
               [
                 span.traceId,
                 span.spanId,
@@ -47,7 +46,7 @@ export class TracesRoutes {
                 JSON.stringify(span.attributes),
                 JSON.stringify(span),
                 keywords.toLowerCase(),
-              ]
+              ],
             );
           });
         });
@@ -57,3 +56,11 @@ export class TracesRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  INSERT_TRACE:
+    "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords) " +
+    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+};

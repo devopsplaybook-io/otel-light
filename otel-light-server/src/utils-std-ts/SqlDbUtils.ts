@@ -6,13 +6,13 @@ import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 
 const logger = OTelLogger().createModuleLogger("SqlDbutils");
-const SQL_DIR = `${__dirname}/../../sql`;
+const SQL_DIR = `${__dirname}/../../sql/sqlite`;
 
 let database;
 
 export async function SqlDbUtilsInit(
   context: Span,
-  config: Config
+  config: Config,
 ): Promise<void> {
   const span = OTelTracer().startSpan("SqlDbUtilsInit", context);
   await fs.ensureDir(config.DATA_DIR);
@@ -22,7 +22,7 @@ export async function SqlDbUtilsInit(
   let dbVersionApplied = 0;
   const dbVersionQuery = await SqlDbUtilsQuerySQL(
     span,
-    "SELECT MAX(value) as maxVerion FROM metadata WHERE type='db_version'"
+    SQL_QUERIES.GET_DB_VERSION.sqlite,
   );
   if (dbVersionQuery[0].maxVerion) {
     dbVersionApplied = Number(dbVersionQuery[0].maxVerion);
@@ -38,8 +38,8 @@ export async function SqlDbUtilsInit(
         await SqlDbUtilsExecSQLFile(span, `${SQL_DIR}/${initFile}`);
         await SqlDbUtilsQuerySQL(
           span,
-          'INSERT INTO metadata (type, value, dateCreated) VALUES ("db_version",?,?)',
-          [dbVersionInitFile, new Date().toISOString()]
+          SQL_QUERIES.INSERT_DB_VERSION.sqlite,
+          [dbVersionInitFile, new Date().toISOString()],
         );
       }
     }
@@ -54,7 +54,7 @@ export function SqlDbUtilsInitGetDatabase() {
 export function SqlDbUtilsExecSQL(
   context: Span,
   sql: string,
-  params = []
+  params = [],
 ): Promise<number> {
   const span = OTelTracer().startSpan("SqlDbUtilsExecSQL", context);
   return new Promise((resolve, reject) => {
@@ -74,7 +74,7 @@ export function SqlDbUtilsExecSQL(
 
 export async function SqlDbUtilsExecSQLFile(
   context: Span,
-  filename: string
+  filename: string,
 ): Promise<void> {
   const span = OTelTracer().startSpan("SqlDbUtilsExecSQLFile", context);
   const sql = (await fs.readFile(filename)).toString();
@@ -96,7 +96,7 @@ export function SqlDbUtilsQuerySQL(
   context: Span,
   sql: string,
   params = [],
-  debug = false
+  debug = false,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
   const span = OTelTracer().startSpan("SqlDbUtilsQuerySQL", context);
@@ -116,3 +116,16 @@ export function SqlDbUtilsQuerySQL(
     });
   });
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_DB_VERSION: {
+    postgres: "SELECT MAX(value) as maxVerion FROM metadata WHERE \"type\" = 'db_version'",
+    sqlite: 'SELECT MAX(value) as maxVerion FROM metadata WHERE type = "db_version"',
+  },
+  INSERT_DB_VERSION: {
+    postgres: 'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'db_version\', ?, ?)',
+    sqlite: 'INSERT INTO metadata (type, value, dateCreated) VALUES ("db_version", ?, ?)',
+  },
+};
