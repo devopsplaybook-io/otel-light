@@ -1,12 +1,13 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
 import { Log } from "../model/Log";
-import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsLogsRoutes {
   //
@@ -37,9 +38,11 @@ export class AnalyticsLogsRoutes {
         sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
-      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${AnalyticsUtilsResultLimit}`,
-        sqlParams
+      const rawLogs = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_LOGS(sqlWhere, AnalyticsUtilsResultLimit)[
+          DbUtilsGetType()
+        ],
+        sqlParams,
       );
       const logs = [];
       rawLogs.forEach((rawLog) => {
@@ -58,3 +61,12 @@ export class AnalyticsLogsRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_LOGS: (sqlWhere: string, limit: number) => ({
+    postgres: `SELECT * FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+    sqlite: `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+  }),
+};

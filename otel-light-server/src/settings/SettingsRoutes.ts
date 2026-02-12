@@ -3,9 +3,10 @@ import { Settings } from "../model/Settings";
 import { OTelRequestSpan } from "../OTelContext";
 import { AuthGetUserSession } from "../users/Auth";
 import {
-  SqlDbUtilsExecSQL,
-  SqlDbUtilsQuerySQL,
-} from "../utils-std-ts/SqlDbUtils";
+  DbUtilsExecSQL,
+  DbUtilsQuerySQL,
+  DbUtilsGetType,
+} from "../utils-std-ts/DbUtils";
 
 export class SettingsRoutes {
   //
@@ -18,10 +19,10 @@ export class SettingsRoutes {
         if (!userSession.isAuthenticated) {
           return res.status(403).send({ error: "Access Denied" });
         }
-        const rawSettings = await SqlDbUtilsQuerySQL(
+        const rawSettings = await DbUtilsQuerySQL(
           OTelRequestSpan(req),
-          "SELECT * FROM settings WHERE category = ?",
-          [req.params.category]
+          SQL_QUERIES.GET_SETTINGS[DbUtilsGetType()],
+          [req.params.category],
         );
         if (!rawSettings || rawSettings.length === 0) {
           return res.status(200).send({
@@ -33,7 +34,7 @@ export class SettingsRoutes {
         }
         const settings = new Settings(rawSettings[0]);
         return res.status(200).send({ settings });
-      }
+      },
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,18 +45,35 @@ export class SettingsRoutes {
         if (!userSession.isAuthenticated) {
           return res.status(403).send({ error: "Access Denied" });
         }
-        await SqlDbUtilsExecSQL(
+        await DbUtilsExecSQL(
           OTelRequestSpan(req),
-          "DELETE FROM settings WHERE category = ?",
-          [req.params.category]
+          SQL_QUERIES.DELETE_SETTINGS[DbUtilsGetType()],
+          [req.params.category],
         );
-        await SqlDbUtilsQuerySQL(
+        await DbUtilsQuerySQL(
           OTelRequestSpan(req),
-          "INSERT INTO settings (category, content) VALUES (?, ?)",
-          [req.params.category, JSON.stringify(req.body.content)]
+          SQL_QUERIES.INSERT_SETTINGS[DbUtilsGetType()],
+          [req.params.category, JSON.stringify(req.body.content)],
         );
         return res.status(201).send({});
-      }
+      },
     );
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_SETTINGS: {
+    postgres: 'SELECT * FROM settings WHERE "category" = $1',
+    sqlite: "SELECT * FROM settings WHERE category = ?",
+  },
+  DELETE_SETTINGS: {
+    postgres: 'DELETE FROM settings WHERE "category" = $1',
+    sqlite: "DELETE FROM settings WHERE category = ?",
+  },
+  INSERT_SETTINGS: {
+    postgres: 'INSERT INTO settings ("category", "content") VALUES ($1, $2)',
+    sqlite: "INSERT INTO settings (category, content) VALUES (?, ?)",
+  },
+};

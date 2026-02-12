@@ -42,7 +42,10 @@ export class PromisePool {
   }
 
   private runNext() {
-    if (this.currentConcurrency < this.maxConcurrency && this.queue.length > 0) {
+    if (
+      this.currentConcurrency < this.maxConcurrency &&
+      this.queue.length > 0
+    ) {
       const { wrappedPromise, resolve, reject } = this.queue.shift();
       this.currentConcurrency++;
 

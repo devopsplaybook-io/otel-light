@@ -1,17 +1,18 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { User } from "../model/User";
 import {
-  SqlDbUtilsExecSQL,
-  SqlDbUtilsQuerySQL,
-} from "../utils-std-ts/SqlDbUtils";
+  DbUtilsExecSQL,
+  DbUtilsQuerySQL,
+  DbUtilsGetType,
+} from "../utils-std-ts/DbUtils";
 import { OTelTracer } from "../OTelContext";
 
 export async function UsersDataGet(context: Span, id: string): Promise<User> {
   const span = OTelTracer().startSpan("UsersDataGet", context);
-  const usersRaw = await SqlDbUtilsQuerySQL(
+  const usersRaw = await DbUtilsQuerySQL(
     span,
-    "SELECT * FROM users WHERE id=?",
-    [id]
+    SQL_QUERIES.GET_USER_BY_ID[DbUtilsGetType()],
+    [id],
   );
   let user: User = null;
   if (usersRaw.length > 0) {
@@ -23,13 +24,13 @@ export async function UsersDataGet(context: Span, id: string): Promise<User> {
 
 export async function UsersDataGetByName(
   context: Span,
-  name: string
+  name: string,
 ): Promise<User> {
   const span = OTelTracer().startSpan("UsersDataGetByName", context);
-  const usersRaw = await SqlDbUtilsQuerySQL(
+  const usersRaw = await DbUtilsQuerySQL(
     span,
-    "SELECT * FROM users WHERE name=?",
-    [name]
+    SQL_QUERIES.GET_USER_BY_NAME[DbUtilsGetType()],
+    [name],
   );
   let user: User = null;
   if (usersRaw.length > 0) {
@@ -41,7 +42,10 @@ export async function UsersDataGetByName(
 
 export async function UsersDataList(context: Span): Promise<User[]> {
   const span = OTelTracer().startSpan("UsersDataList", context);
-  const usersRaw = await SqlDbUtilsQuerySQL(span, "SELECT * FROM users");
+  const usersRaw = await DbUtilsQuerySQL(
+    span,
+    SQL_QUERIES.LIST_USERS[DbUtilsGetType()],
+  );
   const users = [];
   for (const userRaw of usersRaw) {
     users.push(fromRaw(userRaw));
@@ -52,24 +56,23 @@ export async function UsersDataList(context: Span): Promise<User[]> {
 
 export async function UsersDataAdd(context: Span, user: User): Promise<void> {
   const span = OTelTracer().startSpan("UsersDataAdd", context);
-  await SqlDbUtilsExecSQL(
-    span,
-    "INSERT INTO users (id,name,passwordEncrypted) VALUES (?, ?, ?)",
-    [user.id, user.name, user.passwordEncrypted]
-  );
+  await DbUtilsExecSQL(span, SQL_QUERIES.INSERT_USER[DbUtilsGetType()], [
+    user.id,
+    user.name,
+    user.passwordEncrypted,
+  ]);
   span.end();
 }
 
 export async function UsersDataUpdate(
   context: Span,
-  user: User
+  user: User,
 ): Promise<void> {
   const span = OTelTracer().startSpan("UsersDataUpdate", context);
-  await SqlDbUtilsExecSQL(
-    span,
-    "UPDATE users SET passwordEncrypted = ? WHERE id = ? ",
-    [user.passwordEncrypted, user.id]
-  );
+  await DbUtilsExecSQL(span, SQL_QUERIES.UPDATE_USER[DbUtilsGetType()], [
+    user.passwordEncrypted,
+    user.id,
+  ]);
   span.end();
 }
 
@@ -83,3 +86,29 @@ function fromRaw(userRaw: any): User {
   user.passwordEncrypted = userRaw.passwordEncrypted;
   return user;
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_USER_BY_ID: {
+    postgres: 'SELECT * FROM users WHERE "id" = $1',
+    sqlite: "SELECT * FROM users WHERE id = ?",
+  },
+  GET_USER_BY_NAME: {
+    postgres: 'SELECT * FROM users WHERE "name" = $1',
+    sqlite: "SELECT * FROM users WHERE name = ?",
+  },
+  LIST_USERS: {
+    postgres: "SELECT * FROM users",
+    sqlite: "SELECT * FROM users",
+  },
+  INSERT_USER: {
+    postgres:
+      'INSERT INTO users ("id", "name", "passwordEncrypted") VALUES ($1, $2, $3)',
+    sqlite: "INSERT INTO users (id, name, passwordEncrypted) VALUES (?, ?, ?)",
+  },
+  UPDATE_USER: {
+    postgres: 'UPDATE users SET "passwordEncrypted" = $1 WHERE "id" = $2',
+    sqlite: "UPDATE users SET passwordEncrypted = ? WHERE id = ?",
+  },
+};

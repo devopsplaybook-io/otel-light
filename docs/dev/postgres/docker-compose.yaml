@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:18
+    container_name: postgres-otel
+    environment:
+      POSTGRES_USER: otel
+      POSTGRES_PASSWORD: otel
+      POSTGRES_DB: otel-light
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data-otel:/var/lib/postgresql/data
+    restart: unless-stopped
+
+volumes:
+  postgres-data-otel:
+    name: postgres-data-otel

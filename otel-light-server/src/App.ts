@@ -20,7 +20,7 @@ import {
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { AuthInit } from "./users/Auth";
 import { UsersRoutes } from "./users/UsersRoutes";
-import { SqlDbUtilsInit } from "./utils-std-ts/SqlDbUtils";
+import { DbUtilsInit } from "./utils-std-ts/DbUtils";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
@@ -47,7 +47,7 @@ Promise.resolve().then(async () => {
   const span = OTelTracer().startSpan("init");
 
   await SignalUtilsInit(span, config);
-  await SqlDbUtilsInit(span, config);
+  await DbUtilsInit(span, config);
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);

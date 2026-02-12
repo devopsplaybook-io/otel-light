@@ -1,11 +1,12 @@
 import { FastifyInstance } from "fastify";
 import { find } from "lodash";
-import { SqlDbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
+import { DbUtilsGetType } from "../../utils-std-ts/DbUtils";
 export class LogsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -42,9 +43,8 @@ export class LogsRoutes {
               console.log("Unknown Log Body" + JSON.stringify(logRecord.body));
               logText = "Log Object: \n" + JSON.stringify(logRecord.body);
             }
-            await SqlDbUtilsNoTelemetryExecSQL(
-              "INSERT INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords) " +
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            await DbUtilsNoTelemetryExecSQL(
+              SQL_QUERIES.INSERT_LOG[DbUtilsGetType()],
               [
                 serviceName,
                 serviceVersion,
@@ -55,7 +55,7 @@ export class LogsRoutes {
                 logText,
                 JSON.stringify(logRecord.attributes),
                 keywords.toLowerCase(),
-              ]
+              ],
             );
           });
         });
@@ -64,3 +64,16 @@ export class LogsRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  INSERT_LOG: {
+    postgres:
+      'INSERT INTO logs ("serviceName", "serviceVersion", "traceId", "spanId", "time", "severity", "logText", "attributes", "keywords") ' +
+      " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    sqlite:
+      "INSERT INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords) " +
+      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  },
+};
