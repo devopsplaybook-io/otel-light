@@ -7,9 +7,7 @@ export function DbUtilsNoTelemetryExecSQL(
   sql: string,
   params = [],
 ): Promise<number> {
-  const dbType = DbUtilsGetType();
-
-  if (dbType === "postgres") {
+  if (DbUtilsGetType() === "postgres") {
     // Convert SQLite placeholders (?) to PostgreSQL ($1, $2, etc.)
     let paramIndex = 1;
     const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);

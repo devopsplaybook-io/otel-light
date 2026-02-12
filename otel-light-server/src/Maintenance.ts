@@ -3,7 +3,11 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "./Config";
 import { Settings } from "./model/Settings";
 import { OTelLogger, OTelTracer } from "./OTelContext";
-import { DbUtilsExecSQL, DbUtilsQuerySQL, DbUtilsGetType } from "./utils-std-ts/DbUtils";
+import {
+  DbUtilsExecSQL,
+  DbUtilsQuerySQL,
+  DbUtilsGetType,
+} from "./utils-std-ts/DbUtils";
 
 const logger = OTelLogger().createModuleLogger("Maintenance");
 let config: Config;
@@ -154,19 +158,22 @@ async function MaintenanceMetricsCompress(
 
 const SQL_QUERIES = {
   GET_SETTINGS: {
-    postgres: 'SELECT * FROM settings WHERE "category" = ?',
-    sqlite: 'SELECT * FROM settings WHERE category = ?',
+    postgres: 'SELECT * FROM settings WHERE "category" = $1',
+    sqlite: "SELECT * FROM settings WHERE category = ?",
   },
   SELECT_TRACES_TO_DELETE: {
-    postgres: 'SELECT * FROM traces tp, traces tc  WHERE tp."traceId" = tc."traceId" AND tp."startTime" < ? AND tp."keywords" LIKE ?',
-    sqlite: 'SELECT * FROM traces tp, traces tc  WHERE tp.traceId = tc.traceId AND tp.startTime < ? AND tp.keywords LIKE ?',
+    postgres:
+      'SELECT * FROM traces tp, traces tc  WHERE tp."traceId" = tc."traceId" AND tp."startTime" < $1 AND tp."keywords" LIKE $2',
+    sqlite:
+      "SELECT * FROM traces tp, traces tc  WHERE tp.traceId = tc.traceId AND tp.startTime < ? AND tp.keywords LIKE ?",
   },
   DELETE_TRACES: {
-    postgres: 'DELETE FROM traces WHERE "startTime" < ? AND "keywords" LIKE ?',
-    sqlite: 'DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?',
+    postgres:
+      'DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2',
+    sqlite: "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?",
   },
   DELETE_SIGNALS: (tableName: string) => ({
-    postgres: `DELETE FROM ${tableName} WHERE "time" < ? AND "keywords" LIKE ?`,
+    postgres: `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2`,
     sqlite: `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?`,
   }),
   DELETE_ORPHAN_TRACES: {
@@ -174,25 +181,23 @@ const SQL_QUERIES = {
       'DELETE FROM traces  WHERE "traceId" ' +
       ' IN ( SELECT "traceId" FROM traces GROUP BY "traceId" ' +
       '  HAVING SUM(CASE WHEN "parentSpanId" IS NULL THEN 1 ELSE 0 END) = 0 ' +
-      '         AND MAX("startTime") < ? )',
+      '         AND MAX("startTime") < $1 )',
     sqlite:
-      'DELETE FROM traces  WHERE traceId ' +
-      ' IN ( SELECT traceId FROM traces GROUP BY traceId ' +
-      '  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0 ' +
-      '         AND MAX(startTime) < ? )',
+      "DELETE FROM traces  WHERE traceId " +
+      " IN ( SELECT traceId FROM traces GROUP BY traceId " +
+      "  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0 " +
+      "         AND MAX(startTime) < ? )",
   },
   DELETE_DUPLICATE_METRICS: {
-    postgres:
-      `WITH KeepRows AS (
+    postgres: `WITH KeepRows AS (
          SELECT MAX(rowid) as keep_rowid
          FROM metrics
-         WHERE "time" < ?
-         GROUP BY "name", "serviceName", CAST("time" / ? AS INTEGER)
+         WHERE "time" < $1
+         GROUP BY "name", "serviceName", CAST("time" / $2 AS INTEGER)
        )
        DELETE FROM metrics
-       WHERE "time" < ? AND rowid NOT IN (SELECT keep_rowid FROM KeepRows)`,
-    sqlite:
-      `WITH KeepRows AS (
+       WHERE "time" < $3 AND rowid NOT IN (SELECT keep_rowid FROM KeepRows)`,
+    sqlite: `WITH KeepRows AS (
          SELECT MAX(rowid) as keep_rowid
          FROM metrics
          WHERE time < ?

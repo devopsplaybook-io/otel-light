@@ -6,6 +6,7 @@ import {
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
+import { DbUtilsGetType } from "../../utils-std-ts/DbUtils";
 export class LogsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -43,7 +44,7 @@ export class LogsRoutes {
               logText = "Log Object: \n" + JSON.stringify(logRecord.body);
             }
             await DbUtilsNoTelemetryExecSQL(
-              SQL_QUERIES.INSERT_LOG,
+              SQL_QUERIES.INSERT_LOG[DbUtilsGetType()],
               [
                 serviceName,
                 serviceVersion,
@@ -67,7 +68,12 @@ export class LogsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  INSERT_LOG:
-    "INSERT INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords) " +
-    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  INSERT_LOG: {
+    postgres:
+      'INSERT INTO logs ("serviceName", "serviceVersion", "traceId", "spanId", "time", "severity", "logText", "attributes", "keywords") ' +
+      " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
+    sqlite:
+      "INSERT INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords) " +
+      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  },
 };

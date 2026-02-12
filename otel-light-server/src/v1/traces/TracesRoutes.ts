@@ -6,6 +6,7 @@ import {
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
+import { DbUtilsGetType } from "../../utils-std-ts/DbUtils";
 
 export class TracesRoutes {
   //
@@ -32,7 +33,7 @@ export class TracesRoutes {
 
             const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`;
             await DbUtilsNoTelemetryExecSQL(
-              SQL_QUERIES.INSERT_TRACE,
+              SQL_QUERIES.INSERT_TRACE[DbUtilsGetType()],
               [
                 span.traceId,
                 span.spanId,
@@ -60,7 +61,12 @@ export class TracesRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  INSERT_TRACE:
-    "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords) " +
-    " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  INSERT_TRACE: {
+    postgres:
+      'INSERT INTO traces ("traceId", "spanId", "parentSpanId", "name", "serviceName", "serviceVersion", "startTime", "endTime", "statusCode", "attributes", "rawSpan", "keywords") ' +
+      " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
+    sqlite:
+      "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords) " +
+      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  },
 };

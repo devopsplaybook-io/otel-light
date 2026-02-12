@@ -7,6 +7,7 @@ import {
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsMetricsRoutes {
   //
@@ -42,7 +43,9 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(req.query.name.trim());
       }
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics),
+        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
+          DbUtilsGetType()
+        ],
         sqlParams,
       );
       const metrics = [];
@@ -89,7 +92,7 @@ export class AnalyticsMetricsRoutes {
       }
 
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS_NAMES(sqlWhere),
+        SQL_QUERIES.GET_METRICS_NAMES(sqlWhere)[DbUtilsGetType()],
         sqlParams,
       );
       const metricsNames: {
@@ -117,6 +120,12 @@ export class AnalyticsMetricsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_METRICS: (sqlWhere: string, limit: number) => `SELECT * FROM metrics ${sqlWhere} LIMIT ${limit}`,
-  GET_METRICS_NAMES: (sqlWhere: string) => `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
+  GET_METRICS: (sqlWhere: string, limit: number) => ({
+    postgres: `SELECT * FROM metrics ${sqlWhere} LIMIT ${limit}`,
+    sqlite: `SELECT * FROM metrics ${sqlWhere} LIMIT ${limit}`,
+  }),
+  GET_METRICS_NAMES: (sqlWhere: string) => ({
+    postgres: `SELECT DISTINCT "name", "serviceName", "type" FROM metrics ${sqlWhere} ORDER BY "serviceName", "name", "type"`,
+    sqlite: `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
+  }),
 };

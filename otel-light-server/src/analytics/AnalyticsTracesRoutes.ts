@@ -8,6 +8,7 @@ import {
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsTracesRoutes {
   //
@@ -41,25 +42,41 @@ export class AnalyticsTracesRoutes {
       };
 
       if (req.query.traceId) {
-        sqlWhere = appendWhereCondition(sqlWhere, "t.traceId = ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          't."traceId" = ' +
+            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+        );
         sqlParams.push(req.query.traceId);
       }
 
       if (req.query.from) {
-        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.startTime >= ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          'rootSpan."startTime" >= ' +
+            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+        );
         sqlParams.push(req.query.from);
       }
       if (req.query.to) {
-        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.startTime <= ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          'rootSpan."startTime" <= ' +
+            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+        );
         sqlParams.push(req.query.to);
       }
       if (req.query.keywords?.trim()) {
-        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.keywords LIKE ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          "rootSpan.keywords LIKE " +
+            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+        );
         sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACES(sqlWhere),
+        SQL_QUERIES.GET_TRACES(sqlWhere)[DbUtilsGetType()],
         sqlParams,
       );
       const traces = [];
@@ -89,7 +106,7 @@ export class AnalyticsTracesRoutes {
       }
 
       const rawSpans = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACE_SPANS,
+        SQL_QUERIES.GET_TRACE_SPANS[DbUtilsGetType()],
         [req.params.traceId],
       );
       const spans = [];
@@ -111,7 +128,7 @@ export class AnalyticsTracesRoutes {
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACE_LOGS,
+        SQL_QUERIES.GET_TRACE_LOGS[DbUtilsGetType()],
         [req.params.traceId],
       );
       const logs = [];
@@ -127,21 +144,47 @@ export class AnalyticsTracesRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_TRACES: (sqlWhere: string) =>
-    "SELECT " +
-    "MIN(t.startTime) AS startTime, " +
-    "MAX(t.endTime) AS endTime, " +
-    "t.traceId, " +
-    "COUNT(*) as spanCount, " +
-    "rootSpan.name AS name, " +
-    "rootSpan.serviceName AS serviceName, " +
-    "rootSpan.serviceVersion AS serviceVersion, " +
-    "COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors " +
-    "FROM traces t " +
-    "LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL" +
-    sqlWhere +
-    " GROUP BY t.traceId " +
-    " ORDER BY t.startTime DESC ",
-  GET_TRACE_SPANS: "SELECT * FROM traces WHERE traceId = ? ORDER BY startTime",
-  GET_TRACE_LOGS: "SELECT * FROM logs WHERE traceId = ?",
+  GET_TRACES: (sqlWhere: string) => ({
+    postgres: `
+      SELECT  MIN(t."startTime") AS "startTime", 
+              MAX(t."endTime") AS "endTime", 
+              t."traceId", 
+              COUNT(*) as "spanCount", 
+              rootSpan."name" AS "name", 
+              rootSpan."serviceName" AS "serviceName", 
+              rootSpan."serviceVersion" AS "serviceVersion", 
+              COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) AS "nbErrors" 
+      FROM traces t 
+        LEFT JOIN traces rootSpan ON rootSpan."traceId" = t."traceId" AND rootSpan."parentSpanId" IS NULL${sqlWhere} 
+      GROUP BY t."traceId", rootSpan."name", rootSpan."serviceName", rootSpan."serviceVersion" 
+      ORDER BY "startTime" DESC`,
+    sqlite: `
+      SELECT  MIN(t.startTime) AS startTime, 
+              MAX(t.endTime) AS endTime, 
+              t.traceId, 
+              COUNT(*) as spanCount, 
+              rootSpan.name AS name, 
+              rootSpan.serviceName AS serviceName, 
+              rootSpan.serviceVersion AS serviceVersion, 
+              COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors 
+      FROM traces t 
+        LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL${sqlWhere} 
+      GROUP BY t.traceId 
+      ORDER BY t.startTime DESC`,
+  }),
+  GET_TRACE_SPANS: {
+    postgres: `SELECT * FROM traces WHERE "traceId" = $1 ORDER BY "startTime"`,
+    sqlite: `SELECT * FROM traces WHERE traceId = ? ORDER BY startTime`,
+  },
+  GET_TRACE_LOGS: {
+    postgres: `SELECT * FROM logs WHERE "traceId" = $1`,
+    sqlite: `SELECT * FROM logs WHERE traceId = ?`,
+  },
 };
+
+function getSQLVariable(dbType: string, index: number): string {
+  if (dbType === "postgres") {
+    return `$${index}`;
+  }
+  return "?";
+}

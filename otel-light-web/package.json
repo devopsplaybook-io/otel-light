@@ -10,18 +10,18 @@
     "test": "echo TODO"
   },
   "devDependencies": {
-    "@vite-pwa/nuxt": "^1.1.0",
-    "nuxt": "4.2.2"
+    "@vite-pwa/nuxt": "^1.1.1",
+    "nuxt": "4.3.1"
   },
   "dependencies": {
     "@picocss/pico": "^2.1.1",
     "@pinia/nuxt": "^0.11.3",
-    "@vueuse/core": "^14.1.0",
+    "@vueuse/core": "^14.2.1",
     "apexcharts": "^5.3.6",
-    "axios": "^1.13.2",
+    "axios": "^1.13.5",
     "bootstrap-icons": "^1.13.1",
     "jwt-decode": "^4.0.0",
-    "lodash": "^4.17.21",
+    "lodash": "^4.17.23",
     "mitt": "^3.0.1",
     "pinia": "^3.0.4",
     "vue3-apexcharts": "^1.10.0"

@@ -7,6 +7,7 @@ import {
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsLogsRoutes {
   //
@@ -38,7 +39,9 @@ export class AnalyticsLogsRoutes {
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_LOGS(sqlWhere, AnalyticsUtilsResultLimit),
+        SQL_QUERIES.GET_LOGS(sqlWhere, AnalyticsUtilsResultLimit)[
+          DbUtilsGetType()
+        ],
         sqlParams,
       );
       const logs = [];
@@ -62,5 +65,8 @@ export class AnalyticsLogsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_LOGS: (sqlWhere: string, limit: number) => `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+  GET_LOGS: (sqlWhere: string, limit: number) => ({
+    postgres: `SELECT * FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+    sqlite: `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+  }),
 };

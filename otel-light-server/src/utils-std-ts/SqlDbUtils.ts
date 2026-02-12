@@ -36,11 +36,10 @@ export async function SqlDbUtilsInit(
       if (dbVersionInitFile > dbVersionApplied) {
         logger.info(`Loading init file: ${initFile}`, span);
         await SqlDbUtilsExecSQLFile(span, `${SQL_DIR}/${initFile}`);
-        await SqlDbUtilsQuerySQL(
-          span,
-          SQL_QUERIES.INSERT_DB_VERSION.sqlite,
-          [dbVersionInitFile, new Date().toISOString()],
-        );
+        await SqlDbUtilsQuerySQL(span, SQL_QUERIES.INSERT_DB_VERSION.sqlite, [
+          dbVersionInitFile,
+          new Date().toISOString(),
+        ]);
       }
     }
   }
@@ -121,11 +120,15 @@ export function SqlDbUtilsQuerySQL(
 
 const SQL_QUERIES = {
   GET_DB_VERSION: {
-    postgres: "SELECT MAX(value) as maxVerion FROM metadata WHERE \"type\" = 'db_version'",
-    sqlite: 'SELECT MAX(value) as maxVerion FROM metadata WHERE type = "db_version"',
+    postgres:
+      "SELECT MAX(value) as maxVerion FROM metadata WHERE \"type\" = 'db_version'",
+    sqlite:
+      'SELECT MAX(value) as maxVerion FROM metadata WHERE type = "db_version"',
   },
   INSERT_DB_VERSION: {
-    postgres: 'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'db_version\', ?, ?)',
-    sqlite: 'INSERT INTO metadata (type, value, dateCreated) VALUES ("db_version", ?, ?)',
+    postgres:
+      'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'db_version\', $1, $2)',
+    sqlite:
+      'INSERT INTO metadata (type, value, dateCreated) VALUES ("db_version", ?, ?)',
   },
 };

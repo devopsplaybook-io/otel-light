@@ -1,7 +1,7 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
 import { OTelMeter, OTelTracer } from "../OTelContext";
-import { DbUtilsQuerySQL } from "../utils-std-ts/DbUtils";
+import { DbUtilsQuerySQL, DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 const signalData = {
   traces: [],
@@ -82,7 +82,7 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
   // Traces
   const tracesRowCount = await DbUtilsQuerySQL(
     span,
-    SQL_QUERIES.COUNT_TRACES,
+    SQL_QUERIES.COUNT_TRACES[DbUtilsGetType()],
   );
   const servicesTraces = [];
   tracesRowCount.forEach((row) => {
@@ -96,7 +96,7 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
   // Metrics
   const metricsRowCount = await DbUtilsQuerySQL(
     span,
-    SQL_QUERIES.COUNT_METRICS,
+    SQL_QUERIES.COUNT_METRICS[DbUtilsGetType()],
   );
   const servicesMetrics = [];
   metricsRowCount.forEach((row) => {
@@ -110,7 +110,7 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
   // Logs
   const logsRowCount = await DbUtilsQuerySQL(
     span,
-    SQL_QUERIES.COUNT_LOGS,
+    SQL_QUERIES.COUNT_LOGS[DbUtilsGetType()],
   );
   const servicesLogs = [];
   logsRowCount.forEach((row) => {
@@ -131,7 +131,22 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
 // SQL
 
 const SQL_QUERIES = {
-  COUNT_TRACES: "SELECT serviceName, serviceVersion, COUNT(*) as nbtraces FROM traces GROUP BY serviceName, serviceVersion",
-  COUNT_METRICS: "SELECT serviceName, serviceVersion, COUNT(*) as nbmetrics FROM metrics GROUP BY serviceName, serviceVersion",
-  COUNT_LOGS: "SELECT serviceName, serviceVersion, COUNT(*) as nblogs FROM logs GROUP BY serviceName, serviceVersion",
+  COUNT_TRACES: {
+    postgres:
+      'SELECT "serviceName", "serviceVersion", COUNT(*) as nbtraces FROM traces GROUP BY "serviceName", "serviceVersion"',
+    sqlite:
+      "SELECT serviceName, serviceVersion, COUNT(*) as nbtraces FROM traces GROUP BY serviceName, serviceVersion",
+  },
+  COUNT_METRICS: {
+    postgres:
+      'SELECT "serviceName", "serviceVersion", COUNT(*) as nbmetrics FROM metrics GROUP BY "serviceName", "serviceVersion"',
+    sqlite:
+      "SELECT serviceName, serviceVersion, COUNT(*) as nbmetrics FROM metrics GROUP BY serviceName, serviceVersion",
+  },
+  COUNT_LOGS: {
+    postgres:
+      'SELECT "serviceName", "serviceVersion", COUNT(*) as nblogs FROM logs GROUP BY "serviceName", "serviceVersion"',
+    sqlite:
+      "SELECT serviceName, serviceVersion, COUNT(*) as nblogs FROM logs GROUP BY serviceName, serviceVersion",
+  },
 };

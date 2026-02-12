@@ -168,11 +168,15 @@ export function PostgresDbUtilsTransactionCommit(context: Span): Promise<void> {
 
 const SQL_QUERIES = {
   GET_DB_VERSION: {
-    postgres: "SELECT MAX(value) as version FROM metadata WHERE \"type\" = 'db_version'",
-    sqlite: 'SELECT MAX(value) as version FROM metadata WHERE type = "db_version"',
+    postgres:
+      "SELECT MAX(value) as version FROM metadata WHERE \"type\" = 'db_version'",
+    sqlite:
+      'SELECT MAX(value) as version FROM metadata WHERE type = "db_version"',
   },
   INSERT_DB_VERSION: {
-    postgres: 'INSERT INTO metadata ("type", "value", "dateCreated") VALUES ($1, $2, $3)',
-    sqlite: 'INSERT INTO metadata (type, value, dateCreated) VALUES ($1, $2, $3)',
+    postgres:
+      'INSERT INTO metadata ("type", "value", "dateCreated") VALUES ($1, $2, $3)',
+    sqlite:
+      "INSERT INTO metadata (type, value, dateCreated) VALUES ($1, $2, $3)",
   },
 };

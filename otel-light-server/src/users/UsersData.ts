@@ -1,6 +1,10 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { User } from "../model/User";
-import { DbUtilsExecSQL, DbUtilsQuerySQL, DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import {
+  DbUtilsExecSQL,
+  DbUtilsQuerySQL,
+  DbUtilsGetType,
+} from "../utils-std-ts/DbUtils";
 import { OTelTracer } from "../OTelContext";
 
 export async function UsersDataGet(context: Span, id: string): Promise<User> {
@@ -38,7 +42,10 @@ export async function UsersDataGetByName(
 
 export async function UsersDataList(context: Span): Promise<User[]> {
   const span = OTelTracer().startSpan("UsersDataList", context);
-  const usersRaw = await DbUtilsQuerySQL(span, SQL_QUERIES.LIST_USERS[DbUtilsGetType()]);
+  const usersRaw = await DbUtilsQuerySQL(
+    span,
+    SQL_QUERIES.LIST_USERS[DbUtilsGetType()],
+  );
   const users = [];
   for (const userRaw of usersRaw) {
     users.push(fromRaw(userRaw));
@@ -49,11 +56,11 @@ export async function UsersDataList(context: Span): Promise<User[]> {
 
 export async function UsersDataAdd(context: Span, user: User): Promise<void> {
   const span = OTelTracer().startSpan("UsersDataAdd", context);
-  await DbUtilsExecSQL(
-    span,
-    SQL_QUERIES.INSERT_USER[DbUtilsGetType()],
-    [user.id, user.name, user.passwordEncrypted],
-  );
+  await DbUtilsExecSQL(span, SQL_QUERIES.INSERT_USER[DbUtilsGetType()], [
+    user.id,
+    user.name,
+    user.passwordEncrypted,
+  ]);
   span.end();
 }
 
@@ -62,11 +69,10 @@ export async function UsersDataUpdate(
   user: User,
 ): Promise<void> {
   const span = OTelTracer().startSpan("UsersDataUpdate", context);
-  await DbUtilsExecSQL(
-    span,
-    SQL_QUERIES.UPDATE_USER[DbUtilsGetType()],
-    [user.passwordEncrypted, user.id],
-  );
+  await DbUtilsExecSQL(span, SQL_QUERIES.UPDATE_USER[DbUtilsGetType()], [
+    user.passwordEncrypted,
+    user.id,
+  ]);
   span.end();
 }
 
@@ -85,23 +91,24 @@ function fromRaw(userRaw: any): User {
 
 const SQL_QUERIES = {
   GET_USER_BY_ID: {
-    postgres: 'SELECT * FROM users WHERE "id" = ?',
-    sqlite: 'SELECT * FROM users WHERE id = ?',
+    postgres: 'SELECT * FROM users WHERE "id" = $1',
+    sqlite: "SELECT * FROM users WHERE id = ?",
   },
   GET_USER_BY_NAME: {
-    postgres: 'SELECT * FROM users WHERE "name" = ?',
-    sqlite: 'SELECT * FROM users WHERE name = ?',
+    postgres: 'SELECT * FROM users WHERE "name" = $1',
+    sqlite: "SELECT * FROM users WHERE name = ?",
   },
   LIST_USERS: {
-    postgres: 'SELECT * FROM users',
-    sqlite: 'SELECT * FROM users',
+    postgres: "SELECT * FROM users",
+    sqlite: "SELECT * FROM users",
   },
   INSERT_USER: {
-    postgres: 'INSERT INTO users ("id", "name", "passwordEncrypted") VALUES (?, ?, ?)',
-    sqlite: 'INSERT INTO users (id, name, passwordEncrypted) VALUES (?, ?, ?)',
+    postgres:
+      'INSERT INTO users ("id", "name", "passwordEncrypted") VALUES ($1, $2, $3)',
+    sqlite: "INSERT INTO users (id, name, passwordEncrypted) VALUES (?, ?, ?)",
   },
   UPDATE_USER: {
-    postgres: 'UPDATE users SET "passwordEncrypted" = ? WHERE "id" = ?',
-    sqlite: 'UPDATE users SET passwordEncrypted = ? WHERE id = ?',
+    postgres: 'UPDATE users SET "passwordEncrypted" = $1 WHERE "id" = $2',
+    sqlite: "UPDATE users SET passwordEncrypted = ? WHERE id = ?",
   },
 };

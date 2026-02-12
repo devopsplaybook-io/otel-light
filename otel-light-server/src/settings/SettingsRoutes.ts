@@ -2,7 +2,11 @@ import { FastifyInstance } from "fastify";
 import { Settings } from "../model/Settings";
 import { OTelRequestSpan } from "../OTelContext";
 import { AuthGetUserSession } from "../users/Auth";
-import { DbUtilsExecSQL, DbUtilsQuerySQL, DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import {
+  DbUtilsExecSQL,
+  DbUtilsQuerySQL,
+  DbUtilsGetType,
+} from "../utils-std-ts/DbUtils";
 
 export class SettingsRoutes {
   //
@@ -61,15 +65,15 @@ export class SettingsRoutes {
 
 const SQL_QUERIES = {
   GET_SETTINGS: {
-    postgres: 'SELECT * FROM settings WHERE "category" = ?',
-    sqlite: 'SELECT * FROM settings WHERE category = ?',
+    postgres: 'SELECT * FROM settings WHERE "category" = $1',
+    sqlite: "SELECT * FROM settings WHERE category = ?",
   },
   DELETE_SETTINGS: {
-    postgres: 'DELETE FROM settings WHERE "category" = ?',
-    sqlite: 'DELETE FROM settings WHERE category = ?',
+    postgres: 'DELETE FROM settings WHERE "category" = $1',
+    sqlite: "DELETE FROM settings WHERE category = ?",
   },
   INSERT_SETTINGS: {
-    postgres: 'INSERT INTO settings ("category", "content") VALUES (?, ?)',
-    sqlite: 'INSERT INTO settings (category, content) VALUES (?, ?)',
+    postgres: 'INSERT INTO settings ("category", "content") VALUES ($1, $2)',
+    sqlite: "INSERT INTO settings (category, content) VALUES (?, ?)",
   },
 };

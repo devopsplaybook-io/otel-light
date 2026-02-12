@@ -5,6 +5,7 @@ import {
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
 import { DbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/DbUtilsNoTelemetry";
+import { DbUtilsGetType } from "../../utils-std-ts/DbUtils";
 
 export class MetricsRoutes {
   //
@@ -32,7 +33,7 @@ export class MetricsRoutes {
             else if (metric.summary) metricType = "summary";
             const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metric.name}`;
             await DbUtilsNoTelemetryExecSQL(
-              SQL_QUERIES.INSERT_METRIC,
+              SQL_QUERIES.INSERT_METRIC[DbUtilsGetType()],
               [
                 metric.name,
                 serviceName,
@@ -56,7 +57,12 @@ export class MetricsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  INSERT_METRIC:
-    "INSERT INTO metrics (name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords) " +
-    " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  INSERT_METRIC: {
+    postgres:
+      'INSERT INTO metrics ("name", "serviceName", "serviceVersion", "type", "time", "attributes", "rawMetric", "keywords") ' +
+      " VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+    sqlite:
+      "INSERT INTO metrics (name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords) " +
+      " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+  },
 };
