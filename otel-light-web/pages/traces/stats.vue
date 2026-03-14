@@ -76,7 +76,7 @@ import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
-import { getDurationText } from "../services/Utils";
+import { getDurationText } from "~/services/Utils";
 
 function percentile(arr, p) {
   if (!arr.length) return 0;
@@ -165,11 +165,9 @@ export default {
       return await axios
         .get(
           `${
-            (
-              await Config.get()
-            ).SERVER_URL
+            (await Config.get()).SERVER_URL
           }/analytics/traces/${traceId}/spans`,
-          await AuthService.getAuthHeader()
+          await AuthService.getAuthHeader(),
         )
         .then((response) => {
           return response.data.spans;
@@ -179,7 +177,7 @@ export default {
       return await axios
         .get(
           `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
-          await AuthService.getAuthHeader()
+          await AuthService.getAuthHeader(),
         )
         .then((response) => {
           return response.data.logs;
