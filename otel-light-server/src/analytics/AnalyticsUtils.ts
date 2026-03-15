@@ -45,5 +45,15 @@ export async function AnalyticsUtilsCompressJson(
   return compressedBuffer.toString("base64");
 }
 
+export function AnalyticsUtilsGetSQLVariable(
+  dbType: string,
+  index: number,
+): string {
+  if (dbType === "postgres") {
+    return `$${index}`;
+  }
+  return "?";
+}
+
 export let AnalyticsUtilsResultLimit = 2000;
 export let AnalyticsUtilsResultLimitMetrics = 10000;

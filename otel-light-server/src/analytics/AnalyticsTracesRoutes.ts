@@ -6,6 +6,7 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
@@ -45,7 +46,10 @@ export class AnalyticsTracesRoutes {
         sqlWhere = appendWhereCondition(
           sqlWhere,
           't."traceId" = ' +
-            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
         );
         sqlParams.push(req.query.traceId);
       }
@@ -54,7 +58,10 @@ export class AnalyticsTracesRoutes {
         sqlWhere = appendWhereCondition(
           sqlWhere,
           'rootSpan."startTime" >= ' +
-            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
         );
         sqlParams.push(req.query.from);
       }
@@ -62,7 +69,10 @@ export class AnalyticsTracesRoutes {
         sqlWhere = appendWhereCondition(
           sqlWhere,
           'rootSpan."startTime" <= ' +
-            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
         );
         sqlParams.push(req.query.to);
       }
@@ -70,7 +80,10 @@ export class AnalyticsTracesRoutes {
         sqlWhere = appendWhereCondition(
           sqlWhere,
           "rootSpan.keywords LIKE " +
-            getSQLVariable(DbUtilsGetType(), sqlParams.length + 1),
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
         );
         sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
@@ -181,10 +194,3 @@ const SQL_QUERIES = {
     sqlite: `SELECT * FROM logs WHERE traceId = ?`,
   },
 };
-
-function getSQLVariable(dbType: string, index: number): string {
-  if (dbType === "postgres") {
-    return `$${index}`;
-  }
-  return "?";
-}

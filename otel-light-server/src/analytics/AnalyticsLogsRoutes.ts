@@ -6,6 +6,7 @@ import {
   AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsGetSQLVariable,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
@@ -26,15 +27,21 @@ export class AnalyticsLogsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE time >= ? ";
+      let sqlWhere =
+        " WHERE time >=  " +
+        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
-        sqlWhere += " AND time <= ? ";
+        sqlWhere +=
+          " AND time <= " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (req.query.keywords?.trim()) {
-        sqlWhere += " AND keywords LIKE ? ";
+        sqlWhere +=
+          " AND keywords LIKE " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(`%${req.query.keywords.trim()}%`);
       }
 

@@ -5,6 +5,7 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetDefaultFromTime,
+  AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
@@ -27,19 +28,27 @@ export class AnalyticsMetricsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE time >= ? ";
+      let sqlWhere =
+        " WHERE time >= " +
+        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
-        sqlWhere += " AND time <= ? ";
+        sqlWhere +=
+          " AND time <= " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (req.query.serviceName?.trim()) {
-        sqlWhere += " AND serviceName = ? ";
+        sqlWhere +=
+          ' AND "serviceName" = ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.serviceName.trim());
       }
       if (req.query.name?.trim()) {
-        sqlWhere += " AND name = ? ";
+        sqlWhere +=
+          " AND name = " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.name.trim());
       }
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
@@ -77,17 +86,26 @@ export class AnalyticsMetricsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE time >= ? ";
+      let sqlWhere =
+        " WHERE time >= " +
+        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
-        sqlWhere += " AND time <= ? ";
+        sqlWhere +=
+          " AND time <= " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
 
       if (req.query.keywords?.trim()) {
         const kw = `%${req.query.keywords.trim()}%`;
-        sqlWhere += " AND (name LIKE ? OR serviceName LIKE ?)";
+        sqlWhere +=
+          " AND (name LIKE " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1) +
+          ' OR "serviceName" LIKE ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 2) +
+          ")";
         sqlParams.push(kw, kw);
       }
 
