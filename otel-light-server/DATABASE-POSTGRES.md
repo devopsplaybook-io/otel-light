@@ -1,6 +1,6 @@
 # Database Configuration - PostgreSQL Support
 
-The otel-light-server now supports both SQLite (default) and PostgreSQL databases.
+The otel-light-server now supports both SQLite (default) and PostgreSQL databases..
 
 ## Configuration
 
