@@ -116,15 +116,6 @@ class DatabaseMigration {
     }
   }
 
-  private async clearTable(tableName: string): Promise<void> {
-    console.log(`  Clearing table ${tableName} in destination...`);
-    if (this.config.to === "sqlite") {
-      await this.execSqlite(`DELETE FROM ${tableName}`);
-    } else {
-      await this.execPostgres(`DELETE FROM ${tableName}`);
-    }
-  }
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private async insertRow(tableName: string, row: any): Promise<void> {
     const columns = Object.keys(row);
@@ -171,8 +162,6 @@ class DatabaseMigration {
 
     console.log(`  Found ${rowCount} rows in ${tableName}`);
     const rows = await this.getRowsFromSource(tableName);
-
-    await this.clearTable(tableName);
 
     let migratedCount = 0;
     for (const row of rows) {
