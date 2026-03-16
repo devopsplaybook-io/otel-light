@@ -1,6 +1,7 @@
 import * as fs from "fs";
 import * as fse from "fs-extra";
 import * as path from "path";
+import * as readline from "readline";
 import { Config } from "../Config";
 import { OTelLogger } from "../OTelContext";
 import { DbUtilsInitGetDatabase } from "../utils-std-ts/DbUtils";
@@ -75,15 +76,17 @@ export async function ExportImportImportPostgresDatabase(
   }
   logger.info(`Importing PostgreSQL data from ${importPath}`);
   const pool = DbUtilsInitGetDatabase();
-  const content = await fse.readFile(importPath, "utf-8");
-  const statements = content
-    .split("\n")
-    .filter((line) => line.trim().length > 0);
-  logger.info(`Total statements to execute: ${statements.length}`);
+
+  const readStream = fs.createReadStream(importPath, { encoding: "utf-8" });
+  const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
 
   let success = 0;
   let errors = 0;
-  for (const statement of statements) {
+  for await (const line of rl) {
+    const statement = line.trim();
+    if (statement.length === 0) {
+      continue;
+    }
     try {
       await pool.query(statement);
       success++;
