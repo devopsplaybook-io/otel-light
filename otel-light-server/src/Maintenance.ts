@@ -189,14 +189,14 @@ const SQL_QUERIES = {
       "         AND MAX(startTime) < ? )",
   },
   DELETE_DUPLICATE_METRICS: {
-    postgres: `WITH KeepRows AS (
-         SELECT MAX(rowid) as keep_rowid
-         FROM metrics
-         WHERE "time" < $1
-         GROUP BY "name", "serviceName", CAST("time" / $2 AS INTEGER)
-       )
-       DELETE FROM metrics
-       WHERE "time" < $3 AND rowid NOT IN (SELECT keep_rowid FROM KeepRows)`,
+    postgres: `DELETE FROM metrics a
+       USING metrics b
+       WHERE a."name" = b."name"
+         AND a."serviceName" = b."serviceName"
+         AND CAST(a."time" / $2 AS INTEGER) = CAST(b."time" / $2 AS INTEGER)
+         AND a."time" < $1
+         AND b."time" < $3
+         AND a.ctid < b.ctid`,
     sqlite: `WITH KeepRows AS (
          SELECT MAX(rowid) as keep_rowid
          FROM metrics

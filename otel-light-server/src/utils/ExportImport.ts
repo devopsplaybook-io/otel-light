@@ -78,7 +78,10 @@ export async function ExportImportImportPostgresDatabase(
   const pool = DbUtilsInitGetDatabase();
 
   const readStream = fs.createReadStream(importPath, { encoding: "utf-8" });
-  const rl = readline.createInterface({ input: readStream, crlfDelay: Infinity });
+  const rl = readline.createInterface({
+    input: readStream,
+    crlfDelay: Infinity,
+  });
 
   let success = 0;
   let errors = 0;
