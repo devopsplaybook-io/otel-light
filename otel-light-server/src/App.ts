@@ -20,7 +20,11 @@ import {
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { AuthInit } from "./users/Auth";
 import { UsersRoutes } from "./users/UsersRoutes";
-import { DbUtilsInit } from "./utils-std-ts/DbUtils";
+import { DbUtilsInit, DbUtilsGetType } from "./utils-std-ts/DbUtils";
+import {
+  ExportImportExportSqliteDatabase,
+  ExportImportImportPostgresDatabase,
+} from "./utils/ExportImport";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
@@ -48,6 +52,23 @@ Promise.resolve().then(async () => {
 
   await SignalUtilsInit(span, config);
   await DbUtilsInit(span, config);
+
+  // SQLite export migration
+  if (
+    process.env.MIGRATION_SQLITE_EXPORT === "true" &&
+    DbUtilsGetType() === "sqlite"
+  ) {
+    await ExportImportExportSqliteDatabase(config);
+  }
+
+  // PostgreSQL import migration
+  if (
+    process.env.MIGRATION_POSTGRES_IMPORT === "true" &&
+    DbUtilsGetType() === "postgres"
+  ) {
+    await ExportImportImportPostgresDatabase(config);
+  }
+
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);

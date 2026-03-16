@@ -139,8 +139,8 @@ export class AnalyticsMetricsRoutes {
 
 const SQL_QUERIES = {
   GET_METRICS: (sqlWhere: string, limit: number) => ({
-    postgres: `SELECT * FROM metrics ${sqlWhere} LIMIT ${limit}`,
-    sqlite: `SELECT * FROM metrics ${sqlWhere} LIMIT ${limit}`,
+    postgres: `SELECT * FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+    sqlite: `SELECT * FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
   }),
   GET_METRICS_NAMES: (sqlWhere: string) => ({
     postgres: `SELECT DISTINCT "name", "serviceName", "type" FROM metrics ${sqlWhere} ORDER BY "serviceName", "name", "type"`,
