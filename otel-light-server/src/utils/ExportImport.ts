@@ -1,3 +1,4 @@
+import * as fs from "fs";
 import * as fse from "fs-extra";
 import * as path from "path";
 import { Config } from "../Config";
@@ -24,7 +25,8 @@ export async function ExportImportExportSqliteDatabase(
     return `'${String(value).replace(/'/g, "''")}'`;
   };
 
-  const lines: string[] = [];
+  const writeStream = fs.createWriteStream(exportPath, { encoding: "utf-8" });
+  let totalRows = 0;
   for (const table of tables) {
     logger.info(`Exporting table: ${table}`);
     const rows: Record<string, unknown>[] = await new Promise(
@@ -44,14 +46,23 @@ export async function ExportImportExportSqliteDatabase(
         .map((col) => `"${col}"`)
         .join(", ");
       const values = Object.values(row).map(escapeValue).join(", ");
-      lines.push(`INSERT INTO ${table} (${columns}) VALUES (${values});`);
+      const canContinue = writeStream.write(
+        `INSERT INTO ${table} (${columns}) VALUES (${values});\n`,
+      );
+      if (!canContinue) {
+        await new Promise<void>((resolve) =>
+          writeStream.once("drain", resolve),
+        );
+      }
+      totalRows++;
     }
   }
 
-  await fse.writeFile(exportPath, lines.join("\n") + "\n", "utf-8");
-  logger.info(
-    `PostgreSQL export complete: ${lines.length} total rows exported`,
-  );
+  await new Promise<void>((resolve, reject) => {
+    writeStream.end(() => resolve());
+    writeStream.on("error", reject);
+  });
+  logger.info(`PostgreSQL export complete: ${totalRows} total rows exported`);
 }
 
 export async function ExportImportImportPostgresDatabase(
