@@ -14,7 +14,7 @@
     "migrate": "ts-node ./src/migrate-database.ts"
   },
   "dependencies": {
-    "@devopsplaybook.io/otel-utils-fastify": "^1.0.13",
+    "@devopsplaybook.io/otel-utils-fastify": "^1.0.14",
     "@fastify/compress": "^8.3.1",
     "@fastify/cors": "^11.2.0",
     "@fastify/multipart": "^9.4.0",
