@@ -79,6 +79,14 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12      | Config file or environment variable |
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7       | Config file or environment variable |
 | MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6       | Config file or environment variable |
+| DATABASE_TYPE                                           | Database type (`sqlite` or `postgres`)                | sqlite  | Config file or environment variable |
+| DATABASE_POSTGRES_HOST                                  | PostgreSQL server hostname                            |         | Config file or environment variable |
+| DATABASE_POSTGRES_PORT                                  | PostgreSQL server port                                |         | Config file or environment variable |
+| DATABASE_POSTGRES_USER                                  | PostgreSQL user                                       |         | Config file or environment variable |
+| DATABASE_POSTGRES_PASSWORD                              | PostgreSQL password                                   |         | Config file or environment variable |
+| DATABASE_POSTGRES_DATABASE                              | PostgreSQL database name                              |         | Config file or environment variable |
+| ANALYTICS_UTILS_RESULT_LIMIT                            | Maximum number of results for analytics queries       | 2000    | Config file or environment variable |
+| ANALYTICS_UTILS_RESULT_LIMIT_METRICS                    | Maximum number of results for metrics queries         | 10000   | Config file or environment variable |
 
 ## Client Application
 
