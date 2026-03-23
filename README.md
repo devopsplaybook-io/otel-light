@@ -21,10 +21,11 @@
 
 ## Specification
 
-- Deployed as a single container
+- Deployed as a single container by default using SQLite for storage; can be configured to use PostgreSQL as an external database
+- Deploying with PostgreSQL enables handling more load and larger volumes of data
 - Target memory usage: <100MB
 - Ingestion via HTTP API (use an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) for other protocols)
-- Storage optimized for fewer than 1 million signals
+- Storage optimized for fewer than 1 million signals (SQLite); higher capacity with PostgreSQL
 
 ## Quick Start
 
