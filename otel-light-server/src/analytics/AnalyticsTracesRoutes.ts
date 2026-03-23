@@ -85,7 +85,7 @@ export class AnalyticsTracesRoutes {
               sqlParams.length + 1,
             ),
         );
-        sqlParams.push(`%${req.query.keywords.trim()}%`);
+        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(

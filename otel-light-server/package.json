@@ -21,7 +21,7 @@
     "@fastify/static": "^9.0.0",
     "axios": "^1.13.6",
     "bcrypt": "^6.0.0",
-    "fastify": "^5.8.2",
+    "fastify": "^5.8.4",
     "fs-extra": "^11.3.4",
     "jsonwebtoken": "^9.0.3",
     "lodash": "^4.17.23",
@@ -38,14 +38,14 @@
     "@types/jest": "^30.0.0",
     "@types/lodash": "^4.17.24",
     "@types/node": "^25.5.0",
-    "@types/pg": "^8.18.0",
+    "@types/pg": "^8.20.0",
     "@types/sqlite3": "^5.1.0",
-    "eslint": "^10.0.3",
+    "eslint": "^10.1.0",
     "jest": "^30.3.0",
-    "sinon": "^21.0.2",
+    "sinon": "^21.0.3",
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3",
-    "typescript-eslint": "^8.57.0"
+    "typescript-eslint": "^8.57.2"
   }
 }

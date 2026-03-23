@@ -99,7 +99,7 @@ export class AnalyticsMetricsRoutes {
       }
 
       if (req.query.keywords?.trim()) {
-        const kw = `%${req.query.keywords.trim()}%`;
+        const kw = `%${req.query.keywords.toLowerCase().trim()}%`;
         sqlWhere +=
           " AND (name LIKE " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1) +

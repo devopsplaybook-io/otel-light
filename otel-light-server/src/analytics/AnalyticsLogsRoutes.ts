@@ -42,7 +42,7 @@ export class AnalyticsLogsRoutes {
         sqlWhere +=
           " AND keywords LIKE " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
-        sqlParams.push(`%${req.query.keywords.trim()}%`);
+        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
