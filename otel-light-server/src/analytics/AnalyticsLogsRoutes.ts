@@ -1,12 +1,14 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
 import { Log } from "../model/Log";
-import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsGetSQLVariable,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsLogsRoutes {
   //
@@ -25,21 +27,29 @@ export class AnalyticsLogsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE time >= ? ";
+      let sqlWhere =
+        " WHERE time >=  " +
+        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
-        sqlWhere += " AND time <= ? ";
+        sqlWhere +=
+          " AND time <= " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (req.query.keywords?.trim()) {
-        sqlWhere += " AND keywords LIKE ? ";
-        sqlParams.push(`%${req.query.keywords.trim()}%`);
+        sqlWhere +=
+          " AND keywords LIKE " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
-      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${AnalyticsUtilsResultLimit}`,
-        sqlParams
+      const rawLogs = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_LOGS(sqlWhere, AnalyticsUtilsResultLimit)[
+          DbUtilsGetType()
+        ],
+        sqlParams,
       );
       const logs = [];
       rawLogs.forEach((rawLog) => {
@@ -58,3 +68,12 @@ export class AnalyticsLogsRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_LOGS: (sqlWhere: string, limit: number) => ({
+    postgres: `SELECT * FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+    sqlite: `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+  }),
+};

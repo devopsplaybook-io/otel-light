@@ -277,25 +277,55 @@ dialog article header {
   margin-top: 20%;
   margin-bottom: 20%;
   aspect-ratio: 1;
-  background: var(--c) 0% 50%, var(--c) 50% 50%, var(--c) 100% 50%;
+  background:
+    var(--c) 0% 50%,
+    var(--c) 50% 50%,
+    var(--c) 100% 50%;
   background-size: 20% 100%;
   animation: l1 2s infinite linear;
 }
 @keyframes l1 {
   0% {
-    background-size: 20% 100%, 20% 100%, 20% 100%;
+    background-size:
+      20% 100%,
+      20% 100%,
+      20% 100%;
   }
   33% {
-    background-size: 20% 10%, 20% 100%, 20% 100%;
+    background-size:
+      20% 10%,
+      20% 100%,
+      20% 100%;
   }
   50% {
-    background-size: 20% 100%, 20% 10%, 20% 100%;
+    background-size:
+      20% 100%,
+      20% 10%,
+      20% 100%;
   }
   66% {
-    background-size: 20% 100%, 20% 100%, 20% 10%;
+    background-size:
+      20% 100%,
+      20% 100%,
+      20% 10%;
   }
   100% {
-    background-size: 20% 100%, 20% 100%, 20% 100%;
+    background-size:
+      20% 100%,
+      20% 100%,
+      20% 100%;
   }
+}
+
+.vue-apexcharts,
+[role="button"] {
+  padding: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  appearance: none;
 }
 </style>

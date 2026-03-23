@@ -35,6 +35,16 @@ export class Config implements ConfigOTelInterface {
   public METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS = 12;
   public METRICS_COMPRESS_HOUR_THRESHOLD_DAYS = 7;
   public MAINTENANCE_FREQUENCY_HOURS = 6;
+  // Database configuration
+  public DATABASE_TYPE: "sqlite" | "postgres" = "sqlite";
+  public DATABASE_POSTGRES_HOST: string;
+  public DATABASE_POSTGRES_PORT: number;
+  public DATABASE_POSTGRES_USER: string;
+  public DATABASE_POSTGRES_PASSWORD: string;
+  public DATABASE_POSTGRES_DATABASE: string;
+  // APi Limits
+  public ANALYTICS_UTILS_RESULT_LIMIT = 2000;
+  public ANALYTICS_UTILS_RESULT_LIMIT_METRICS = 10000;
 
   constructor() {
     let version = "1";
@@ -63,11 +73,11 @@ export class Config implements ConfigOTelInterface {
       }
       if (displayLog) {
         logger.info(
-          `Configuration Value: ${field}: ${this[field]} (from ${fromEnv})`
+          `Configuration Value: ${field}: ${this[field]} (from ${fromEnv})`,
         );
       } else {
         logger.info(
-          `Configuration Value: ${field}: ******************** (from ${fromEnv})`
+          `Configuration Value: ${field}: ******************** (from ${fromEnv})`,
         );
       }
     };
@@ -88,5 +98,13 @@ export class Config implements ConfigOTelInterface {
     setIfSet("METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS");
     setIfSet("METRICS_COMPRESS_HOUR_THRESHOLD_DAYS");
     setIfSet("MAINTENANCE_FREQUENCY_HOURS");
+    setIfSet("DATABASE_TYPE");
+    setIfSet("DATABASE_POSTGRES_HOST");
+    setIfSet("DATABASE_POSTGRES_PORT");
+    setIfSet("DATABASE_POSTGRES_USER");
+    setIfSet("DATABASE_POSTGRES_PASSWORD", false);
+    setIfSet("DATABASE_POSTGRES_DATABASE");
+    setIfSet("ANALYTICS_UTILS_RESULT_LIMIT");
+    setIfSet("ANALYTICS_UTILS_RESULT_LIMIT_METRICS");
   }
 }

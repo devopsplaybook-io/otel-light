@@ -1,12 +1,14 @@
 import { FastifyInstance } from "fastify";
 import { Metric } from "../model/Metric";
 import { AuthGetUserSession } from "../users/Auth";
-import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetDefaultFromTime,
+  AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsMetricsRoutes {
   //
@@ -26,24 +28,34 @@ export class AnalyticsMetricsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE time >= ? ";
+      let sqlWhere =
+        " WHERE time >= " +
+        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
-        sqlWhere += " AND time <= ? ";
+        sqlWhere +=
+          " AND time <= " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (req.query.serviceName?.trim()) {
-        sqlWhere += " AND serviceName = ? ";
+        sqlWhere +=
+          ' AND "serviceName" = ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.serviceName.trim());
       }
       if (req.query.name?.trim()) {
-        sqlWhere += " AND name = ? ";
+        sqlWhere +=
+          " AND name = " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.name.trim());
       }
-      const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT * FROM metrics ${sqlWhere} LIMIT ${AnalyticsUtilsResultLimitMetrics}`,
-        sqlParams
+      const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
+          DbUtilsGetType()
+        ],
+        sqlParams,
       );
       const metrics = [];
       rawMetrics.forEach((rawMetric) => {
@@ -74,23 +86,32 @@ export class AnalyticsMetricsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
-      let sqlWhere = " WHERE time >= ? ";
+      let sqlWhere =
+        " WHERE time >= " +
+        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
-        sqlWhere += " AND time <= ? ";
+        sqlWhere +=
+          " AND time <= " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
 
       if (req.query.keywords?.trim()) {
-        const kw = `%${req.query.keywords.trim()}%`;
-        sqlWhere += " AND (name LIKE ? OR serviceName LIKE ?)";
+        const kw = `%${req.query.keywords.toLowerCase().trim()}%`;
+        sqlWhere +=
+          " AND (name LIKE " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1) +
+          ' OR "serviceName" LIKE ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 2) +
+          ")";
         sqlParams.push(kw, kw);
       }
 
-      const rawMetrics = await SqlDbUtilsNoTelemetryQuerySQL(
-        `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
-        sqlParams
+      const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_METRICS_NAMES(sqlWhere)[DbUtilsGetType()],
+        sqlParams,
       );
       const metricsNames: {
         serviceName: string;
@@ -113,3 +134,16 @@ export class AnalyticsMetricsRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_METRICS: (sqlWhere: string, limit: number) => ({
+    postgres: `SELECT * FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+    sqlite: `SELECT * FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+  }),
+  GET_METRICS_NAMES: (sqlWhere: string) => ({
+    postgres: `SELECT DISTINCT "name", "serviceName", "type" FROM metrics ${sqlWhere} ORDER BY "serviceName", "name", "type"`,
+    sqlite: `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
+  }),
+};

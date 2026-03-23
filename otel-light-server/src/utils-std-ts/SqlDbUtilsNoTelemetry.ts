@@ -5,7 +5,7 @@ const logger = OTelLogger().createModuleLogger("SqlDbUtilsNoTelemetry");
 
 export function SqlDbUtilsNoTelemetryExecSQL(
   sql: string,
-  params = []
+  params = [],
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     SqlDbUtilsInitGetDatabase().run(sql, params, (error) => {
@@ -21,7 +21,7 @@ export function SqlDbUtilsNoTelemetryExecSQL(
 export function SqlDbUtilsNoTelemetryQuerySQL(
   sql: string,
   params = [],
-  debug = false
+  debug = false,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
   if (debug) {

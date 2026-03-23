@@ -2,12 +2,14 @@ import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
-import { SqlDbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/SqlDbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
+import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 export class AnalyticsTracesRoutes {
   //
@@ -41,39 +43,54 @@ export class AnalyticsTracesRoutes {
       };
 
       if (req.query.traceId) {
-        sqlWhere = appendWhereCondition(sqlWhere, "t.traceId = ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          't."traceId" = ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
         sqlParams.push(req.query.traceId);
       }
 
       if (req.query.from) {
-        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.startTime >= ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          'rootSpan."startTime" >= ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
         sqlParams.push(req.query.from);
       }
       if (req.query.to) {
-        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.startTime <= ?");
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          'rootSpan."startTime" <= ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
         sqlParams.push(req.query.to);
       }
       if (req.query.keywords?.trim()) {
-        sqlWhere = appendWhereCondition(sqlWhere, "rootSpan.keywords LIKE ?");
-        sqlParams.push(`%${req.query.keywords.trim()}%`);
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          "rootSpan.keywords LIKE " +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
+        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
-      const rawTraces = await SqlDbUtilsNoTelemetryQuerySQL(
-        "SELECT " +
-          "MIN(t.startTime) AS startTime, " +
-          "MAX(t.endTime) AS endTime, " +
-          "t.traceId, " +
-          "COUNT(*) as spanCount, " +
-          "rootSpan.name AS name, " +
-          "rootSpan.serviceName AS serviceName, " +
-          "rootSpan.serviceVersion AS serviceVersion, " +
-          "COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors " +
-          "FROM traces t " +
-          `LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL` +
-          sqlWhere +
-          " GROUP BY t.traceId " +
-          " ORDER BY t.startTime DESC ",
-        sqlParams
+      const rawTraces = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_TRACES(sqlWhere)[DbUtilsGetType()],
+        sqlParams,
       );
       const traces = [];
       rawTraces.forEach((rawTrace) => {
@@ -101,12 +118,9 @@ export class AnalyticsTracesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
 
-      const rawSpans = await SqlDbUtilsNoTelemetryQuerySQL(
-        "SELECT * " +
-          " FROM traces " +
-          " WHERE traceId = ? " +
-          " ORDER BY startTime ",
-        [req.params.traceId]
+      const rawSpans = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_TRACE_SPANS[DbUtilsGetType()],
+        [req.params.traceId],
       );
       const spans = [];
       rawSpans.forEach((rawSpan) => {
@@ -126,9 +140,9 @@ export class AnalyticsTracesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
 
-      const rawLogs = await SqlDbUtilsNoTelemetryQuerySQL(
-        "SELECT * FROM logs WHERE traceId = ?",
-        [req.params.traceId]
+      const rawLogs = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.GET_TRACE_LOGS[DbUtilsGetType()],
+        [req.params.traceId],
       );
       const logs = [];
       rawLogs.forEach((rawLog) => {
@@ -139,3 +153,44 @@ export class AnalyticsTracesRoutes {
     });
   }
 }
+
+// SQL
+
+const SQL_QUERIES = {
+  GET_TRACES: (sqlWhere: string) => ({
+    postgres: `
+      SELECT  MIN(t."startTime") AS "startTime", 
+              MAX(t."endTime") AS "endTime", 
+              t."traceId", 
+              COUNT(*) as "spanCount", 
+              rootSpan."name" AS "name", 
+              rootSpan."serviceName" AS "serviceName", 
+              rootSpan."serviceVersion" AS "serviceVersion", 
+              COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) AS "nbErrors" 
+      FROM traces t 
+        LEFT JOIN traces rootSpan ON rootSpan."traceId" = t."traceId" AND rootSpan."parentSpanId" IS NULL${sqlWhere} 
+      GROUP BY t."traceId", rootSpan."name", rootSpan."serviceName", rootSpan."serviceVersion" 
+      ORDER BY "startTime" DESC`,
+    sqlite: `
+      SELECT  MIN(t.startTime) AS startTime, 
+              MAX(t.endTime) AS endTime, 
+              t.traceId, 
+              COUNT(*) as spanCount, 
+              rootSpan.name AS name, 
+              rootSpan.serviceName AS serviceName, 
+              rootSpan.serviceVersion AS serviceVersion, 
+              COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors 
+      FROM traces t 
+        LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL${sqlWhere} 
+      GROUP BY t.traceId 
+      ORDER BY t.startTime DESC`,
+  }),
+  GET_TRACE_SPANS: {
+    postgres: `SELECT * FROM traces WHERE "traceId" = $1 ORDER BY "startTime"`,
+    sqlite: `SELECT * FROM traces WHERE traceId = ? ORDER BY startTime`,
+  },
+  GET_TRACE_LOGS: {
+    postgres: `SELECT * FROM logs WHERE "traceId" = $1`,
+    sqlite: `SELECT * FROM logs WHERE traceId = ?`,
+  },
+};
