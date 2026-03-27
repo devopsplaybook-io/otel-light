@@ -8,21 +8,22 @@
       @input="emitFilterChanged"
     />
     <div class="status-filter">
-      <label v-if="type === 'traces'" class="filter-checkbox">
-        <input
-          type="checkbox"
-          v-model="errorsOnly"
-          @change="emitFilterChanged"
-        />
-        Errors only
-      </label>
       <select
-        class="filter-select"
+        class="filter-select filter-status-error"
+        v-if="type === 'traces'"
+        v-model="errorsOnly"
+        @change="emitFilterChanged"
+      >
+        <option value="">All</option>
+        <option value="true">Errors</option>
+      </select>
+      <select
+        class="filter-select filter-status-severity"
         v-if="type === 'logs'"
         v-model="severity"
         @change="emitFilterChanged"
       >
-        <option value="">All severities</option>
+        <option value="">All</option>
         <option value="TRACE">Trace</option>
         <option value="DEBUG">Debug</option>
         <option value="INFO">Info</option>
@@ -76,7 +77,7 @@ export default {
       keywords: "",
       from: defaultFrom,
       to: 0,
-      errorsOnly: false,
+      errorsOnly: "",
       severity: "",
       timeOptions: [
         { label: "now", value: 0 },
@@ -106,7 +107,7 @@ export default {
       this.from = parseInt(query.from, 10);
     if (query.to && !isNaN(parseInt(query.to, 10)))
       this.to = parseInt(query.to, 10);
-    if (query.errorsOnly === "true") this.errorsOnly = true;
+    if (query.errorsOnly === "true") this.errorsOnly = "true";
     if (query.severity) this.severity = query.severity;
     this.emitFilterChanged = debounce(this.emitFilterChangedRaw, 500);
     this.emitFilterChangedRaw();
@@ -129,7 +130,7 @@ export default {
 
       if (fromNs > 0) params.from = fromNs;
       if (toNs > 0) params.to = toNs;
-      if (this.errorsOnly) params.errorsOnly = "true";
+      if (this.errorsOnly === "true") params.errorsOnly = "true";
       if (this.severity) params.severity = this.severity;
 
       const queryString = new URLSearchParams(params).toString();
@@ -138,7 +139,7 @@ export default {
       if (this.keywords) urlQuery.keywords = this.keywords;
       if (this.from) urlQuery.from = String(this.from);
       if (this.to) urlQuery.to = String(this.to);
-      if (this.errorsOnly) urlQuery.errorsOnly = "true";
+      if (this.errorsOnly === "true") urlQuery.errorsOnly = "true";
       if (this.severity) urlQuery.severity = this.severity;
       this.$router.replace({ query: urlQuery }).catch(() => {});
 
@@ -158,7 +159,7 @@ export default {
   display: grid;
   grid-template-columns: 3fr auto auto;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 #search-options input {
   padding-top: 0.5em;
@@ -167,8 +168,8 @@ export default {
 }
 .search-button {
   height: 2.6rem;
-  padding: 0 0.5em;
   font-size: 1.2em;
+  padding-right: 0.6rem;
 }
 #search-options-dates {
   grid-column: 1/-1;
@@ -180,27 +181,7 @@ export default {
 #search-options-dates span {
   padding-bottom: 0.6rem;
 }
-.filter-checkbox {
-  align-items: center;
-  gap: 0.3rem;
-  cursor: pointer;
-  user-select: none;
-}
-.filter-checkbox input {
-  margin: 0;
-  margin-right: 0.5rem;
-  width: 1.5rem;
-  height: 1.5rem !important;
-}
-select {
-  padding: 0.5em 1em;
-  height: 2.6rem;
-}
-.status-filter {
-  margin-left: 1rem;
-  margin-right: 1rem;
-}
 .filter-select {
-  width: 10rem;
+  width: 7rem;
 }
 </style>
