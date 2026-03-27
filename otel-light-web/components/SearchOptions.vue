@@ -7,6 +7,30 @@
       aria-label="Search"
       @input="emitFilterChanged"
     />
+    <div class="status-filter">
+      <label v-if="type === 'traces'" class="filter-checkbox">
+        <input
+          type="checkbox"
+          v-model="errorsOnly"
+          @change="emitFilterChanged"
+        />
+        Errors only
+      </label>
+      <select
+        class="filter-select"
+        v-if="type === 'logs'"
+        v-model="severity"
+        @change="emitFilterChanged"
+      >
+        <option value="">All severities</option>
+        <option value="TRACE">Trace</option>
+        <option value="DEBUG">Debug</option>
+        <option value="INFO">Info</option>
+        <option value="WARN">Warn</option>
+        <option value="ERROR">Error</option>
+        <option value="FATAL">Fatal</option>
+      </select>
+    </div>
     <span class="search-button" @click="emitFilterChangedRaw" title="Refresh">
       <i class="bi bi-arrow-clockwise"></i>
     </span>
@@ -52,6 +76,8 @@ export default {
       keywords: "",
       from: defaultFrom,
       to: 0,
+      errorsOnly: false,
+      severity: "",
       timeOptions: [
         { label: "now", value: 0 },
         { label: "5 min ago", value: 5 * 60 },
@@ -74,6 +100,14 @@ export default {
     };
   },
   created() {
+    const query = this.$route.query;
+    if (query.keywords) this.keywords = query.keywords;
+    if (query.from && !isNaN(parseInt(query.from, 10)))
+      this.from = parseInt(query.from, 10);
+    if (query.to && !isNaN(parseInt(query.to, 10)))
+      this.to = parseInt(query.to, 10);
+    if (query.errorsOnly === "true") this.errorsOnly = true;
+    if (query.severity) this.severity = query.severity;
     this.emitFilterChanged = debounce(this.emitFilterChangedRaw, 500);
     this.emitFilterChangedRaw();
   },
@@ -95,8 +129,18 @@ export default {
 
       if (fromNs > 0) params.from = fromNs;
       if (toNs > 0) params.to = toNs;
+      if (this.errorsOnly) params.errorsOnly = "true";
+      if (this.severity) params.severity = this.severity;
 
       const queryString = new URLSearchParams(params).toString();
+
+      const urlQuery = {};
+      if (this.keywords) urlQuery.keywords = this.keywords;
+      if (this.from) urlQuery.from = String(this.from);
+      if (this.to) urlQuery.to = String(this.to);
+      if (this.errorsOnly) urlQuery.errorsOnly = "true";
+      if (this.severity) urlQuery.severity = this.severity;
+      this.$router.replace({ query: urlQuery }).catch(() => {});
 
       this.$emit("filterChanged", {
         queryString,
@@ -112,7 +156,7 @@ export default {
 <style scoped>
 #search-options {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 3fr auto auto;
   align-items: center;
   gap: 0.5rem;
 }
@@ -127,7 +171,7 @@ export default {
   font-size: 1.2em;
 }
 #search-options-dates {
-  grid-column: 1/3;
+  grid-column: 1/-1;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -136,8 +180,27 @@ export default {
 #search-options-dates span {
   padding-bottom: 0.6rem;
 }
+.filter-checkbox {
+  align-items: center;
+  gap: 0.3rem;
+  cursor: pointer;
+  user-select: none;
+}
+.filter-checkbox input {
+  margin: 0;
+  margin-right: 0.5rem;
+  width: 1.5rem;
+  height: 1.5rem !important;
+}
 select {
   padding: 0.5em 1em;
   height: 2.6rem;
+}
+.status-filter {
+  margin-left: 1rem;
+  margin-right: 1rem;
+}
+.filter-select {
+  width: 10rem;
 }
 </style>

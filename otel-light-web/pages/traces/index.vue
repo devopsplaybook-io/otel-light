@@ -136,11 +136,9 @@ export default {
       return await axios
         .get(
           `${
-            (
-              await Config.get()
-            ).SERVER_URL
+            (await Config.get()).SERVER_URL
           }/analytics/traces/${traceId}/spans`,
-          await AuthService.getAuthHeader()
+          await AuthService.getAuthHeader(),
         )
         .then((response) => {
           return response.data.spans;
@@ -150,7 +148,7 @@ export default {
       return await axios
         .get(
           `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
-          await AuthService.getAuthHeader()
+          await AuthService.getAuthHeader(),
         )
         .then((response) => {
           return response.data.logs;
@@ -209,7 +207,7 @@ export default {
       };
     },
     goToAnalytics() {
-      this.$router.push("/traces/stats");
+      this.$router.push({ path: "/traces/stats", query: this.$route.query });
     },
   },
 };
