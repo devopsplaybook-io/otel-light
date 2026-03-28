@@ -19,6 +19,7 @@ export class AnalyticsLogsRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        severity?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -43,6 +44,12 @@ export class AnalyticsLogsRoutes {
           " AND keywords LIKE " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+      }
+      if (req.query.severity?.trim()) {
+        sqlWhere +=
+          " AND severity = " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(req.query.severity.toLowerCase().trim());
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(

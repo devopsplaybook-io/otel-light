@@ -226,7 +226,7 @@ export default {
       this.expandedGroup = this.expandedGroup === idx ? null : idx;
     },
     goToTraces() {
-      this.$router.push("/traces/");
+      this.$router.push({ path: "/traces/", query: this.$route.query });
     },
     onTraceClick(traceId) {
       this.toggleTrace(traceId);

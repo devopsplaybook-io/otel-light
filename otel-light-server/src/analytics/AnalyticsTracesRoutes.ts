@@ -21,6 +21,7 @@ export class AnalyticsTracesRoutes {
         to?: number;
         keywords?: string;
         traceId?: string;
+        errorsOnly?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -88,8 +89,13 @@ export class AnalyticsTracesRoutes {
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
+      const errorsOnly = req.query.errorsOnly === "true";
+      if (errorsOnly && DbUtilsGetType() === "sqlite") {
+        sqlParams.push(SpanStatusCode.ERROR);
+      }
+
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACES(sqlWhere)[DbUtilsGetType()],
+        SQL_QUERIES.GET_TRACES(sqlWhere, errorsOnly)[DbUtilsGetType()],
         sqlParams,
       );
       const traces = [];
@@ -157,8 +163,15 @@ export class AnalyticsTracesRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_TRACES: (sqlWhere: string) => ({
-    postgres: `
+  GET_TRACES: (sqlWhere: string, errorsOnly: boolean) => {
+    const havingPostgres = errorsOnly
+      ? ' HAVING COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) > 0'
+      : "";
+    const havingSqlite = errorsOnly
+      ? " HAVING COUNT(CASE WHEN t.statusCode = ? THEN 1 END) > 0"
+      : "";
+    return {
+      postgres: `
       SELECT  MIN(t."startTime") AS "startTime", 
               MAX(t."endTime") AS "endTime", 
               t."traceId", 
@@ -169,9 +182,9 @@ const SQL_QUERIES = {
               COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) AS "nbErrors" 
       FROM traces t 
         LEFT JOIN traces rootSpan ON rootSpan."traceId" = t."traceId" AND rootSpan."parentSpanId" IS NULL${sqlWhere} 
-      GROUP BY t."traceId", rootSpan."name", rootSpan."serviceName", rootSpan."serviceVersion" 
+      GROUP BY t."traceId", rootSpan."name", rootSpan."serviceName", rootSpan."serviceVersion"${havingPostgres} 
       ORDER BY "startTime" DESC`,
-    sqlite: `
+      sqlite: `
       SELECT  MIN(t.startTime) AS startTime, 
               MAX(t.endTime) AS endTime, 
               t.traceId, 
@@ -182,9 +195,10 @@ const SQL_QUERIES = {
               COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors 
       FROM traces t 
         LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL${sqlWhere} 
-      GROUP BY t.traceId 
+      GROUP BY t.traceId${havingSqlite} 
       ORDER BY t.startTime DESC`,
-  }),
+    };
+  },
   GET_TRACE_SPANS: {
     postgres: `SELECT * FROM traces WHERE "traceId" = $1 ORDER BY "startTime"`,
     sqlite: `SELECT * FROM traces WHERE traceId = ? ORDER BY startTime`,
