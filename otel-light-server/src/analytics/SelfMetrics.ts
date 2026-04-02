@@ -123,6 +123,7 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
   signalData.logs = servicesLogs;
   //
   span.end();
+  console.log(signalData);
   setTimeout(() => {
     SelfMetricsRefreshMetrics();
   }, 60_000);

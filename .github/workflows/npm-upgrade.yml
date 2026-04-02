@@ -1,0 +1,13 @@
+name: NPM Upgrade
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+
+  workflow_dispatch:
+
+jobs:
+  npm-upgrade:
+    uses: devopsplaybook-io/common-utils/.github/workflows/reusable-npm-upgrade.yml@main
+    with:
+      npm_services: '["otel-light-proxy", "otel-light-server", "otel-light-web"]'
