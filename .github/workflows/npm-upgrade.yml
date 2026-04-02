@@ -9,5 +9,8 @@ on:
 jobs:
   npm-upgrade:
     uses: devopsplaybook-io/common-utils/.github/workflows/reusable-npm-upgrade.yml@main
+    permissions:
+      contents: write
+      pull-requests: write
     with:
       npm_services: '["otel-light-proxy", "otel-light-server", "otel-light-web"]'
