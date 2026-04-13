@@ -17,13 +17,13 @@ export class MetricsRoutes {
       }
       const timeUnixNano = Date.now() * 1_000_000;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req.body as any).resourceMetrics.forEach((resourceMetric) => {
+      for (const resourceMetric of (req.body as any).resourceMetrics) {
         const serviceName = SignalUtilsGetServiceName(resourceMetric.resource);
         const serviceVersion = SignalUtilsGetServiceVersion(
           resourceMetric.resource,
         );
-        resourceMetric.scopeMetrics.forEach((scopeMetric) => {
-          scopeMetric.metrics.forEach(async (metric) => {
+        for (const scopeMetric of resourceMetric.scopeMetrics) {
+          for (const metric of scopeMetric.metrics) {
             let metricType = "unknown";
             if (metric.gauge) metricType = "gauge";
             else if (metric.sum) metricType = "sum";
@@ -45,9 +45,9 @@ export class MetricsRoutes {
                 keywords.toLowerCase(),
               ],
             );
-          });
-        });
-      });
+          }
+        }
+      }
 
       return res.status(201).send({});
     });

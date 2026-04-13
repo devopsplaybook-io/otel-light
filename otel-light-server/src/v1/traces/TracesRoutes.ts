@@ -17,13 +17,13 @@ export class TracesRoutes {
         return res.status(401).send({});
       }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req.body as any).resourceSpans.forEach((resourceSpan) => {
+      for (const resourceSpan of (req.body as any).resourceSpans) {
         let serviceName = SignalUtilsGetServiceName(resourceSpan.resource);
         let serviceVersion = SignalUtilsGetServiceVersion(
           resourceSpan.resource,
         );
-        resourceSpan.scopeSpans.forEach((scopeSpan) => {
-          scopeSpan.spans.forEach(async (span) => {
+        for (const scopeSpan of resourceSpan.scopeSpans) {
+          for (const span of scopeSpan.spans) {
             serviceName =
               find(span.attributes, { key: "service.name" })?.value
                 ?.stringValue || serviceName;
@@ -49,9 +49,9 @@ export class TracesRoutes {
                 keywords.toLowerCase(),
               ],
             );
-          });
-        });
-      });
+          }
+        }
+      }
 
       return res.status(201).send({});
     });
