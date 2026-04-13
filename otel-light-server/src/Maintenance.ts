@@ -69,11 +69,6 @@ async function MaintenancePerform(): Promise<void> {
       if (deleteRule.signalType === "traces") {
         nbRows += await DbUtilsExecSQL(
           span,
-          SQL_QUERIES.SELECT_TRACES_TO_DELETE[DbUtilsGetType()],
-          [deleteTimestamp, formatPattern(deleteRule.pattern)],
-        );
-        nbRows += await DbUtilsExecSQL(
-          span,
           SQL_QUERIES.DELETE_TRACES[DbUtilsGetType()],
           [deleteTimestamp, formatPattern(deleteRule.pattern)],
         );
@@ -160,12 +155,6 @@ const SQL_QUERIES = {
   GET_SETTINGS: {
     postgres: 'SELECT * FROM settings WHERE "category" = $1',
     sqlite: "SELECT * FROM settings WHERE category = ?",
-  },
-  SELECT_TRACES_TO_DELETE: {
-    postgres:
-      'SELECT * FROM traces tp, traces tc  WHERE tp."traceId" = tc."traceId" AND tp."startTime" < $1 AND tp."keywords" LIKE $2',
-    sqlite:
-      "SELECT * FROM traces tp, traces tc  WHERE tp.traceId = tc.traceId AND tp.startTime < ? AND tp.keywords LIKE ?",
   },
   DELETE_TRACES: {
     postgres:

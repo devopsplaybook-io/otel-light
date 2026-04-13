@@ -12,15 +12,15 @@ export class LogsRoutes {
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
     fastify.post("/", async (req, res) => {
+      if (!SignalUtilsCheckAuthHeader(req)) {
+        return res.status(401).send({});
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (req.body as any).resourceLogs.forEach((resourceLog) => {
-        if (!SignalUtilsCheckAuthHeader(req)) {
-          return res.status(401).send({});
-        }
+      for (const resourceLog of (req.body as any).resourceLogs) {
         let serviceName = SignalUtilsGetServiceName(resourceLog.resource);
         let serviceVersion = SignalUtilsGetServiceVersion(resourceLog.resource);
-        resourceLog.scopeLogs.forEach((scopeLog) => {
-          scopeLog.logRecords.forEach(async (logRecord) => {
+        for (const scopeLog of resourceLog.scopeLogs) {
+          for (const logRecord of scopeLog.logRecords) {
             serviceName =
               find(logRecord.attributes, { key: "service.name" })?.value
                 ?.stringValue || serviceName;
@@ -57,9 +57,9 @@ export class LogsRoutes {
                 keywords.toLowerCase(),
               ],
             );
-          });
-        });
-      });
+          }
+        }
+      }
       return res.status(201).send({});
     });
   }
