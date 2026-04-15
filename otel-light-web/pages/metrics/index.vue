@@ -9,8 +9,8 @@
         <header>
           <div class="metric-header">
             <div class="metric-title">
-              <kbd>{{ metric.serviceName }}</kbd>
-              {{ metric.name }}
+              <kbd class="metric-service-name">{{ metric.serviceName }}</kbd>
+              <span class="metric-name" :title="metric.name">{{ metric.name }}</span>
             </div>
             <input
               type="checkbox"
@@ -152,16 +152,27 @@ export default {
   gap: 1rem;
 }
 
-.metric-title kbd {
-  font-size: 0.7em;
+.metric-title {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+  overflow: hidden;
 }
 
-.metric-title {
+.metric-service-name {
+  font-size: 0.7em;
+  align-self: flex-start;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  display: block;
-  max-width: 100%;
+}
+
+.metric-name {
+  font-size: 0.9em;
+  word-break: break-all;
+  line-height: 1.3;
 }
 
 .metric-manual-load {
