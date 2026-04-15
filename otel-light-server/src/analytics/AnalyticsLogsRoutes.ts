@@ -20,6 +20,7 @@ export class AnalyticsLogsRoutes {
         to?: number;
         keywords?: string;
         severity?: string;
+        serviceName?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -50,6 +51,12 @@ export class AnalyticsLogsRoutes {
           " AND severity = " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.severity.toLowerCase().trim());
+      }
+      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+        sqlWhere +=
+          ' AND "serviceName" = ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(String(req.query.serviceName).trim());
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(

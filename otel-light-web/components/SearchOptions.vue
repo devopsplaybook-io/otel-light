@@ -1,20 +1,35 @@
 <template>
   <div id="search-options">
-    <input
-      type="search"
-      v-model="keywords"
-      placeholder="Search"
-      aria-label="Search"
-      @input="emitFilterChanged"
-    />
-    <div class="status-filter">
+    <div class="search-keywords">
+      <input
+        type="search"
+        v-model="keywords"
+        placeholder="Search"
+        aria-label="Search"
+        @input="emitFilterChanged"
+      />
+      <span class="search-button" @click="emitFilterChangedRaw" title="Refresh">
+        <i class="bi bi-arrow-clockwise"></i>
+      </span>
+    </div>
+    <div class="search-attributes">
+      <select
+        class="filter-select filter-service"
+        v-model="serviceName"
+        @change="emitFilterChanged"
+      >
+        <option value="">All Services</option>
+        <option v-for="svc in servicesStore.services" :key="svc" :value="svc">
+          {{ svc }}
+        </option>
+      </select>
       <select
         class="filter-select filter-status-error"
         v-if="type === 'traces'"
         v-model="errorsOnly"
         @change="emitFilterChanged"
       >
-        <option value="">All</option>
+        <option value="">Any Status</option>
         <option value="true">Errors</option>
       </select>
       <select
@@ -23,7 +38,7 @@
         v-model="severity"
         @change="emitFilterChanged"
       >
-        <option value="">All</option>
+        <option value="">Any Severity</option>
         <option value="TRACE">Trace</option>
         <option value="DEBUG">Debug</option>
         <option value="INFO">Info</option>
@@ -32,9 +47,6 @@
         <option value="FATAL">Fatal</option>
       </select>
     </div>
-    <span class="search-button" @click="emitFilterChangedRaw" title="Refresh">
-      <i class="bi bi-arrow-clockwise"></i>
-    </span>
     <div id="search-options-dates">
       <select v-model="from" @change="emitFilterChanged">
         <option
@@ -62,6 +74,7 @@
 <script>
 import { debounce } from "lodash";
 import { getDefaultTimeWindow } from "~/services/PreferencesService";
+import { ServicesStore } from "~/stores/ServicesStore";
 export default {
   name: "SearchOptions",
   emits: ["filterChanged"],
@@ -71,6 +84,11 @@ export default {
       default: "traces",
     },
   },
+  setup() {
+    const servicesStore = ServicesStore();
+    servicesStore.startAutoRefresh();
+    return { servicesStore };
+  },
   data() {
     const defaultFrom = getDefaultTimeWindow(this.type);
     return {
@@ -79,6 +97,7 @@ export default {
       to: 0,
       errorsOnly: "",
       severity: "",
+      serviceName: "",
       timeOptions: [
         { label: "now", value: 0 },
         { label: "5 min ago", value: 5 * 60 },
@@ -109,6 +128,7 @@ export default {
       this.to = parseInt(query.to, 10);
     if (query.errorsOnly === "true") this.errorsOnly = "true";
     if (query.severity) this.severity = query.severity;
+    if (query.serviceName) this.serviceName = query.serviceName;
     this.emitFilterChanged = debounce(this.emitFilterChangedRaw, 500);
     this.emitFilterChangedRaw();
   },
@@ -132,6 +152,7 @@ export default {
       if (toNs > 0) params.to = toNs;
       if (this.errorsOnly === "true") params.errorsOnly = "true";
       if (this.severity) params.severity = this.severity;
+      if (this.serviceName) params.serviceName = this.serviceName;
 
       const queryString = new URLSearchParams(params).toString();
 
@@ -141,6 +162,7 @@ export default {
       if (this.to) urlQuery.to = String(this.to);
       if (this.errorsOnly === "true") urlQuery.errorsOnly = "true";
       if (this.severity) urlQuery.severity = this.severity;
+      if (this.serviceName) urlQuery.serviceName = this.serviceName;
       this.$router.replace({ query: urlQuery }).catch(() => {});
 
       this.$emit("filterChanged", {
@@ -157,31 +179,55 @@ export default {
 <style scoped>
 #search-options {
   display: grid;
-  grid-template-columns: 3fr auto auto;
+  grid-template-rows: auto auto auto;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.35rem;
+  font-size: 0.88em;
+  margin-bottom: 1rem;
 }
-#search-options input {
-  padding-top: 0.5em;
-  padding-bottom: 0.5em;
-  height: 2.6rem;
+#search-options input,
+#search-options select {
+  padding-top: 0.3em;
+  padding-bottom: 0.3em;
+  height: 2.1rem;
+  font-size: 1em;
+  margin-bottom: 0.3rem;
+}
+#search-options input,
+#search-options select {
+  width: 100%;
+}
+.search-keywords {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 1rem;
 }
 .search-button {
-  height: 2.6rem;
-  font-size: 1.2em;
-  padding-right: 0.6rem;
+  height: 2.1rem;
+  font-size: 1.3em;
+  padding-right: 0.5rem;
+  padding-top: 0.3rem;
 }
 #search-options-dates {
   grid-column: 1/-1;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.35rem;
 }
 #search-options-dates span {
-  padding-bottom: 0.6rem;
+  padding-bottom: 0.4rem;
 }
 .filter-select {
   width: 7rem;
+}
+.filter-service {
+  width: 10rem;
+}
+.search-attributes {
+  display: flex;
+  flex-direction: row;
+  gap: 1rem;
+  align-items: center;
 }
 </style>

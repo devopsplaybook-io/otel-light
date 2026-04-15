@@ -77,11 +77,12 @@ export default {
       this.loading = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
-        this.filter.queryString
-          ? `?${this.filter.queryString}&serviceName=${this.serviceName}&name=${this.name}`
-          : `?serviceName=${this.serviceName}&name=${this.name}`
-      }`;
+      const baseParams = new URLSearchParams(this.filter.queryString || "");
+      baseParams.delete("serviceName");
+      baseParams.delete("name");
+      baseParams.set("serviceName", this.serviceName);
+      baseParams.set("name", this.name);
+      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -90,7 +91,7 @@ export default {
           }
           this.metrics = UtilsMetricSampleDataPoints(
             await UtilsDecompressJson(response.data.metrics),
-            500
+            500,
           );
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
@@ -122,8 +123,8 @@ export default {
             point.asDouble !== undefined
               ? point.asDouble
               : point.asInt !== undefined
-              ? point.asInt
-              : 0;
+                ? point.asInt
+                : 0;
 
           chartSeriesContainer[seriesName].push([timestamp.getTime(), value]);
         });
@@ -132,7 +133,7 @@ export default {
       // Sort data points by timestamp and create series
       Object.keys(chartSeriesContainer).forEach((seriesName) => {
         const sortedData = chartSeriesContainer[seriesName].sort(
-          (a, b) => a[0] - b[0]
+          (a, b) => a[0] - b[0],
         );
 
         this.chartSeries.push({
@@ -152,7 +153,7 @@ export default {
               item.value.stringValue ||
               item.value.intValue ||
               item.value.doubleValue
-            }`
+            }`,
         )
         .join("-");
     },

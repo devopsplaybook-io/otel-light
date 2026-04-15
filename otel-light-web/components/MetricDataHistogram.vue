@@ -83,11 +83,12 @@ export default {
       this.loading = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
-        this.filter.queryString
-          ? `?${this.filter.queryString}&serviceName=${this.serviceName}&name=${this.name}`
-          : `?serviceName=${this.serviceName}&name=${this.name}`
-      }`;
+      const baseParams = new URLSearchParams(this.filter.queryString || "");
+      baseParams.delete("serviceName");
+      baseParams.delete("name");
+      baseParams.set("serviceName", this.serviceName);
+      baseParams.set("name", this.name);
+      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -96,7 +97,7 @@ export default {
           }
           this.metrics = UtilsMetricSampleDataPoints(
             await UtilsDecompressJson(response.data.metrics),
-            500
+            500,
           );
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {
@@ -119,7 +120,7 @@ export default {
         data.data.histogram.dataPoints.forEach((point) => {
           const seriesName = this.attributesToString(point.attributes);
           const timestamp = new Date(
-            point.timeUnixNano / 1_000_000
+            point.timeUnixNano / 1_000_000,
           ).toISOString();
 
           if (!chartSeriesContainer[seriesName]) {
@@ -170,7 +171,7 @@ export default {
       // Create series for each attribute combination
       Object.keys(chartSeriesContainer).forEach((seriesName) => {
         const data = sortedBuckets.map(
-          (bucket) => chartSeriesContainer[seriesName][bucket] || 0
+          (bucket) => chartSeriesContainer[seriesName][bucket] || 0,
         );
 
         this.chartSeries.push({
@@ -190,7 +191,7 @@ export default {
               item.value.stringValue ||
               item.value.intValue ||
               item.value.doubleValue
-            }`
+            }`,
         )
         .join("-");
     },

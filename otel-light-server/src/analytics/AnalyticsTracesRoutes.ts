@@ -22,6 +22,7 @@ export class AnalyticsTracesRoutes {
         keywords?: string;
         traceId?: string;
         errorsOnly?: string;
+        serviceName?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -87,6 +88,18 @@ export class AnalyticsTracesRoutes {
             ),
         );
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+      }
+
+      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          't."serviceName" = ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
+        sqlParams.push(String(req.query.serviceName).trim());
       }
 
       const errorsOnly = req.query.errorsOnly === "true";
