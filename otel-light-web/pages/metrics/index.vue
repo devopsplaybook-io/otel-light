@@ -8,10 +8,10 @@
       >
         <header>
           <div class="metric-header">
-            <div class="metric-title">
-              <kbd class="metric-service-name">{{ metric.serviceName }}</kbd>
-              <span class="metric-name" :title="metric.name">{{ metric.name }}</span>
-            </div>
+            <h6 class="metric-name" :title="metric.name">
+              {{ metric.name }}
+            </h6>
+            <span class="metric-service-name">{{ metric.serviceName }}</span>
             <input
               type="checkbox"
               :checked="metric.autoLoad"
@@ -99,7 +99,7 @@ export default {
           const metrics = await UtilsDecompressJson(response.data.metricsNames);
           for (const metric of metrics) {
             metric.autoLoad = PreferencesService.getMetricAutoLoad(
-              this.getMetricKey(metric)
+              this.getMetricKey(metric),
             );
             metric.load = metric.autoLoad;
           }
@@ -149,30 +149,34 @@ export default {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-  gap: 1rem;
 }
 
 .metric-title {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: auto auto;
   gap: 0.2rem;
   min-width: 0;
   overflow: hidden;
 }
 
 .metric-service-name {
-  font-size: 0.7em;
+  font-size: 0.6em;
   align-self: flex-start;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  opacity: 0.6;
+  grid-column: 1;
+  grid-row: 2;
 }
 
 .metric-name {
   font-size: 0.9em;
   word-break: break-all;
   line-height: 1.3;
+  padding-bottom: 0;
+  margin-bottom: 0;
 }
 
 .metric-manual-load {
