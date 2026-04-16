@@ -9,8 +9,11 @@ const signalData = {
   logs: [],
 };
 
+let config: Config;
+
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function SelfMetricsInit(context: Span, configIn: Config) {
+  config = configIn;
   const span = OTelTracer().startSpan("SelfMetricsInit", context);
   OTelMeter().createObservableGauge(
     "signals.traces",
@@ -71,6 +74,9 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
   );
 
   SelfMetricsRefreshMetrics();
+  setInterval(() => {
+    SelfMetricsRefreshMetrics();
+  }, config.METRICS_SELF_REFRESH_MINUTES * 60_000);
 
   span.end();
 }
@@ -123,9 +129,6 @@ async function SelfMetricsRefreshMetrics(): Promise<void> {
   signalData.logs = servicesLogs;
   //
   span.end();
-  setTimeout(() => {
-    SelfMetricsRefreshMetrics();
-  }, 60_000);
 }
 
 // SQL

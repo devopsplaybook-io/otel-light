@@ -59,6 +59,7 @@ async function MaintenancePerform(): Promise<void> {
       if (!deleteRule.pattern) continue;
       const retentionMs = Number(deleteRule.periodHours) * 60 * 60 * 1000;
       const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
+      const serviceName = deleteRule.serviceName?.trim() || null;
       let nbRows = 0;
       const formatPattern = (patternIn) => {
         return ("%" + patternIn + "%")
@@ -69,18 +70,22 @@ async function MaintenancePerform(): Promise<void> {
       if (deleteRule.signalType === "traces") {
         nbRows += await DbUtilsExecSQL(
           span,
-          SQL_QUERIES.DELETE_TRACES[DbUtilsGetType()],
-          [deleteTimestamp, formatPattern(deleteRule.pattern)],
+          SQL_QUERIES.DELETE_TRACES(serviceName)[DbUtilsGetType()],
+          serviceName
+            ? [deleteTimestamp, formatPattern(deleteRule.pattern), serviceName]
+            : [deleteTimestamp, formatPattern(deleteRule.pattern)],
         );
       } else {
         nbRows += await DbUtilsExecSQL(
           span,
-          SQL_QUERIES.DELETE_SIGNALS(tableName)[DbUtilsGetType()],
-          [deleteTimestamp, formatPattern(deleteRule.pattern)],
+          SQL_QUERIES.DELETE_SIGNALS(tableName, serviceName)[DbUtilsGetType()],
+          serviceName
+            ? [deleteTimestamp, formatPattern(deleteRule.pattern), serviceName]
+            : [deleteTimestamp, formatPattern(deleteRule.pattern)],
         );
       }
       logger.info(
-        `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern}) deleted ${nbRows} rows`,
+        `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern} ; serviceName=${serviceName ?? "*"}) deleted ${nbRows} rows`,
         span,
       );
     }
@@ -156,14 +161,21 @@ const SQL_QUERIES = {
     postgres: 'SELECT * FROM settings WHERE "category" = $1',
     sqlite: "SELECT * FROM settings WHERE category = ?",
   },
-  DELETE_TRACES: {
+  DELETE_TRACES: (serviceName: string | null) => ({
     postgres:
-      'DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2',
-    sqlite: "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?",
-  },
-  DELETE_SIGNALS: (tableName: string) => ({
-    postgres: `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2`,
-    sqlite: `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?`,
+      'DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2' +
+      (serviceName ? ' AND "serviceName" = $3' : ""),
+    sqlite:
+      "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?" +
+      (serviceName ? " AND serviceName = ?" : ""),
+  }),
+  DELETE_SIGNALS: (tableName: string, serviceName: string | null) => ({
+    postgres:
+      `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2` +
+      (serviceName ? ' AND "serviceName" = $3' : ""),
+    sqlite:
+      `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?` +
+      (serviceName ? " AND serviceName = ?" : ""),
   }),
   DELETE_ORPHAN_TRACES: {
     postgres:

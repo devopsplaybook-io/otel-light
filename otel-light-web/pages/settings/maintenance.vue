@@ -25,6 +25,12 @@
           <option value="hours">Hours</option>
         </select>
         <input type="text" v-model="rule.pattern" placeholder="Pattern" />
+        <select v-model="rule.serviceName">
+          <option value="">All services</option>
+          <option v-for="svc in services" :key="svc" :value="svc">
+            {{ svc }}
+          </option>
+        </select>
         <button type="button" @click="removeRule(idx)" title="Remove">
           <i class="bi bi-trash" />
         </button>
@@ -46,6 +52,7 @@ export default {
   components: { SearchOptions },
   data() {
     return {
+      services: [],
       settings: {
         deleteRules: [],
       },
@@ -56,6 +63,7 @@ export default {
       useRouter().push({ path: "/users" });
     }
     this.fetchSettings();
+    this.fetchServices();
   },
   methods: {
     addRule() {
@@ -64,10 +72,23 @@ export default {
         periodValue: 30,
         periodUnit: "days",
         pattern: "*",
+        serviceName: "",
       });
     },
     removeRule(idx) {
       this.settings.deleteRules.splice(idx, 1);
+    },
+    async fetchServices() {
+      try {
+        const url = `${(await Config.get()).SERVER_URL}/analytics/services`;
+        const response = await axios.get(
+          url,
+          await AuthService.getAuthHeader(),
+        );
+        this.services = response.data.services || [];
+      } catch {
+        // silently ignore — dropdown will just be empty
+      }
     },
     async fetchSettings() {
       const url = `${
@@ -92,6 +113,7 @@ export default {
                 periodValue,
                 periodUnit,
                 pattern: rule.pattern,
+                serviceName: rule.serviceName || "",
               };
             }),
           };
@@ -110,6 +132,7 @@ export default {
               ? rule.periodValue * 24
               : rule.periodValue,
           pattern: rule.pattern,
+          ...(rule.serviceName ? { serviceName: rule.serviceName } : {}),
         })),
       };
       axios
@@ -129,7 +152,7 @@ export default {
 <style>
 .delete-rule-row {
   display: grid;
-  grid-template-columns: auto 1fr auto 2fr auto;
+  grid-template-columns: auto 1fr auto 2fr 2fr auto;
   gap: 0.5rem;
   margin-bottom: 0.5rem;
 }
