@@ -15,6 +15,11 @@
       <div v-for="log of logs" :key="log.serviceName + log.time">
         <LazyLog :log="log" hydrate-on-visible />
       </div>
+      <div id="logs-sentinel" ref="sentinel"></div>
+      <div class="load-status">
+        <Loading v-if="isLoadingMore" />
+        <span v-else-if="!hasMore && logs.length > 0" class="no-more-data">No more data</span>
+      </div>
     </div>
   </div>
 </template>
@@ -22,17 +27,24 @@
 <script>
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
+import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
+const PAGE_SIZE = 200;
+
 export default {
-  components: { SearchOptions },
+  components: { SearchOptions, Loading },
   data() {
     return {
       logs: [],
+      page: 0,
+      hasMore: true,
+      isLoadingMore: false,
+      newestTime: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       logSpans: {},
@@ -41,6 +53,7 @@ export default {
       },
       selectedLog: null,
       fetchTime: null,
+      observer: null,
     };
   },
   async created() {
@@ -50,19 +63,28 @@ export default {
     this.refreshIntervalValue = RefreshIntervalService.get();
   },
   mounted() {
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && this.hasMore && !this.isLoadingMore) {
+          this.fetchLogs();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    if (this.$refs.sentinel) {
+      this.observer.observe(this.$refs.sentinel);
+    }
     const interval = parseInt(this.refreshIntervalValue, 10);
     if (interval > 0) {
       this.refreshIntervalId = setInterval(() => {
-        if (
-          this.$refs.searchOptions &&
-          this.$refs.searchOptions.emitFilterChangedRaw
-        ) {
-          this.$refs.searchOptions.emitFilterChangedRaw();
-        }
+        this.fetchLogsRefresh();
       }, interval);
     }
   },
   beforeUnmount() {
+    if (this.observer) {
+      this.observer.disconnect();
+    }
     if (this.refreshIntervalId) {
       clearInterval(this.refreshIntervalId);
     }
@@ -70,26 +92,56 @@ export default {
   methods: {
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
+      this.page = 0;
+      this.logs = [];
+      this.hasMore = true;
+      this.newestTime = null;
       this.fetchLogs();
     },
     async fetchLogs() {
+      if (this.isLoadingMore || !this.hasMore) return;
+      this.isLoadingMore = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/logs${
-        this.filter.queryString ? "?" + this.filter.queryString : ""
-      }`;
+      const offset = this.page * PAGE_SIZE;
+      const qs = this.filter.queryString
+        ? `${this.filter.queryString}&offset=${offset}&limit=${PAGE_SIZE}`
+        : `offset=${offset}&limit=${PAGE_SIZE}`;
+      const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
           }
-          this.logs = await UtilsDecompressJson(response.data.logs);
-          if (response.data.warning) {
-            EventBus.emit(EventTypes.ALERT_MESSAGE, {
-              type: "warning",
-              text: response.data.warning,
-            });
+          const newLogs = await UtilsDecompressJson(response.data.logs);
+          if (newLogs && newLogs.length > 0) {
+            this.logs = [...this.logs, ...newLogs];
+            this.page += 1;
+            if (this.newestTime === null) {
+              this.newestTime = newLogs[0].time;
+            }
+          }
+          this.hasMore = response.data.hasMore === true;
+        })
+        .catch(handleError)
+        .finally(() => {
+          this.isLoadingMore = false;
+        });
+    },
+    async fetchLogsRefresh() {
+      if (!this.newestTime) return;
+      const qs = this.filter.queryString
+        ? `${this.filter.queryString}&afterTime=${this.newestTime}`
+        : `afterTime=${this.newestTime}`;
+      const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then(async (response) => {
+          const newLogs = await UtilsDecompressJson(response.data.logs);
+          if (newLogs && newLogs.length > 0) {
+            this.logs = [...newLogs, ...this.logs];
+            this.newestTime = newLogs[0].time;
           }
         })
         .catch(handleError);
@@ -130,5 +182,19 @@ export default {
 }
 .log-span-expanded {
   background-color: #dfe3eb11;
+}
+
+#logs-sentinel {
+  height: 1px;
+}
+
+.load-status {
+  padding: 0.75rem 0;
+  text-align: center;
+}
+
+.no-more-data {
+  color: #888;
+  font-size: 0.85em;
 }
 </style>

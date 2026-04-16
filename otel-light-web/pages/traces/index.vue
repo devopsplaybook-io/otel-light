@@ -40,6 +40,11 @@
           hydrate-on-visible
         />
       </div>
+      <div id="traces-sentinel" ref="sentinel"></div>
+      <div class="load-status">
+        <Loading v-if="isLoadingMore" />
+        <span v-else-if="!hasMore && traces.length > 0" class="no-more-data">No more data</span>
+      </div>
     </div>
     <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
       <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
@@ -50,17 +55,24 @@
 <script>
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
+import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
+const PAGE_SIZE = 200;
+
 export default {
-  components: { SearchOptions },
+  components: { SearchOptions, Loading },
   data() {
     return {
       traces: [],
+      page: 0,
+      hasMore: true,
+      isLoadingMore: false,
+      newestStartTime: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
@@ -71,6 +83,7 @@ export default {
       sortKey: "time",
       sortOrder: "desc",
       fetchTime: null,
+      observer: null,
     };
   },
   async created() {
@@ -80,19 +93,28 @@ export default {
     this.refreshIntervalValue = RefreshIntervalService.get();
   },
   mounted() {
+    this.observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting && this.hasMore && !this.isLoadingMore) {
+          this.fetchTraces();
+        }
+      },
+      { threshold: 0.1 },
+    );
+    if (this.$refs.sentinel) {
+      this.observer.observe(this.$refs.sentinel);
+    }
     const interval = parseInt(this.refreshIntervalValue, 10);
     if (interval > 0) {
       this.refreshIntervalId = setInterval(() => {
-        if (
-          this.$refs.searchOptions &&
-          this.$refs.searchOptions.emitFilterChangedRaw
-        ) {
-          this.$refs.searchOptions.emitFilterChangedRaw();
-        }
+        this.fetchTracesRefresh();
       }, interval);
     }
   },
   beforeUnmount() {
+    if (this.observer) {
+      this.observer.disconnect();
+    }
     if (this.refreshIntervalId) {
       clearInterval(this.refreshIntervalId);
     }
@@ -130,6 +152,10 @@ export default {
   methods: {
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
+      this.page = 0;
+      this.traces = [];
+      this.hasMore = true;
+      this.newestStartTime = null;
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
@@ -166,26 +192,55 @@ export default {
       }
     },
     async fetchTraces() {
+      if (this.isLoadingMore || !this.hasMore) return;
+      this.isLoadingMore = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces${
-        this.filter.queryString ? "?" + this.filter.queryString : ""
-      }`;
+      const offset = this.page * PAGE_SIZE;
+      const qs = this.filter.queryString
+        ? `${this.filter.queryString}&offset=${offset}&limit=${PAGE_SIZE}`
+        : `offset=${offset}&limit=${PAGE_SIZE}`;
+      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
           }
-          this.traces = await UtilsDecompressJson(response.data.traces);
-          for (const trace of this.traces) {
-            trace.duration = trace.endTime - trace.startTime;
+          const newTraces = await UtilsDecompressJson(response.data.traces);
+          if (newTraces && newTraces.length > 0) {
+            for (const trace of newTraces) {
+              trace.duration = trace.endTime - trace.startTime;
+            }
+            this.traces = [...this.traces, ...newTraces];
+            this.page += 1;
+            if (this.newestStartTime === null) {
+              this.newestStartTime = newTraces[0].startTime;
+            }
           }
-          if (response.data.warning) {
-            EventBus.emit(EventTypes.ALERT_MESSAGE, {
-              type: "warning",
-              text: response.data.warning,
-            });
+          this.hasMore = response.data.hasMore === true;
+        })
+        .catch(handleError)
+        .finally(() => {
+          this.isLoadingMore = false;
+        });
+    },
+    async fetchTracesRefresh() {
+      if (!this.newestStartTime) return;
+      const qs = this.filter.queryString
+        ? `${this.filter.queryString}&afterTime=${this.newestStartTime}`
+        : `afterTime=${this.newestStartTime}`;
+      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then(async (response) => {
+          const newTraces = await UtilsDecompressJson(response.data.traces);
+          if (newTraces && newTraces.length > 0) {
+            for (const trace of newTraces) {
+              trace.duration = trace.endTime - trace.startTime;
+            }
+            this.traces = [...newTraces, ...this.traces];
+            this.newestStartTime = newTraces[0].startTime;
           }
         })
         .catch(handleError);
@@ -232,5 +287,19 @@ export default {
 }
 .trace-span-expanded {
   background-color: #dfe3eb11;
+}
+
+#traces-sentinel {
+  height: 1px;
+}
+
+.load-status {
+  padding: 0.75rem 0;
+  text-align: center;
+}
+
+.no-more-data {
+  color: #888;
+  font-size: 0.85em;
 }
 </style>

@@ -3,12 +3,13 @@ import { AuthGetUserSession } from "../users/Auth";
 import { Log } from "../model/Log";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
-  AnalyticsUtilsResultLimit,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetSQLVariable,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+
+const PAGE_SIZE = 200;
 
 export class AnalyticsLogsRoutes {
   //
@@ -22,6 +23,8 @@ export class AnalyticsLogsRoutes {
         severity?: string;
         serviceName?: string;
         serviceVersion?: string;
+        offset?: number;
+        afterTime?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -29,9 +32,12 @@ export class AnalyticsLogsRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
       const sqlParams = [];
+      const isRefresh = req.query.afterTime !== undefined;
+      const offset = isRefresh ? 0 : (req.query.offset || 0);
+
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
-        " WHERE time >=  " +
+        " WHERE time >= " +
         AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
       sqlParams.push(fromTime);
 
@@ -40,6 +46,12 @@ export class AnalyticsLogsRoutes {
           " AND time <= " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
+      }
+      if (isRefresh) {
+        sqlWhere +=
+          " AND time > " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(req.query.afterTime);
       }
       if (req.query.keywords?.trim()) {
         sqlWhere +=
@@ -67,7 +79,7 @@ export class AnalyticsLogsRoutes {
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_LOGS(sqlWhere, AnalyticsUtilsResultLimit)[
+        SQL_QUERIES.GET_LOGS(sqlWhere, PAGE_SIZE, offset)[
           DbUtilsGetType()
         ],
         sqlParams,
@@ -80,11 +92,8 @@ export class AnalyticsLogsRoutes {
       const response = {
         logs: await AnalyticsUtilsCompressJson(logs, "gzip"),
         compressed: true,
+        hasMore: rawLogs.length === PAGE_SIZE,
       };
-      if (rawLogs.length >= AnalyticsUtilsResultLimit) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (response as any).warning = "Too much data. Results are truncated";
-      }
       return res.status(200).send(response);
     });
   }
@@ -93,8 +102,8 @@ export class AnalyticsLogsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_LOGS: (sqlWhere: string, limit: number) => ({
-    postgres: `SELECT * FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
-    sqlite: `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+  GET_LOGS: (sqlWhere: string, limit: number, offset: number) => ({
+    postgres: `SELECT * FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
+    sqlite: `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit} OFFSET ${offset}`,
   }),
 };
