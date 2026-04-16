@@ -1,5 +1,5 @@
 <template>
-  <div id="search-options">
+  <div id="search-options" :class="{ 'filters-collapsed': !filtersExpanded }">
     <div class="search-keywords">
       <input
         type="search"
@@ -8,65 +8,79 @@
         aria-label="Search"
         @input="emitFilterChanged"
       />
-      <span class="search-button" @click="emitFilterChangedRaw" title="Refresh">
-        <i class="bi bi-arrow-clockwise"></i>
+      <span class="search-button" @click="onRefreshClick" title="Refresh">
+        <i
+          class="bi bi-arrow-clockwise"
+          :class="{ spinning: isRefreshing }"
+        ></i>
+      </span>
+      <span
+        class="search-button collapse-button"
+        @click="toggleFilters"
+        :title="filtersExpanded ? 'Collapse filters' : 'Expand filters'"
+      >
+        <i
+          :class="filtersExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"
+        ></i>
       </span>
     </div>
-    <div class="search-attributes">
-      <select
-        class="filter-select filter-service"
-        v-model="serviceName"
-        @change="emitFilterChanged"
-      >
-        <option value="">All Services</option>
-        <option v-for="svc in servicesStore.services" :key="svc" :value="svc">
-          {{ svc }}
-        </option>
-      </select>
-      <select
-        class="filter-select filter-status-error"
-        v-if="type === 'traces'"
-        v-model="errorsOnly"
-        @change="emitFilterChanged"
-      >
-        <option value="">Any Status</option>
-        <option value="true">Errors</option>
-      </select>
-      <select
-        class="filter-select filter-status-severity"
-        v-if="type === 'logs'"
-        v-model="severity"
-        @change="emitFilterChanged"
-      >
-        <option value="">Any Severity</option>
-        <option value="TRACE">Trace</option>
-        <option value="DEBUG">Debug</option>
-        <option value="INFO">Info</option>
-        <option value="WARN">Warn</option>
-        <option value="ERROR">Error</option>
-        <option value="FATAL">Fatal</option>
-      </select>
-    </div>
-    <div id="search-options-dates">
-      <select v-model="from" @change="emitFilterChanged">
-        <option
-          v-for="option in timeOptions"
-          :key="option.value"
-          :value="option.value"
+    <div class="search-collapsible" :class="{ collapsed: !filtersExpanded }">
+      <div class="search-attributes">
+        <select
+          class="filter-select filter-service"
+          v-model="serviceName"
+          @change="emitFilterChanged"
         >
-          {{ option.label }}
-        </option>
-      </select>
-      <span><i class="bi bi-chevron-double-right" /></span>
-      <select v-model="to" @change="emitFilterChanged">
-        <option
-          v-for="option in timeOptions"
-          :key="option.value"
-          :value="option.value"
+          <option value="">All Services</option>
+          <option v-for="svc in servicesStore.services" :key="svc" :value="svc">
+            {{ svc }}
+          </option>
+        </select>
+        <select
+          class="filter-select filter-status-error"
+          v-if="type === 'traces'"
+          v-model="errorsOnly"
+          @change="emitFilterChanged"
         >
-          {{ option.label }}
-        </option>
-      </select>
+          <option value="">Any Status</option>
+          <option value="true">Errors</option>
+        </select>
+        <select
+          class="filter-select filter-status-severity"
+          v-if="type === 'logs'"
+          v-model="severity"
+          @change="emitFilterChanged"
+        >
+          <option value="">Any Severity</option>
+          <option value="TRACE">Trace</option>
+          <option value="DEBUG">Debug</option>
+          <option value="INFO">Info</option>
+          <option value="WARN">Warn</option>
+          <option value="ERROR">Error</option>
+          <option value="FATAL">Fatal</option>
+        </select>
+      </div>
+      <div id="search-options-dates">
+        <select v-model="from" @change="emitFilterChanged">
+          <option
+            v-for="option in timeOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+        <span><i class="bi bi-chevron-double-right" /></span>
+        <select v-model="to" @change="emitFilterChanged">
+          <option
+            v-for="option in timeOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </option>
+        </select>
+      </div>
     </div>
   </div>
 </template>
@@ -91,6 +105,7 @@ export default {
   },
   data() {
     const defaultFrom = getDefaultTimeWindow(this.type);
+    const savedExpanded = localStorage.getItem("searchOptions.filtersExpanded");
     return {
       keywords: "",
       from: defaultFrom,
@@ -98,6 +113,8 @@ export default {
       errorsOnly: "",
       severity: "",
       serviceName: "",
+      filtersExpanded: savedExpanded === null ? true : savedExpanded === "true",
+      isRefreshing: false,
       timeOptions: [
         { label: "now", value: 0 },
         { label: "5 min ago", value: 5 * 60 },
@@ -172,6 +189,20 @@ export default {
     emitFilterChanged() {
       // Placeholder, replaced in created() with debounced version
     },
+    toggleFilters() {
+      this.filtersExpanded = !this.filtersExpanded;
+      localStorage.setItem(
+        "searchOptions.filtersExpanded",
+        String(this.filtersExpanded),
+      );
+    },
+    onRefreshClick() {
+      this.isRefreshing = true;
+      setTimeout(() => {
+        this.isRefreshing = false;
+      }, 600);
+      this.emitFilterChangedRaw();
+    },
   },
 };
 </script>
@@ -179,11 +210,15 @@ export default {
 <style scoped>
 #search-options {
   display: grid;
-  grid-template-rows: auto auto auto;
+  grid-template-rows: auto auto;
   align-items: center;
   gap: 0.35rem;
   font-size: 0.88em;
   margin-bottom: 1rem;
+}
+#search-options.filters-collapsed {
+  gap: 0;
+  margin-bottom: 0.35rem;
 }
 #search-options input,
 #search-options select {
@@ -199,7 +234,7 @@ export default {
 }
 .search-keywords {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
   gap: 1rem;
 }
 .search-button {
@@ -209,7 +244,6 @@ export default {
   padding-top: 0.3rem;
 }
 #search-options-dates {
-  grid-column: 1/-1;
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -229,5 +263,37 @@ export default {
   flex-direction: row;
   gap: 1rem;
   align-items: center;
+}
+.search-collapsible {
+  display: grid;
+  max-height: 200px;
+  overflow: hidden;
+  transition:
+    max-height 0.3s ease,
+    opacity 0.3s ease;
+  opacity: 1;
+}
+.search-collapsible.collapsed {
+  max-height: 0;
+  opacity: 0;
+}
+.search-collapsible > * {
+  min-height: 0;
+  overflow: hidden;
+}
+.collapse-button {
+  padding-right: 0;
+}
+@keyframes spin-once {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+.spinning {
+  display: inline-block;
+  animation: spin-once 0.6s ease;
 }
 </style>
