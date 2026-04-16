@@ -8,30 +8,41 @@
         :key="idx"
         class="delete-rule-row"
       >
-        <select v-model="rule.signalType">
+        <select class="delete-rule-type" v-model="rule.signalType">
           <option disabled value="">Type</option>
           <option value="traces">Trace</option>
           <option value="metrics">Metric</option>
           <option value="logs">Log</option>
         </select>
         <input
+          class="delete-rule-amount"
           type="number"
           min="1"
           v-model.number="rule.periodValue"
           placeholder="Value"
         />
-        <select v-model="rule.periodUnit">
+        <select class="delete-rule-unit" v-model="rule.periodUnit">
           <option value="days">Days</option>
           <option value="hours">Hours</option>
         </select>
-        <input type="text" v-model="rule.pattern" placeholder="Pattern" />
-        <select v-model="rule.serviceName">
+        <input
+          class="delete-rule-pattern"
+          type="text"
+          v-model="rule.pattern"
+          placeholder="Pattern"
+        />
+        <select class="delete-rule-service" v-model="rule.serviceName">
           <option value="">All services</option>
           <option v-for="svc in services" :key="svc" :value="svc">
             {{ svc }}
           </option>
         </select>
-        <button type="button" @click="removeRule(idx)" title="Remove">
+        <button
+          class="delete-rule-button"
+          type="button"
+          @click="removeRule(idx)"
+          title="Remove"
+        >
           <i class="bi bi-trash" />
         </button>
       </div>
@@ -149,16 +160,57 @@ export default {
 };
 </script>
 
-<style>
+<style scoped>
 .delete-rule-row {
   display: grid;
   grid-template-columns: auto 1fr auto 2fr 2fr auto;
   gap: 0.5rem;
-  margin-bottom: 0.5rem;
+  row-gap: 0.5rem;
+  margin-bottom: 2rem;
+  align-items: center;
 }
-</style>
 
-<style scoped>
+.delete-rule-row button,
+.delete-rule-row input,
+.delete-rule-row select {
+  margin-bottom: 0;
+  height: 2.5rem;
+}
+.delete-rule-row button {
+  font-size: 0.8rem;
+}
+
+@media (max-width: 600px) {
+  .delete-rule-row {
+    grid-template-columns: auto 1fr 1fr auto;
+    grid-template-rows: auto auto;
+  }
+  .delete-rule-row .delete-rule-type {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .delete-rule-row .delete-rule-amount {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .delete-rule-row .delete-rule-unit {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .delete-rule-row .delete-rule-buttom {
+    grid-column: 4;
+    grid-row: 1;
+  }
+  .delete-rule-row .delete-rule-service {
+    grid-column: 3;
+    grid-row: 2;
+  }
+  .delete-rule-row .delete-rule-pattern {
+    grid-column: 2;
+    grid-row: 2;
+  }
+}
+
 #settings-page {
   display: grid;
   grid-template-rows: auto auto 1fr;
