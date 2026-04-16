@@ -33,7 +33,7 @@ export class AnalyticsLogsRoutes {
       }
       const sqlParams = [];
       const isRefresh = req.query.afterTime !== undefined;
-      const offset = isRefresh ? 0 : (req.query.offset || 0);
+      const offset = isRefresh ? 0 : req.query.offset || 0;
 
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
@@ -79,9 +79,7 @@ export class AnalyticsLogsRoutes {
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_LOGS(sqlWhere, PAGE_SIZE, offset)[
-          DbUtilsGetType()
-        ],
+        SQL_QUERIES.GET_LOGS(sqlWhere, PAGE_SIZE, offset)[DbUtilsGetType()],
         sqlParams,
       );
       const logs = [];

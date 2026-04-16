@@ -35,7 +35,7 @@ export class AnalyticsTracesRoutes {
       }
 
       const isRefresh = req.query.afterTime !== undefined;
-      const offset = isRefresh ? 0 : (req.query.offset || 0);
+      const offset = isRefresh ? 0 : req.query.offset || 0;
       let sqlWhere = "";
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,7 +137,9 @@ export class AnalyticsTracesRoutes {
       }
 
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACES(sqlWhere, errorsOnly, PAGE_SIZE, offset)[DbUtilsGetType()],
+        SQL_QUERIES.GET_TRACES(sqlWhere, errorsOnly, PAGE_SIZE, offset)[
+          DbUtilsGetType()
+        ],
         sqlParams,
       );
       const traces = [];
@@ -202,7 +204,12 @@ export class AnalyticsTracesRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_TRACES: (sqlWhere: string, errorsOnly: boolean, limit: number, offset: number) => {
+  GET_TRACES: (
+    sqlWhere: string,
+    errorsOnly: boolean,
+    limit: number,
+    offset: number,
+  ) => {
     const havingPostgres = errorsOnly
       ? ' HAVING COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) > 0'
       : "";

@@ -1,14 +1,25 @@
 <template>
-  <div class="fade-in-slow blink"><i class="bi bi-hourglass-split"></i> Loading...</div>
+  <div
+    class="loading-indicator"
+    :class="{ 'loading-indicator-small': size === 'small' }"
+  ></div>
 </template>
 
 <script>
 export default {
-  data() {
-    return {};
+  props: {
+    size: {
+      type: String,
+      default: "",
+    },
   },
-  methods: {},
 };
 </script>
 
-<style scoped></style>
+<style scoped>
+.loading-indicator-small {
+  width: 3rem !important;
+  margin-top: 0.5rem !important;
+  margin-bottom: 0.5rem !important;
+}
+</style>

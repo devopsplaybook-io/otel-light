@@ -17,8 +17,10 @@
       </div>
       <div id="logs-sentinel" ref="sentinel"></div>
       <div class="load-status">
-        <Loading v-if="isLoadingMore" />
-        <span v-else-if="!hasMore && logs.length > 0" class="no-more-data">No more data</span>
+        <Loading v-if="isLoadingMore" size="small" />
+        <span v-else-if="!hasMore && logs.length > 0" class="no-more-data"
+          >No more data</span
+        >
       </div>
     </div>
   </div>
