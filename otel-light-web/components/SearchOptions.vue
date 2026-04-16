@@ -44,11 +44,7 @@
           @change="emitFilterChanged"
         >
           <option value="">Any Version</option>
-          <option
-            v-for="ver in availableVersions"
-            :key="ver"
-            :value="ver"
-          >
+          <option v-for="ver in availableVersions" :key="ver" :value="ver">
             {{ ver }}
           </option>
         </select>
@@ -198,7 +194,8 @@ export default {
       if (this.errorsOnly === "true") params.errorsOnly = "true";
       if (this.severity) params.severity = this.severity;
       if (this.serviceName) params.serviceName = this.serviceName;
-      if (this.serviceVersion && this.type !== "metrics") params.serviceVersion = this.serviceVersion;
+      if (this.serviceVersion && this.type !== "metrics")
+        params.serviceVersion = this.serviceVersion;
 
       const queryString = new URLSearchParams(params).toString();
 
@@ -209,7 +206,8 @@ export default {
       if (this.errorsOnly === "true") urlQuery.errorsOnly = "true";
       if (this.severity) urlQuery.severity = this.severity;
       if (this.serviceName) urlQuery.serviceName = this.serviceName;
-      if (this.serviceVersion && this.type !== "metrics") urlQuery.serviceVersion = this.serviceVersion;
+      if (this.serviceVersion && this.type !== "metrics")
+        urlQuery.serviceVersion = this.serviceVersion;
       this.$router.replace({ query: urlQuery }).catch(() => {});
 
       this.$emit("filterChanged", {
