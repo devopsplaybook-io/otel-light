@@ -22,7 +22,8 @@ export const ServicesStore = defineStore("ServicesStore", {
       (serviceName: string): string[] => {
         return state.serviceVersions
           .filter(
-            (sv) => sv.serviceName === serviceName && sv.serviceVersion !== null,
+            (sv) =>
+              sv.serviceName === serviceName && sv.serviceVersion !== null,
           )
           .map((sv) => sv.serviceVersion as string);
       },

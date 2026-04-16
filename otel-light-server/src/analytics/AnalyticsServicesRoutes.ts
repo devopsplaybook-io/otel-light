@@ -52,7 +52,8 @@ export class AnalyticsServicesRoutes {
       for (const row of [...rawLogsServices, ...rawTracesServices]) {
         if (!row.serviceName) continue;
         if (!svMap.has(row.serviceName)) svMap.set(row.serviceName, new Set());
-        if (row.serviceVersion) svMap.get(row.serviceName)!.add(row.serviceVersion);
+        if (row.serviceVersion)
+          svMap.get(row.serviceName)!.add(row.serviceVersion);
       }
       const serviceVersions: ServiceVersionEntry[] = [];
       for (const [serviceName, versions] of svMap.entries()) {
