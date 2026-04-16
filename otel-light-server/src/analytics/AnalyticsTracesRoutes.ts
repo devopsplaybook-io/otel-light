@@ -23,6 +23,7 @@ export class AnalyticsTracesRoutes {
         traceId?: string;
         errorsOnly?: string;
         serviceName?: string;
+        serviceVersion?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -100,6 +101,18 @@ export class AnalyticsTracesRoutes {
             ),
         );
         sqlParams.push(String(req.query.serviceName).trim());
+      }
+
+      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          't."serviceVersion" = ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
+        sqlParams.push(String(req.query.serviceVersion).trim());
       }
 
       const errorsOnly = req.query.errorsOnly === "true";

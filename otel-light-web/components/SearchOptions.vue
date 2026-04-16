@@ -29,11 +29,27 @@
         <select
           class="filter-select filter-service"
           v-model="serviceName"
-          @change="emitFilterChanged"
+          @change="onServiceNameChange"
         >
           <option value="">All Services</option>
           <option v-for="svc in servicesStore.services" :key="svc" :value="svc">
             {{ svc }}
+          </option>
+        </select>
+        <select
+          v-if="type !== 'metrics'"
+          class="filter-select filter-service-version"
+          v-model="serviceVersion"
+          :disabled="!serviceName"
+          @change="emitFilterChanged"
+        >
+          <option value="">Any Version</option>
+          <option
+            v-for="ver in availableVersions"
+            :key="ver"
+            :value="ver"
+          >
+            {{ ver }}
           </option>
         </select>
         <select
@@ -113,6 +129,7 @@ export default {
       errorsOnly: "",
       severity: "",
       serviceName: "",
+      serviceVersion: "",
       filtersExpanded: savedExpanded === null ? true : savedExpanded === "true",
       isRefreshing: false,
       timeOptions: [
@@ -136,6 +153,12 @@ export default {
       ],
     };
   },
+  computed: {
+    availableVersions() {
+      if (!this.serviceName) return [];
+      return this.servicesStore.versionsForService(this.serviceName);
+    },
+  },
   created() {
     const query = this.$route.query;
     if (query.keywords) this.keywords = query.keywords;
@@ -146,10 +169,15 @@ export default {
     if (query.errorsOnly === "true") this.errorsOnly = "true";
     if (query.severity) this.severity = query.severity;
     if (query.serviceName) this.serviceName = query.serviceName;
+    if (query.serviceVersion) this.serviceVersion = query.serviceVersion;
     this.emitFilterChanged = debounce(this.emitFilterChangedRaw, 500);
     this.emitFilterChangedRaw();
   },
   methods: {
+    onServiceNameChange() {
+      this.serviceVersion = "";
+      this.emitFilterChanged();
+    },
     emitFilterChangedRaw() {
       function toNanoseconds(secondsAgo) {
         if (!secondsAgo) return 0;
@@ -170,6 +198,7 @@ export default {
       if (this.errorsOnly === "true") params.errorsOnly = "true";
       if (this.severity) params.severity = this.severity;
       if (this.serviceName) params.serviceName = this.serviceName;
+      if (this.serviceVersion && this.type !== "metrics") params.serviceVersion = this.serviceVersion;
 
       const queryString = new URLSearchParams(params).toString();
 
@@ -180,6 +209,7 @@ export default {
       if (this.errorsOnly === "true") urlQuery.errorsOnly = "true";
       if (this.severity) urlQuery.severity = this.severity;
       if (this.serviceName) urlQuery.serviceName = this.serviceName;
+      if (this.serviceVersion && this.type !== "metrics") urlQuery.serviceVersion = this.serviceVersion;
       this.$router.replace({ query: urlQuery }).catch(() => {});
 
       this.$emit("filterChanged", {
@@ -257,6 +287,13 @@ export default {
 }
 .filter-service {
   width: 10rem;
+}
+.filter-service-version {
+  width: 8rem;
+}
+.filter-service-version:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .search-attributes {
   display: flex;

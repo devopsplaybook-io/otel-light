@@ -21,6 +21,7 @@ export class AnalyticsLogsRoutes {
         keywords?: string;
         severity?: string;
         serviceName?: string;
+        serviceVersion?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -57,6 +58,12 @@ export class AnalyticsLogsRoutes {
           ' AND "serviceName" = ' +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceName).trim());
+      }
+      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+        sqlWhere +=
+          ' AND "serviceVersion" = ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(String(req.query.serviceVersion).trim());
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(

@@ -3,14 +3,30 @@ import { AuthService } from "~~/services/AuthService";
 
 const REFRESH_INTERVAL_MS = 60 * 1000; // 1 minute
 
+export interface ServiceVersionEntry {
+  serviceName: string;
+  serviceVersion: string | null;
+}
+
 export const ServicesStore = defineStore("ServicesStore", {
   state: () => ({
     services: [] as string[],
+    serviceVersions: [] as ServiceVersionEntry[],
     lastFetchedAt: 0,
     _intervalId: null as ReturnType<typeof setInterval> | null,
   }),
 
-  getters: {},
+  getters: {
+    versionsForService:
+      (state) =>
+      (serviceName: string): string[] => {
+        return state.serviceVersions
+          .filter(
+            (sv) => sv.serviceName === serviceName && sv.serviceVersion !== null,
+          )
+          .map((sv) => sv.serviceVersion as string);
+      },
+  },
 
   actions: {
     async fetchServices(): Promise<void> {
@@ -26,6 +42,7 @@ export const ServicesStore = defineStore("ServicesStore", {
         if (response.ok) {
           const data = await response.json();
           this.services = data.services || [];
+          this.serviceVersions = data.serviceVersions || [];
           this.lastFetchedAt = Date.now();
         }
       } catch {

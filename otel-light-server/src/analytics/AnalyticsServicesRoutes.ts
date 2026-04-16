@@ -3,6 +3,11 @@ import { AuthGetUserSession } from "../users/Auth";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
+export interface ServiceVersionEntry {
+  serviceName: string;
+  serviceVersion: string | null;
+}
+
 export class AnalyticsServicesRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -41,7 +46,26 @@ export class AnalyticsServicesRoutes {
       }
 
       const services = Array.from(serviceSet).sort();
-      return res.status(200).send({ services });
+
+      // Build serviceName/serviceVersion pairs from logs and traces (not metrics)
+      const svMap = new Map<string, Set<string>>();
+      for (const row of [...rawLogsServices, ...rawTracesServices]) {
+        if (!row.serviceName) continue;
+        if (!svMap.has(row.serviceName)) svMap.set(row.serviceName, new Set());
+        if (row.serviceVersion) svMap.get(row.serviceName)!.add(row.serviceVersion);
+      }
+      const serviceVersions: ServiceVersionEntry[] = [];
+      for (const [serviceName, versions] of svMap.entries()) {
+        if (versions.size === 0) {
+          serviceVersions.push({ serviceName, serviceVersion: null });
+        } else {
+          for (const serviceVersion of Array.from(versions).sort()) {
+            serviceVersions.push({ serviceName, serviceVersion });
+          }
+        }
+      }
+
+      return res.status(200).send({ services, serviceVersions });
     });
   }
 }
@@ -50,12 +74,12 @@ export class AnalyticsServicesRoutes {
 
 const SQL_QUERIES = {
   GET_SERVICES_FROM_LOGS: {
-    postgres: `SELECT DISTINCT "serviceName" FROM logs WHERE "serviceName" IS NOT NULL ORDER BY "serviceName"`,
-    sqlite: `SELECT DISTINCT serviceName FROM logs WHERE serviceName IS NOT NULL ORDER BY serviceName`,
+    postgres: `SELECT DISTINCT "serviceName", "serviceVersion" FROM logs WHERE "serviceName" IS NOT NULL ORDER BY "serviceName", "serviceVersion"`,
+    sqlite: `SELECT DISTINCT serviceName, serviceVersion FROM logs WHERE serviceName IS NOT NULL ORDER BY serviceName, serviceVersion`,
   },
   GET_SERVICES_FROM_TRACES: {
-    postgres: `SELECT DISTINCT "serviceName" FROM traces WHERE "serviceName" IS NOT NULL ORDER BY "serviceName"`,
-    sqlite: `SELECT DISTINCT serviceName FROM traces WHERE serviceName IS NOT NULL ORDER BY serviceName`,
+    postgres: `SELECT DISTINCT "serviceName", "serviceVersion" FROM traces WHERE "serviceName" IS NOT NULL ORDER BY "serviceName", "serviceVersion"`,
+    sqlite: `SELECT DISTINCT serviceName, serviceVersion FROM traces WHERE serviceName IS NOT NULL ORDER BY serviceName, serviceVersion`,
   },
   GET_SERVICES_FROM_METRICS: {
     postgres: `SELECT DISTINCT "serviceName" FROM metrics WHERE "serviceName" IS NOT NULL ORDER BY "serviceName"`,
