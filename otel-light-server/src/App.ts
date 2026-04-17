@@ -7,6 +7,8 @@ import { watchFile } from "fs-extra";
 import * as path from "path";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
+import { AnalyticsServicesRoutes } from "./analytics/AnalyticsServicesRoutes";
+import { AnalyticsServicesCacheInit } from "./analytics/AnalyticsServicesCache";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { Config } from "./Config";
@@ -51,6 +53,7 @@ Promise.resolve().then(async () => {
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);
+  await AnalyticsServicesCacheInit(span, config);
 
   span.end();
 
@@ -99,6 +102,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new AnalyticsLogsRoutes().getRoutes, {
     prefix: "/api/analytics/logs",
+  });
+  fastify.register(new AnalyticsServicesRoutes().getRoutes, {
+    prefix: "/api/analytics/services",
   });
   fastify.register(new SettingsRoutes().getRoutes, {
     prefix: "/api/settings",

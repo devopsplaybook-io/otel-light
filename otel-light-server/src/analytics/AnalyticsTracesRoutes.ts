@@ -7,9 +7,10 @@ import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetSQLVariable,
-  AnalyticsUtilsResultLimit,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+
+const PAGE_SIZE = 200;
 
 export class AnalyticsTracesRoutes {
   //
@@ -22,6 +23,10 @@ export class AnalyticsTracesRoutes {
         keywords?: string;
         traceId?: string;
         errorsOnly?: string;
+        serviceName?: string;
+        serviceVersion?: string;
+        offset?: number;
+        afterTime?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -29,6 +34,8 @@ export class AnalyticsTracesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
 
+      const isRefresh = req.query.afterTime !== undefined;
+      const offset = isRefresh ? 0 : req.query.offset || 0;
       let sqlWhere = "";
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -66,6 +73,17 @@ export class AnalyticsTracesRoutes {
         );
         sqlParams.push(req.query.from);
       }
+      if (isRefresh) {
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          'rootSpan."startTime" > ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
+        sqlParams.push(req.query.afterTime);
+      }
       if (req.query.to) {
         sqlWhere = appendWhereCondition(
           sqlWhere,
@@ -89,13 +107,39 @@ export class AnalyticsTracesRoutes {
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
+      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          't."serviceName" = ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
+        sqlParams.push(String(req.query.serviceName).trim());
+      }
+
+      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+        sqlWhere = appendWhereCondition(
+          sqlWhere,
+          't."serviceVersion" = ' +
+            AnalyticsUtilsGetSQLVariable(
+              DbUtilsGetType(),
+              sqlParams.length + 1,
+            ),
+        );
+        sqlParams.push(String(req.query.serviceVersion).trim());
+      }
+
       const errorsOnly = req.query.errorsOnly === "true";
       if (errorsOnly && DbUtilsGetType() === "sqlite") {
         sqlParams.push(SpanStatusCode.ERROR);
       }
 
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACES(sqlWhere, errorsOnly)[DbUtilsGetType()],
+        SQL_QUERIES.GET_TRACES(sqlWhere, errorsOnly, PAGE_SIZE, offset)[
+          DbUtilsGetType()
+        ],
         sqlParams,
       );
       const traces = [];
@@ -106,11 +150,8 @@ export class AnalyticsTracesRoutes {
       const response = {
         traces: await AnalyticsUtilsCompressJson(traces, "gzip"),
         compressed: true,
+        hasMore: rawTraces.length === PAGE_SIZE,
       };
-      if (rawTraces.length >= AnalyticsUtilsResultLimit) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (response as any).warning = "Too much data. Results are truncated";
-      }
       return res.status(200).send(response);
     });
 
@@ -163,7 +204,12 @@ export class AnalyticsTracesRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_TRACES: (sqlWhere: string, errorsOnly: boolean) => {
+  GET_TRACES: (
+    sqlWhere: string,
+    errorsOnly: boolean,
+    limit: number,
+    offset: number,
+  ) => {
     const havingPostgres = errorsOnly
       ? ' HAVING COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) > 0'
       : "";
@@ -183,7 +229,7 @@ const SQL_QUERIES = {
       FROM traces t 
         LEFT JOIN traces rootSpan ON rootSpan."traceId" = t."traceId" AND rootSpan."parentSpanId" IS NULL${sqlWhere} 
       GROUP BY t."traceId", rootSpan."name", rootSpan."serviceName", rootSpan."serviceVersion"${havingPostgres} 
-      ORDER BY "startTime" DESC`,
+      ORDER BY "startTime" DESC LIMIT ${limit} OFFSET ${offset}`,
       sqlite: `
       SELECT  MIN(t.startTime) AS startTime, 
               MAX(t.endTime) AS endTime, 
@@ -196,7 +242,7 @@ const SQL_QUERIES = {
       FROM traces t 
         LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL${sqlWhere} 
       GROUP BY t.traceId${havingSqlite} 
-      ORDER BY t.startTime DESC`,
+      ORDER BY t.startTime DESC LIMIT ${limit} OFFSET ${offset}`,
     };
   },
   GET_TRACE_SPANS: {

@@ -68,11 +68,12 @@ export default {
       this.loading = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics${
-        this.filter.queryString
-          ? `?${this.filter.queryString}&serviceName=${this.serviceName}&name=${this.name}`
-          : `?serviceName=${this.serviceName}&name=${this.name}`
-      }`;
+      const baseParams = new URLSearchParams(this.filter.queryString || "");
+      baseParams.delete("serviceName");
+      baseParams.delete("name");
+      baseParams.set("serviceName", this.serviceName);
+      baseParams.set("name", this.name);
+      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -81,7 +82,7 @@ export default {
           }
           this.metrics = UtilsMetricSampleDataPoints(
             await UtilsDecompressJson(response.data.metrics),
-            500
+            500,
           );
           if (response.data.warning) {
             EventBus.emit(EventTypes.ALERT_MESSAGE, {

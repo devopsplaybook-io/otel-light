@@ -39,17 +39,17 @@ export class AnalyticsMetricsRoutes {
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
-      if (req.query.serviceName?.trim()) {
+      if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
           ' AND "serviceName" = ' +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
-        sqlParams.push(req.query.serviceName.trim());
+        sqlParams.push(String(req.query.serviceName).trim());
       }
-      if (req.query.name?.trim()) {
+      if (req.query.name && String(req.query.name).trim()) {
         sqlWhere +=
           " AND name = " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
-        sqlParams.push(req.query.name.trim());
+        sqlParams.push(String(req.query.name).trim());
       }
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
         SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
@@ -78,6 +78,7 @@ export class AnalyticsMetricsRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        serviceName?: string;
       };
     }>("/names", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -96,6 +97,13 @@ export class AnalyticsMetricsRoutes {
           " AND time <= " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
+      }
+
+      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+        sqlWhere +=
+          ' AND "serviceName" = ' +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(String(req.query.serviceName).trim());
       }
 
       if (req.query.keywords?.trim()) {

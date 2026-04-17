@@ -35,6 +35,8 @@ export class Config implements ConfigOTelInterface {
   public METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS = 12;
   public METRICS_COMPRESS_HOUR_THRESHOLD_DAYS = 7;
   public MAINTENANCE_FREQUENCY_HOURS = 6;
+  public CACHE_REFRESH_MINUTES = 10;
+  public METRICS_SELF_REFRESH_MINUTES = 10;
   // Database configuration
   public DATABASE_TYPE: "sqlite" | "postgres" = "sqlite";
   public DATABASE_POSTGRES_HOST: string;
@@ -43,7 +45,6 @@ export class Config implements ConfigOTelInterface {
   public DATABASE_POSTGRES_PASSWORD: string;
   public DATABASE_POSTGRES_DATABASE: string;
   // APi Limits
-  public ANALYTICS_UTILS_RESULT_LIMIT = 2000;
   public ANALYTICS_UTILS_RESULT_LIMIT_METRICS = 10000;
 
   constructor() {
@@ -104,7 +105,8 @@ export class Config implements ConfigOTelInterface {
     setIfSet("DATABASE_POSTGRES_USER");
     setIfSet("DATABASE_POSTGRES_PASSWORD", false);
     setIfSet("DATABASE_POSTGRES_DATABASE");
-    setIfSet("ANALYTICS_UTILS_RESULT_LIMIT");
+    setIfSet("CACHE_REFRESH_MINUTES");
+    setIfSet("METRICS_SELF_REFRESH_MINUTES");
     setIfSet("ANALYTICS_UTILS_RESULT_LIMIT_METRICS");
   }
 }

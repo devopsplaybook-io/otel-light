@@ -14,7 +14,6 @@ export async function AnalyticsUtilsInit(
 ): Promise<void> {
   const span = OTelTracer().startSpan("AnalyticsUtilsInit", context);
 
-  AnalyticsUtilsResultLimit = configIn.ANALYTICS_UTILS_RESULT_LIMIT;
   AnalyticsUtilsResultLimitMetrics =
     configIn.ANALYTICS_UTILS_RESULT_LIMIT_METRICS;
   span.end();
@@ -55,5 +54,4 @@ export function AnalyticsUtilsGetSQLVariable(
   return "?";
 }
 
-export let AnalyticsUtilsResultLimit = 2000;
 export let AnalyticsUtilsResultLimitMetrics = 10000;
