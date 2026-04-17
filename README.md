@@ -6,7 +6,10 @@
 
 - HTTP API for ingestion of Traces, Logs, and Metrics
 - User interface to visualize telemetry signals
+- Filter signals by service name and service version
+- Dynamic paging with infinite scroll for Traces and Logs
 - Administration interface for login and maintenance rule management
+- Maintenance rules support optional service-name filtering
 - All-in-one container deployment
 - Low memory footprint (<100MB)
 - Supports up to 1 million signals (Traces, Logs, Metrics)
@@ -26,6 +29,8 @@
 - Target memory usage: <100MB
 - Ingestion via HTTP API (use an [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/) for other protocols)
 - Storage optimized for fewer than 1 million signals (SQLite); higher capacity with PostgreSQL
+- Analytics queries accelerated by targeted database indexes (covering indexes on `serviceName`/`serviceVersion`, composite time-range indexes, and JOIN/lookup indexes)
+- Service list is cached in `<DATA_DIR>/cache/services.json` and refreshed at a configurable interval to minimize expensive database scans
 
 ## Quick Start
 
@@ -80,13 +85,13 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12      | Config file or environment variable |
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7       | Config file or environment variable |
 | MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6       | Config file or environment variable |
+| CACHE_REFRESH_MINUTES                                   | Interval (in minutes) to refresh the services cache   | 10      | Config file or environment variable |
 | DATABASE_TYPE                                           | Database type (`sqlite` or `postgres`)                | sqlite  | Config file or environment variable |
 | DATABASE_POSTGRES_HOST                                  | PostgreSQL server hostname                            |         | Config file or environment variable |
 | DATABASE_POSTGRES_PORT                                  | PostgreSQL server port                                |         | Config file or environment variable |
 | DATABASE_POSTGRES_USER                                  | PostgreSQL user                                       |         | Config file or environment variable |
 | DATABASE_POSTGRES_PASSWORD                              | PostgreSQL password                                   |         | Config file or environment variable |
 | DATABASE_POSTGRES_DATABASE                              | PostgreSQL database name                              |         | Config file or environment variable |
-| ANALYTICS_UTILS_RESULT_LIMIT                            | Maximum number of results for analytics queries       | 2000    | Config file or environment variable |
 | ANALYTICS_UTILS_RESULT_LIMIT_METRICS                    | Maximum number of results for metrics queries         | 10000   | Config file or environment variable |
 
 ## Client Application

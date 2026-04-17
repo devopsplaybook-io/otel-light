@@ -45,7 +45,6 @@ export class Config implements ConfigOTelInterface {
   public DATABASE_POSTGRES_PASSWORD: string;
   public DATABASE_POSTGRES_DATABASE: string;
   // APi Limits
-  public ANALYTICS_UTILS_RESULT_LIMIT = 2000;
   public ANALYTICS_UTILS_RESULT_LIMIT_METRICS = 10000;
 
   constructor() {
@@ -108,7 +107,6 @@ export class Config implements ConfigOTelInterface {
     setIfSet("DATABASE_POSTGRES_DATABASE");
     setIfSet("CACHE_REFRESH_MINUTES");
     setIfSet("METRICS_SELF_REFRESH_MINUTES");
-    setIfSet("ANALYTICS_UTILS_RESULT_LIMIT");
     setIfSet("ANALYTICS_UTILS_RESULT_LIMIT_METRICS");
   }
 }
