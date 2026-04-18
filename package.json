@@ -1,10 +1,11 @@
 {
   "name": "otel-light",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "",
   "main": "ecosystem.config.js",
   "scripts": {
-    "dev": "./docs/dev/run-dev-env.sh"
+    "dev": "./docs/dev/run-dev-env.sh",
+    "dependencies": "./docs/dev/run-dev-dependencies-rebuild.sh"
   },
   "repository": {
     "type": "git",

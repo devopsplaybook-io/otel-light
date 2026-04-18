@@ -40,12 +40,12 @@
     "@types/node": "^25.6.0",
     "@types/pg": "^8.20.0",
     "@types/sqlite3": "^5.1.0",
-    "eslint": "^10.2.0",
+    "eslint": "^10.2.1",
     "jest": "^30.3.0",
     "sinon": "^21.1.2",
     "ts-jest": "^29.4.9",
     "ts-node": "^10.9.2",
-    "typescript": "^6.0.2",
+    "typescript": "^6.0.3",
     "typescript-eslint": "^8.58.2"
   }
 }
