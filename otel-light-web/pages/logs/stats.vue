@@ -54,11 +54,10 @@ import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 
 const PAGE_SIZE = 200;
-const TARGET_BUCKETS = 80;
-const MAX_PAGES = 100; // ~20k logs safety cap
+const TARGET_BUCKETS = 50;
 const REDRAW_INTERVAL_MS = 250;
 
 const SEVERITY_ORDER = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
@@ -87,11 +86,9 @@ export default {
       severityOrder: SEVERITY_ORDER,
     };
   },
-  async created() {
-    if (!(await AuthenticationStore().ensureAuthenticated())) {
-      useRouter().push({ path: "/users" });
-    }
-    // Non-reactive internals
+  beforeCreate() {
+    // Non-reactive internals must be ready BEFORE the child SearchOptions
+    // emits its initial `filterChanged` during its own created() hook.
     this.runId = 0;
     this.abortCtrl = null;
     this.pendingRaf = null;
@@ -101,6 +98,11 @@ export default {
     this.windowFromNs = null;
     this.windowToNs = null;
     this.bucketMsNs = null; // bucket width in nanoseconds
+  },
+  async created() {
+    if (!(await AuthenticationStore().ensureAuthenticated())) {
+      useRouter().push({ path: "/users" });
+    }
   },
   beforeUnmount() {
     this.cancelInFlight();
@@ -140,7 +142,7 @@ export default {
             formatter: (v) => Math.round(v).toLocaleString(),
           },
         },
-        legend: { position: "top" },
+        legend: { position: "bottom" },
         colors: SEVERITY_ORDER.map((s) => SEVERITY_COLORS[s]).concat([
           SEVERITY_COLORS.UNKNOWN,
         ]),
@@ -164,10 +166,15 @@ export default {
       this.bucketMsNs = null;
     },
     parseWindow() {
-      // Extract from/to from queryString (in nanoseconds, per SearchOptions)
+      // Extract from/to from queryString (in nanoseconds, per SearchOptions).
+      // `to` is omitted by SearchOptions when the user picked "now" — default to
+      // the current time so buckets span the real filter window rather than
+      // only the first page's timestamps.
       const params = new URLSearchParams(this.filter.queryString || "");
       const fromNs = params.get("from") ? Number(params.get("from")) : null;
-      const toNs = params.get("to") ? Number(params.get("to")) : null;
+      const toNs = params.get("to")
+        ? Number(params.get("to"))
+        : Date.now() * 1_000_000;
       return { fromNs, toNs };
     },
     computeBucketWidth(fromNs, toNs) {
@@ -278,6 +285,9 @@ export default {
       const { fromNs, toNs } = this.parseWindow();
       this.windowFromNs = fromNs;
       this.windowToNs = toNs;
+      // If `from` is missing we still lazy-derive it from the first page, but
+      // `to` is always resolved (defaults to now) so bucket width can be set up
+      // front whenever `from` is known.
       if (fromNs !== null && toNs !== null) {
         this.bucketMsNs = this.computeBucketWidth(fromNs, toNs);
       }
@@ -287,7 +297,8 @@ export default {
       const authHeader = await AuthService.getAuthHeader();
 
       try {
-        for (let page = 0; page < MAX_PAGES; page++) {
+        let page = 0;
+        while (true) {
           if (runId !== this.runId) return;
           const qs = this.filter.queryString
             ? `${this.filter.queryString}&offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`
@@ -317,12 +328,7 @@ export default {
           this.pagesLoaded = page + 1;
           this.scheduleRedraw();
           if (res.data.hasMore !== true) break;
-          if (page === MAX_PAGES - 1) {
-            EventBus.emit(EventTypes.ALERT_MESSAGE, {
-              type: "warning",
-              text: `Results capped at ${MAX_PAGES * PAGE_SIZE} logs. Refine your filters for a complete view.`,
-            });
-          }
+          page++;
         }
         if (runId === this.runId) {
           this.scheduleRedraw(true);
