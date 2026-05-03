@@ -1,11 +1,11 @@
 <template>
-  <div id="logs-page">
+  <div id="logs-page" class="signals-page">
     <SearchOptions
       ref="searchOptions"
       @filterChanged="onFilterChanged"
       type="logs"
     />
-    <div id="logs">
+    <div id="logs" class="signals-scroll">
       <div class="log-summary">
         <b>Service</b>
         <b>Time</b>
@@ -23,6 +23,9 @@
         >
       </div>
     </div>
+    <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
+      <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
+    </button>
   </div>
 </template>
 
@@ -131,6 +134,9 @@ export default {
           this.isLoadingMore = false;
         });
     },
+    goToAnalytics() {
+      this.$router.push({ path: "/logs/stats", query: this.$route.query });
+    },
     async fetchLogsRefresh() {
       if (!this.newestTime) return;
       const qs = this.filter.queryString
@@ -152,33 +158,7 @@ export default {
 };
 </script>
 
-<style>
-.log-summary {
-  min-width: 1200px;
-  display: grid;
-  grid-template-columns: 2fr 2fr 1fr 9fr;
-  gap: 1rem;
-  width: 100%;
-}
-.log-summary span {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-</style>
-
 <style scoped>
-#logs-page {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
-}
-
-#logs {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
 .log-expanded {
   background-color: #dfe3eb22;
 }
@@ -188,15 +168,5 @@ export default {
 
 #logs-sentinel {
   height: 1px;
-}
-
-.load-status {
-  padding: 0.75rem 0;
-  text-align: center;
-}
-
-.no-more-data {
-  color: #888;
-  font-size: 0.85em;
 }
 </style>
