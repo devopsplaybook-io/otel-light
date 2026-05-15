@@ -47,7 +47,7 @@
         />
       </article>
     </div>
-    <Loading v-else />
+    <Loading v-else class="loading" />
   </div>
 </template>
 
@@ -190,6 +190,10 @@ export default {
   font-size: 3rem;
   opacity: 0.4;
   cursor: pointer;
+}
+
+.metrics-page .loading {
+  max-width: 100vw;
 }
 </style>
 
