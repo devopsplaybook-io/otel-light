@@ -1,7 +1,7 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
-    <Loading v-if="loading" />
+    <Loading v-if="loading" size="small" />
     <div v-else id="metrics-list">
       <article
         v-for="metric of metricsNames"
