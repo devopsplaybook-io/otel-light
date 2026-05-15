@@ -1,7 +1,8 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
-    <div v-if="!loading" id="metrics-list">
+    <Loading v-if="loading" />
+    <div v-else id="metrics-list">
       <article
         v-for="metric of metricsNames"
         :key="metric.serviceName + metric.name"
@@ -52,6 +53,7 @@
 
 <script>
 import axios from "axios";
+import Loading from "~/components/Loading.vue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
@@ -60,7 +62,7 @@ import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { PreferencesService } from "~~/services/PreferencesService";
 
 export default {
-  components: { SearchOptions },
+  components: { SearchOptions, Loading },
   data() {
     return {
       metricsNames: [],
@@ -68,7 +70,7 @@ export default {
       filter: {
         queryString: "",
       },
-      loading: false,
+      loading: true,
       fetchTime: null,
     };
   },
