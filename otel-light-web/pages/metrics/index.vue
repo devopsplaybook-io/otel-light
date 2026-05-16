@@ -1,7 +1,7 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
-    <div v-if="!loading" id="metrics-list">
+    <div id="metrics-list">
       <article
         v-for="metric of metricsNames"
         :key="metric.serviceName + metric.name"
@@ -47,7 +47,6 @@
         />
       </article>
     </div>
-    <Loading v-else class="loading" />
   </div>
 </template>
 
@@ -152,14 +151,6 @@ export default {
   align-items: center;
 }
 
-.metric-title {
-  display: grid;
-  grid-template-rows: auto auto;
-  gap: 0.2rem;
-  min-width: 0;
-  overflow: hidden;
-}
-
 .metric-service-name {
   font-size: 0.6em;
   align-self: flex-start;
@@ -190,10 +181,6 @@ export default {
   font-size: 3rem;
   opacity: 0.4;
   cursor: pointer;
-}
-
-.metrics-page .loading {
-  max-width: 100vw;
 }
 </style>
 
