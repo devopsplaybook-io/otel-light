@@ -4,7 +4,7 @@
     <div id="metrics-list">
       <article
         v-for="metric of metricsNames"
-        :key="metric.serviceName + metric.name"
+        :key="metric.serviceName + metric.name + refreshCounter"
       >
         <header>
           <div class="metric-header">
@@ -64,6 +64,7 @@ export default {
   data() {
     return {
       metricsNames: [],
+      refreshCounter: 0,
       traceSpans: {},
       filter: {
         queryString: "",
@@ -81,6 +82,7 @@ export default {
   methods: {
     onFilterChanged(filter) {
       this.filter = { ...filter };
+      this.refreshCounter++;
       this.fetchMetricsNames();
     },
     async fetchMetricsNames() {
