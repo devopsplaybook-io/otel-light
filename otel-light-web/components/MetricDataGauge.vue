@@ -63,6 +63,13 @@ export default {
   async created() {
     this.fetchMetrics();
   },
+  watch: {
+    filter() {
+      this.chartSeries = [];
+      this.metrics = [];
+      this.fetchMetrics();
+    },
+  },
   methods: {
     async fetchMetrics() {
       this.loading = true;

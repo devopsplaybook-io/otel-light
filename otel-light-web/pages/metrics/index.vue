@@ -80,7 +80,7 @@ export default {
   },
   methods: {
     onFilterChanged(filter) {
-      this.filter.queryString = filter.queryString;
+      this.filter = { ...filter };
       this.fetchMetricsNames();
     },
     async fetchMetricsNames() {
