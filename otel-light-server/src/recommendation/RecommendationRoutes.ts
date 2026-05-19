@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
-import { RecommendationGetCached, RecommendationGenerate } from "./Recommendation";
+import { RecommendationGetCached } from "./Recommendation";
 
 export class RecommendationRoutes {
   //
@@ -22,18 +22,6 @@ export class RecommendationRoutes {
         });
       }
       return res.status(200).send(cached);
-    });
-
-    fastify.post("/generate", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
-      // Trigger a manual generation (fire-and-forget, return immediately)
-      RecommendationGenerate().catch((err) => {
-        req.log.error(`Manual recommendation generation failed: ${err.message}`);
-      });
-      return res.status(202).send({ message: "Recommendation generation triggered" });
     });
   }
 }

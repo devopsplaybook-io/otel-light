@@ -34,31 +34,40 @@
       </article>
     </NuxtLink>
 
-    <article v-if="recommendation" id="page-recommendation" class="recommendation-card">
+    <article
+      v-if="recommendation"
+      id="page-recommendation"
+      class="recommendation-card"
+    >
       <header>
         <b><i class="bi bi-robot"></i> LLM Recommendation</b>
         <small class="rec-generated-at" v-if="recommendation.generatedAt">
-          {{ formatDate(recommendation.generatedAt) }} &middot; {{ recommendation.periodHours }}h period
+          {{ formatDate(recommendation.generatedAt) }} &middot;
+          {{ recommendation.periodHours }}h period
         </small>
       </header>
       <section>
         <div v-if="recommendation.analysis" class="rec-section">
           <h4><i class="bi bi-search"></i> Analysis</h4>
-          <div class="rec-content">{{ recommendation.analysis }}</div>
+          <div
+            class="rec-content"
+            v-html="renderMarkdown(recommendation.analysis)"
+          ></div>
         </div>
         <div v-if="recommendation.recommendations" class="rec-section">
           <h4><i class="bi bi-lightbulb"></i> Recommendations</h4>
-          <div class="rec-content">{{ recommendation.recommendations }}</div>
+          <div
+            class="rec-content"
+            v-html="renderMarkdown(recommendation.recommendations)"
+          ></div>
         </div>
-        <div v-if="!recommendation.analysis && !recommendation.recommendations" class="rec-section">
+        <div
+          v-if="!recommendation.analysis && !recommendation.recommendations"
+          class="rec-section"
+        >
           <em>No recommendation content available.</em>
         </div>
       </section>
-      <footer>
-        <button class="outline contrast" @click="fetchRecommendation" :disabled="isLoading">
-          <i class="bi bi-arrow-clockwise"></i> Regenerate
-        </button>
-      </footer>
     </article>
   </div>
 </template>
@@ -67,12 +76,12 @@
 import axios from "axios";
 import Config from "~~/services/Config";
 import { AuthService } from "~~/services/AuthService";
+import { marked } from "marked";
 
 export default {
   data() {
     return {
       recommendation: null,
-      isLoading: false,
     };
   },
   async created() {
@@ -85,10 +94,12 @@ export default {
   },
   methods: {
     async fetchRecommendation() {
-      this.isLoading = true;
       try {
         const url = `${(await Config.get()).SERVER_URL}/recommendation`;
-        const response = await axios.get(url, await AuthService.getAuthHeader());
+        const response = await axios.get(
+          url,
+          await AuthService.getAuthHeader(),
+        );
         if (response.data && response.data.generatedAt) {
           this.recommendation = response.data;
         } else {
@@ -97,7 +108,10 @@ export default {
       } catch (err) {
         this.recommendation = null;
       }
-      this.isLoading = false;
+    },
+    renderMarkdown(text) {
+      if (!text) return "";
+      return marked.parse(text, { breaks: true });
     },
     formatDate(isoString) {
       const d = new Date(isoString);
@@ -143,9 +157,6 @@ export default {
   flex-wrap: wrap;
   gap: 0.5rem;
 }
-.recommendation-card header b i {
-  font-size: 1.2rem;
-}
 .rec-generated-at {
   opacity: 0.6;
   font-size: 0.8rem;
@@ -158,20 +169,32 @@ export default {
   font-size: 1rem;
 }
 .rec-section h4 i {
-  font-size: 1rem;
+  font-size: 0.75rem;
 }
 .rec-content {
-  white-space: pre-wrap;
-  word-break: break-word;
   line-height: 1.5;
   font-size: 0.9rem;
 }
-.recommendation-card footer {
-  padding-top: 0.5rem;
+.rec-content h2 {
+  font-size: 1.1rem;
+  margin: 0.8rem 0 0.3rem 0;
 }
-.recommendation-card footer button {
-  width: auto;
-  padding: 0.3em 0.8em;
-  font-size: 0.85rem;
+.rec-content h3 {
+  font-size: 1rem;
+  margin: 0.6rem 0 0.2rem 0;
+}
+.rec-content p {
+  margin: 0.3rem 0;
+}
+.rec-content ul,
+.rec-content ol {
+  margin: 0.2rem 0;
+  padding-left: 1.5rem;
+}
+.rec-content li {
+  margin: 0.15rem 0;
+}
+.rec-content strong {
+  font-weight: 600;
 }
 </style>

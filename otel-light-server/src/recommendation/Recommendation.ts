@@ -21,10 +21,7 @@ export async function RecommendationInit(
 ): Promise<void> {
   const span = OTelTracer().startSpan("RecommendationInit", context);
   config = configIn;
-  recommendationFilePath = path.join(
-    configIn.DATA_DIR,
-    "recommendation.json",
-  );
+  recommendationFilePath = path.join(configIn.DATA_DIR, "recommendation.json");
   logger.info(
     `Recommendation storage initialized at: ${recommendationFilePath}`,
   );
@@ -33,19 +30,18 @@ export async function RecommendationInit(
     logger.info(
       `Scheduling LLM recommendation: ${configIn.LLM_RECOMMENDATION_SCHEDULE_CRON}`,
     );
-    schedule.scheduleJob(
-      configIn.LLM_RECOMMENDATION_SCHEDULE_CRON,
-      () => {
-        RecommendationGenerate().catch((err) =>
-          logger.error(
-            `Failed to generate scheduled recommendation: ${err.message}`,
-          ),
-        );
-      },
-    );
+    schedule.scheduleJob(configIn.LLM_RECOMMENDATION_SCHEDULE_CRON, () => {
+      RecommendationGenerate().catch((err) =>
+        logger.error(
+          `Failed to generate scheduled recommendation: ${err.message}`,
+        ),
+      );
+    });
     // Generate on startup if no cached recommendation exists
     if (!(await fs.pathExists(recommendationFilePath))) {
-      logger.info("No cached recommendation found, triggering initial generation");
+      logger.info(
+        "No cached recommendation found, triggering initial generation",
+      );
       RecommendationGenerate().catch((err) =>
         logger.error(
           `Failed to generate initial recommendation: ${err.message}`,
@@ -71,9 +67,7 @@ export async function RecommendationGetCached(): Promise<{
     }
     return await fs.readJson(recommendationFilePath);
   } catch (error) {
-    logger.error(
-      `Failed to read cached recommendation: ${error.message}`,
-    );
+    logger.error(`Failed to read cached recommendation: ${error.message}`);
     return null;
   }
 }
@@ -140,8 +134,7 @@ export async function RecommendationGenerate(): Promise<void> {
           },
         },
       );
-      const fullContent =
-        response.data?.choices?.[0]?.message?.content || "";
+      const fullContent = response.data?.choices?.[0]?.message?.content || "";
 
       // Split into Analysis and Recommendations sections
       const analysisMatch = fullContent.match(
@@ -151,15 +144,9 @@ export async function RecommendationGenerate(): Promise<void> {
         /## Recommendations\s*([\s\S]*)/i,
       );
       analysis = (analysisMatch?.[1] || fullContent).trim();
-      recommendations = (
-        recommendationsMatch?.[1] || ""
-      ).trim();
+      recommendations = (recommendationsMatch?.[1] || "").trim();
     } catch (error) {
-      logger.error(
-        `LLM API call failed: ${error.message}`,
-        error,
-        span,
-      );
+      logger.error(`LLM API call failed: ${error.message}`, error, span);
       analysis = `LLM recommendation generation failed: ${error.message}`;
       recommendations = "";
     }
@@ -177,7 +164,11 @@ export async function RecommendationGenerate(): Promise<void> {
     await fs.writeJson(recommendationFilePath, result);
     logger.info("LLM recommendation generated and cached successfully", span);
   } catch (err) {
-    logger.error(`Failed to generate recommendation: ${err.message}`, err, span);
+    logger.error(
+      `Failed to generate recommendation: ${err.message}`,
+      err,
+      span,
+    );
   }
   span.end();
 }
@@ -187,7 +178,12 @@ export async function RecommendationGenerate(): Promise<void> {
 interface LogsStats {
   total: number;
   errors: number;
-  perService: Array<{ serviceName: string; total: number; errors: number; errorRate: number }>;
+  perService: Array<{
+    serviceName: string;
+    total: number;
+    errors: number;
+    errorRate: number;
+  }>;
   perSeverity: Array<{ severity: string; count: number }>;
 }
 
@@ -343,9 +339,7 @@ async function CollectStats(
         count: brCount,
         totalDurationMs: Math.round(brTotalDuration / 1_000_000),
         avgDurationMs:
-          brCount > 0
-            ? Math.round(brTotalDuration / brCount / 1_000_000)
-            : 0,
+          brCount > 0 ? Math.round(brTotalDuration / brCount / 1_000_000) : 0,
         errorCount: Number(br.errorCount || 0),
       });
     }
@@ -416,10 +410,7 @@ async function CollectStats(
 
 // ── Prompt Builder ────────────────────────────────────────────────────────────
 
-function BuildPrompt(
-  stats: RecommendationStats,
-  periodHours: number,
-): string {
+function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
   const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
   const lines: string[] = [];
@@ -431,7 +422,9 @@ function BuildPrompt(
 
   lines.push("--- Logs ---");
   lines.push(`Total logs: ${stats.logs.total}`);
-  lines.push(`Error logs: ${stats.logs.errors} (${fmtPct(stats.logs.errors / Math.max(stats.logs.total, 1))})`);
+  lines.push(
+    `Error logs: ${stats.logs.errors} (${fmtPct(stats.logs.errors / Math.max(stats.logs.total, 1))})`,
+  );
   lines.push("");
   lines.push("Logs per service:");
   for (const s of stats.logs.perService) {
@@ -491,8 +484,7 @@ const SQL_QUERIES = {
   LOGS_TOTAL: {
     postgres:
       'SELECT COUNT(*) AS count FROM logs WHERE "time" >= $1 AND "time" < $2',
-    sqlite:
-      "SELECT COUNT(*) AS count FROM logs WHERE time >= ? AND time < ?",
+    sqlite: "SELECT COUNT(*) AS count FROM logs WHERE time >= ? AND time < ?",
   },
   LOGS_ERRORS: {
     postgres:
