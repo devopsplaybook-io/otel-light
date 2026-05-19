@@ -86,7 +86,6 @@ export default {
   },
   async created() {
     if (await AuthenticationStore().ensureAuthenticated()) {
-      useRouter().push({ path: "/" });
       this.fetchRecommendation();
     } else {
       useRouter().push({ path: "/users" });
