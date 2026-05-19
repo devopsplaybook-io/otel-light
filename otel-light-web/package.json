@@ -11,7 +11,7 @@
   },
   "devDependencies": {
     "@vite-pwa/nuxt": "^1.1.1",
-    "nuxt": "4.4.5"
+    "nuxt": "4.4.6"
   },
   "dependencies": {
     "@picocss/pico": "^2.1.1",
