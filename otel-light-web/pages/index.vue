@@ -2,35 +2,41 @@
   <div id="page-intro">
     <NuxtLink to="/traces" class="plain-link">
       <article>
-        <header><b>Traces</b></header>
+        <header>
+          <h3><i class="bi bi-list-nested"></i> Traces</h3>
+        </header>
         <section>
+          <i class="bi bi-list-nested card-icon"></i>
           Traces capture the journey of a request as it travels through various
           services and components in a distributed system, helping you visualize
           and analyze end-to-end workflows and pinpoint performance bottlenecks.
         </section>
-        <i class="bi bi-list-nested"></i>
       </article>
     </NuxtLink>
     <NuxtLink to="/metrics" class="plain-link">
       <article>
-        <header><b>Metrics</b></header>
+        <header>
+          <h3><i class="bi bi-bar-chart-line"></i> Metrics</h3>
+        </header>
         <section>
+          <i class="bi bi-bar-chart-line card-icon"></i>
           Metrics provide numerical data about the health and performance of
           your systems, such as request rates, error counts, and resource usage,
           enabling you to monitor trends and set up alerts for anomalies.
         </section>
-        <i class="bi bi-bar-chart-line"></i>
       </article>
     </NuxtLink>
     <NuxtLink to="/logs" class="plain-link">
       <article>
-        <header><b>Logs</b></header>
+        <header>
+          <h3><i class="bi bi-card-text"></i> Logs</h3>
+        </header>
         <section>
+          <i class="bi bi-card-text card-icon"></i>
           Logs record discrete events and messages from your applications,
           offering detailed context for troubleshooting issues, auditing
           activity, and understanding system behavior over time.
         </section>
-        <i class="bi bi-card-text"></i>
       </article>
     </NuxtLink>
 
@@ -40,13 +46,10 @@
       class="recommendation-card"
     >
       <header>
-        <b><i class="bi bi-robot"></i> LLM Recommendation</b>
-        <small class="rec-generated-at" v-if="recommendation.generatedAt">
-          {{ formatDate(recommendation.generatedAt) }} &middot;
-          {{ recommendation.periodHours }}h period
-        </small>
+        <h3><i class="bi bi-robot"></i> LLM Recommendation</h3>
       </header>
       <section>
+        <i class="bi bi-robot card-icon"></i>
         <div v-if="recommendation.analysis" class="rec-section">
           <h4><i class="bi bi-search"></i> Analysis</h4>
           <div
@@ -67,6 +70,10 @@
         >
           <em>No recommendation content available.</em>
         </div>
+        <small class="rec-generated-at" v-if="recommendation.generatedAt">
+          {{ formatDate(recommendation.generatedAt) }} &middot;
+          {{ recommendation.periodHours }}h period
+        </small>
       </section>
     </article>
   </div>
@@ -133,42 +140,45 @@ export default {
 }
 
 #page-intro article {
-  display: grid;
-  grid-template-columns: 1fr 4rem;
+  display: flow-root;
 }
 #page-intro article header {
-  grid-column: 1/3;
+  width: 100%;
 }
-#page-intro article i {
+#page-intro article .card-icon {
+  float: right;
   font-size: 3rem;
-  text-align: right;
+  margin-left: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+#page-intro article header i {
+  margin-right: 0.5rem;
+}
+
+#page-intro h3 {
+  font-size: 1.1rem;
+}
+
+#page-intro h3 i,
+#page-intro h4 i {
+  margin-right: 0.5rem;
 }
 
 /* Recommendation Card */
 .recommendation-card {
   grid-column: 1 / -1;
-  display: block;
-}
-.recommendation-card header {
-  display: flex;
-  justify-content: space-between;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 0.5rem;
 }
 .rec-generated-at {
   opacity: 0.6;
   font-size: 0.8rem;
 }
 .rec-section {
-  margin-bottom: 0.5rem;
+  margin-bottom: 2rem;
 }
 .rec-section h4 {
-  margin-bottom: 0.3rem;
+  margin-bottom: 0.5rem;
   font-size: 1rem;
-}
-.rec-section h4 i {
-  font-size: 0.75rem;
 }
 .rec-content {
   line-height: 1.5;

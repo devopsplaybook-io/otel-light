@@ -13,6 +13,10 @@
 - All-in-one container deployment
 - Low memory footprint (<100MB)
 - Supports up to 1 million signals (Traces, Logs, Metrics)
+- **Optional LLM-powered daily recommendation**: sends telemetry statistics to an LLM for analysis and actionable recommendations
+  - Configurable period (default 24h) and cron schedule (default daily at midnight)
+  - Statistics include: log volumes and error rates, trace counts and top types by duration, metric volumes, all per service
+  - Supports any OpenAI-compatible API (DeepSeek, OpenAI, etc.)
 
 ![](docs/images/Traces.png?raw=true)
 
@@ -77,22 +81,50 @@ Configuration can be provided via a JSON configuration file (e.g., using a Confi
 
 See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.yaml) for an example configuration.
 
-| Parameter                                               | Description                                           | Default | Availability                        |
-| ------------------------------------------------------- | ----------------------------------------------------- | ------- | ----------------------------------- |
-| OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS    | Interval (in seconds) to export logs                  | 60      | Config file or environment variable |
-| OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics               | 60      | Config file or environment variable |
-| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection              | (empty) | Config file or environment variable |
-| METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12      | Config file or environment variable |
-| METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7       | Config file or environment variable |
-| MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6       | Config file or environment variable |
-| CACHE_REFRESH_MINUTES                                   | Interval (in minutes) to refresh the services cache   | 10      | Config file or environment variable |
-| DATABASE_TYPE                                           | Database type (`sqlite` or `postgres`)                | sqlite  | Config file or environment variable |
-| DATABASE_POSTGRES_HOST                                  | PostgreSQL server hostname                            |         | Config file or environment variable |
-| DATABASE_POSTGRES_PORT                                  | PostgreSQL server port                                |         | Config file or environment variable |
-| DATABASE_POSTGRES_USER                                  | PostgreSQL user                                       |         | Config file or environment variable |
-| DATABASE_POSTGRES_PASSWORD                              | PostgreSQL password                                   |         | Config file or environment variable |
-| DATABASE_POSTGRES_DATABASE                              | PostgreSQL database name                              |         | Config file or environment variable |
-| ANALYTICS_UTILS_RESULT_LIMIT_METRICS                    | Maximum number of results for metrics queries         | 10000   | Config file or environment variable |
+| Parameter                                               | Description                                           | Default                                     | Availability                        |
+| ------------------------------------------------------- | ----------------------------------------------------- | ------------------------------------------- | ----------------------------------- |
+| OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS    | Interval (in seconds) to export logs                  | 60                                          | Config file or environment variable |
+| OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics               | 60                                          | Config file or environment variable |
+| OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection              | (empty)                                     | Config file or environment variable |
+| METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12                                          | Config file or environment variable |
+| METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7                                           | Config file or environment variable |
+| MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6                                           | Config file or environment variable |
+| CACHE_REFRESH_MINUTES                                   | Interval (in minutes) to refresh the services cache   | 10                                          | Config file or environment variable |
+| DATABASE_TYPE                                           | Database type (`sqlite` or `postgres`)                | sqlite                                      | Config file or environment variable |
+| DATABASE_POSTGRES_HOST                                  | PostgreSQL server hostname                            |                                             | Config file or environment variable |
+| DATABASE_POSTGRES_PORT                                  | PostgreSQL server port                                |                                             | Config file or environment variable |
+| DATABASE_POSTGRES_USER                                  | PostgreSQL user                                       |                                             | Config file or environment variable |
+| DATABASE_POSTGRES_PASSWORD                              | PostgreSQL password                                   |                                             | Config file or environment variable |
+| DATABASE_POSTGRES_DATABASE                              | PostgreSQL database name                              |                                             | Config file or environment variable |
+| ANALYTICS_UTILS_RESULT_LIMIT_METRICS                    | Maximum number of results for metrics queries         | 10000                                       | Config file or environment variable |
+| LLM_API_KEY                                             | API key for the LLM service (leave empty to disable)  | (empty)                                     | Config file or environment variable |
+| LLM_API_URL                                             | LLM API endpoint (OpenAI-compatible)                  | `https://api.deepseek.com/chat/completions` | Config file or environment variable |
+| LLM_MODEL                                               | LLM model name                                        | `deepseek-chat`                             | Config file or environment variable |
+| LLM_RECOMMENDATION_SCHEDULE_CRON                        | Cron expression for daily recommendation generation   | `0 0 * * *`                                 | Config file or environment variable |
+| LLM_RECOMMENDATION_PERIOD_HOURS                         | Hours of telemetry data to include in each report     | 24                                          | Config file or environment variable |
+
+## LLM Recommendation
+
+When `LLM_API_KEY` is configured, OTel Light automatically generates a daily telemetry analysis and recommendation report.
+
+### How it works
+
+1. **Statistics collection**: At the scheduled time, the server queries the database for the last N hours (configurable via `LLM_RECOMMENDATION_PERIOD_HOURS`, default 24h) and gathers:
+   - **Logs** — total count, error count, per-service breakdown with error rates, per-severity distribution
+   - **Traces** — total count, traces with errors, per-service breakdown, top 5 trace types by cumulative duration with per-service breakdown (count, total/avg duration, errors)
+   - **Metrics** — total data points, per-service breakdown
+2. **LLM analysis**: The collected statistics are sent to the configured LLM, which returns:
+   - **Analysis** — overall system health assessment, notable patterns, anomalies, and trends
+   - **Recommendations** — actionable, prioritized bullet points for improvement
+3. **Caching**: The result is stored in `<DATA_DIR>/recommendation.json` and displayed on the home page UI.
+
+### API
+
+- `GET /api/recommendation` — Returns the latest cached recommendation (analysis + recommendations + raw statistics)
+
+### Frontend
+
+The recommendation is displayed as a card on the home page, with markdown-rendered analysis and recommendations sections, and the generation timestamp.
 
 ## Client Application
 
