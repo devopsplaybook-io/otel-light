@@ -115,6 +115,42 @@ main {
   border-bottom: 1px dashed #666666aa;
 }
 
+.signals-page {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
+.signals-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.load-status {
+  padding: 0.75rem 0;
+  text-align: center;
+}
+
+.no-more-data {
+  color: #888;
+  font-size: 0.85em;
+}
+
+/* Logs */
+
+.log-summary {
+  min-width: 1200px;
+  display: grid;
+  grid-template-columns: 2fr 2fr 1fr 9fr;
+  gap: 1rem;
+  width: 100%;
+}
+.log-summary span {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 /* Traces */
 
 .trace-summary,

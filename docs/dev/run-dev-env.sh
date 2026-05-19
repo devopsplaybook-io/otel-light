@@ -13,34 +13,34 @@ if [ -f "${REPO_DIR}/docs/dev/env.sh" ]; then
 fi
 
 
-# Monitoring
+# DB
 cd "${REPO_DIR}/docs/dev/postgres"
 docker compose down || true
 docker compose up -d || true
 
+install_dependencies_in_folder() {
+	local target_dir="$1"
 
-# Server
-cd "${REPO_DIR}/otel-light-server"
-if [ ! -f package-lock.json ]; then
-    rm -fr node_modules
-    npm install
-fi
-if [ ! -d node_modules ]; then
-    npm ci
-fi
+	echo "==== Installing dependencies in: ${target_dir}"
 
-# Web
-cd "${REPO_DIR}/otel-light-web"
-if [ ! -f package-lock.json ]; then
-    rm -fr node_modules
-    npm install
-fi
-if [ ! -d node_modules ]; then
-    npm ci
-fi
+	cd "${target_dir}"
+
+	if [ ! -f package-lock.json ]; then
+		rm -fr node_modules
+		npm install
+	fi
+	if [ ! -d node_modules ]; then
+		npm ci
+	fi
+}
+
+for dir in "${REPO_DIR}"/*; do
+	if [[ -d "${dir}" && -f "${dir}/package.json" ]]; then
+		install_dependencies_in_folder "${dir}"
+	fi
+done
 
 # Start
 cd "${REPO_DIR}"
 pm2 start ecosystem.config.js --env development
 pm2 logs
-# pm2 logs otel-light-server

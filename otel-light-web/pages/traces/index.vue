@@ -1,11 +1,11 @@
 <template>
-  <div id="traces-page">
+  <div id="traces-page" class="signals-page">
     <SearchOptions
       ref="searchOptions"
       @filterChanged="onFilterChanged"
       type="traces"
     />
-    <div id="traces">
+    <div id="traces" class="signals-scroll">
       <div class="trace-summary">
         <b @click="sortBy('service')" :class="headerClass('service')"
           >Service</b
@@ -273,17 +273,6 @@ export default {
 <style></style>
 
 <style scoped>
-#traces-page {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
-}
-
-#traces {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
 .trace-expanded {
   background-color: #dfe3eb22;
 }
@@ -293,15 +282,5 @@ export default {
 
 #traces-sentinel {
   height: 1px;
-}
-
-.load-status {
-  padding: 0.75rem 0;
-  text-align: center;
-}
-
-.no-more-data {
-  color: #888;
-  font-size: 0.85em;
 }
 </style>

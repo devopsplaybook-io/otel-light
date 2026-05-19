@@ -1,7 +1,7 @@
 <template>
-  <div id="traces-page">
+  <div id="traces-page" class="signals-page">
     <SearchOptions @filterChanged="onFilterChanged" type="traces" />
-    <div id="traces">
+    <div id="traces" class="signals-scroll">
       <div class="trace-group-summary">
         <b>Service</b>
         <b>Name</b>
@@ -268,17 +268,6 @@ export default {
 .traces-group-expanded {
   padding: 1rem;
   background-color: #dfe3eb11;
-}
-
-#traces-page {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
-}
-
-#traces {
-  max-width: 100%;
-  overflow-x: auto;
 }
 
 .trace-expanded {

@@ -1,10 +1,10 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
-    <div v-if="!loading" id="metrics-list">
+    <div id="metrics-list">
       <article
         v-for="metric of metricsNames"
-        :key="metric.serviceName + metric.name"
+        :key="metric.serviceName + metric.name + refreshCounter"
       >
         <header>
           <div class="metric-header">
@@ -64,6 +64,7 @@ export default {
   data() {
     return {
       metricsNames: [],
+      refreshCounter: 0,
       traceSpans: {},
       filter: {
         queryString: "",
@@ -80,7 +81,8 @@ export default {
   },
   methods: {
     onFilterChanged(filter) {
-      this.filter.queryString = filter.queryString;
+      this.filter = { ...filter };
+      this.refreshCounter++;
       this.fetchMetricsNames();
     },
     async fetchMetricsNames() {
@@ -149,14 +151,6 @@ export default {
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: center;
-}
-
-.metric-title {
-  display: grid;
-  grid-template-rows: auto auto;
-  gap: 0.2rem;
-  min-width: 0;
-  overflow: hidden;
 }
 
 .metric-service-name {
