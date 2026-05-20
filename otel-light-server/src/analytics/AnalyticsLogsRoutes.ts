@@ -25,6 +25,7 @@ export class AnalyticsLogsRoutes {
         serviceVersion?: string;
         offset?: number;
         afterTime?: number;
+        before?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -33,7 +34,10 @@ export class AnalyticsLogsRoutes {
       }
       const sqlParams = [];
       const isRefresh = req.query.afterTime !== undefined;
-      const offset = isRefresh ? 0 : req.query.offset || 0;
+      const hasBefore = req.query.before !== undefined;
+      // Keyset pagination: when `before` is provided, use cursor instead of OFFSET.
+      // This avoids the O(n) scan cost of large OFFSET values on big tables.
+      const offset = isRefresh || hasBefore ? 0 : req.query.offset || 0;
 
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
@@ -52,6 +56,12 @@ export class AnalyticsLogsRoutes {
           " AND time > " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.afterTime);
+      }
+      if (hasBefore) {
+        sqlWhere +=
+          " AND time < " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(req.query.before);
       }
       if (req.query.keywords?.trim()) {
         sqlWhere +=
@@ -101,7 +111,7 @@ export class AnalyticsLogsRoutes {
 
 const SQL_QUERIES = {
   GET_LOGS: (sqlWhere: string, limit: number, offset: number) => ({
-    postgres: `SELECT * FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
-    sqlite: `SELECT * FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit} OFFSET ${offset}`,
+    postgres: `SELECT "time", "severity", "serviceName", "serviceVersion", "traceId", "spanId", "logText", "attributes" FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
+    sqlite: `SELECT time, severity, serviceName, serviceVersion, traceId, spanId, logText, attributes FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit} OFFSET ${offset}`,
   }),
 };

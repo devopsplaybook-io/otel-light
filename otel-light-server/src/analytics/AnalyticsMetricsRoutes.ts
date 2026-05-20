@@ -10,6 +10,8 @@ import {
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
+const PAGE_SIZE = 200;
+
 export class AnalyticsMetricsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -20,6 +22,8 @@ export class AnalyticsMetricsRoutes {
         to?: number;
         serviceName?: string;
         name?: string;
+        offset?: number;
+        afterTime?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -28,6 +32,8 @@ export class AnalyticsMetricsRoutes {
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
+      const isRefresh = req.query.afterTime !== undefined;
+      const offset = isRefresh ? 0 : req.query.offset || 0;
       let sqlWhere =
         " WHERE time >= " +
         AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
@@ -38,6 +44,12 @@ export class AnalyticsMetricsRoutes {
           " AND time <= " +
           AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
         sqlParams.push(req.query.to);
+      }
+      if (isRefresh) {
+        sqlWhere +=
+          " AND time > " +
+          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        sqlParams.push(req.query.afterTime);
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
@@ -52,9 +64,7 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(String(req.query.name).trim());
       }
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
-          DbUtilsGetType()
-        ],
+        SQL_QUERIES.GET_METRICS(sqlWhere, PAGE_SIZE, offset)[DbUtilsGetType()],
         sqlParams,
       );
       const metrics = [];
@@ -65,6 +75,7 @@ export class AnalyticsMetricsRoutes {
       const response = {
         metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
         compressed: true,
+        hasMore: rawMetrics.length === PAGE_SIZE,
       };
       if (rawMetrics.length >= AnalyticsUtilsResultLimitMetrics) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,9 +157,9 @@ export class AnalyticsMetricsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_METRICS: (sqlWhere: string, limit: number) => ({
-    postgres: `SELECT * FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
-    sqlite: `SELECT * FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+  GET_METRICS: (sqlWhere: string, limit: number, offset: number) => ({
+    postgres: `SELECT "name", "serviceName", "serviceVersion", "time", "type", "rawMetric" FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
+    sqlite: `SELECT name, serviceName, serviceVersion, time, type, rawMetric FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
   }),
   GET_METRICS_NAMES: (sqlWhere: string) => ({
     postgres: `SELECT DISTINCT "name", "serviceName", "type" FROM metrics ${sqlWhere} ORDER BY "serviceName", "name", "type"`,

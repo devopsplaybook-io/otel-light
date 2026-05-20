@@ -27,6 +27,7 @@ export class AnalyticsTracesRoutes {
         serviceVersion?: string;
         offset?: number;
         afterTime?: number;
+        before?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -36,111 +37,91 @@ export class AnalyticsTracesRoutes {
 
       const isRefresh = req.query.afterTime !== undefined;
       const offset = isRefresh ? 0 : req.query.offset || 0;
-      let sqlWhere = "";
+      const hasBefore = req.query.before !== undefined;
+      // Keyset pagination: when `before` is provided, use cursor instead of OFFSET.
+      const effectiveOffset = isRefresh || hasBefore ? 0 : offset;
+      const errorsOnly = req.query.errorsOnly === "true";
+      const dbType = DbUtilsGetType();
 
+      // Build roots CTE: find root spans matching all filters first.
+      // This avoids the expensive self-JOIN with WHERE on the JOINed side.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sqlParams: any[] = [SpanStatusCode.ERROR];
-      const appendWhereCondition = (where: string, condition: string) => {
-        if (where.length === 0) {
-          where = " WHERE ";
-        } else {
-          where += " AND ";
-        }
-        where += condition;
-        return where;
-      };
+      const rootsParams: any[] = [];
+      let rootsWhere = "parentSpanId IS NULL";
 
       if (req.query.traceId) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          't."traceId" = ' +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(req.query.traceId);
+        rootsWhere +=
+          " AND traceId = " +
+          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+        rootsParams.push(req.query.traceId);
+      } else {
+        if (req.query.from) {
+          rootsWhere +=
+            " AND startTime >= " +
+            AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+          rootsParams.push(req.query.from);
+        }
+        if (isRefresh) {
+          rootsWhere +=
+            " AND startTime > " +
+            AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+          rootsParams.push(req.query.afterTime);
+        }
+        if (req.query.to) {
+          rootsWhere +=
+            " AND startTime <= " +
+            AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+          rootsParams.push(req.query.to);
+        }
+        if (hasBefore) {
+          rootsWhere +=
+            " AND startTime < " +
+            AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+          rootsParams.push(req.query.before);
+        }
       }
 
-      if (req.query.from) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          'rootSpan."startTime" >= ' +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(req.query.from);
-      }
-      if (isRefresh) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          'rootSpan."startTime" > ' +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(req.query.afterTime);
-      }
-      if (req.query.to) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          'rootSpan."startTime" <= ' +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(req.query.to);
-      }
       if (req.query.keywords?.trim()) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          "rootSpan.keywords LIKE " +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+        rootsWhere +=
+          " AND keywords LIKE " +
+          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+        rootsParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          't."serviceName" = ' +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(String(req.query.serviceName).trim());
+        rootsWhere +=
+          " AND serviceName = " +
+          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+        rootsParams.push(String(req.query.serviceName).trim());
       }
 
       if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
-        sqlWhere = appendWhereCondition(
-          sqlWhere,
-          't."serviceVersion" = ' +
-            AnalyticsUtilsGetSQLVariable(
-              DbUtilsGetType(),
-              sqlParams.length + 1,
-            ),
-        );
-        sqlParams.push(String(req.query.serviceVersion).trim());
+        rootsWhere +=
+          " AND serviceVersion = " +
+          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+        rootsParams.push(String(req.query.serviceVersion).trim());
       }
 
-      const errorsOnly = req.query.errorsOnly === "true";
-      if (errorsOnly && DbUtilsGetType() === "sqlite") {
-        sqlParams.push(SpanStatusCode.ERROR);
+      // Outer query: aggregates only the traces found by the roots CTE.
+      // $statusCode variable index = rootsParams.length + 1 (1-based).
+      const statusCodeVarIdx = rootsParams.length + 1;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const outerParams: any[] = [SpanStatusCode.ERROR];
+      if (errorsOnly && dbType === "sqlite") {
+        outerParams.push(SpanStatusCode.ERROR);
       }
+
+      const allParams = [...rootsParams, ...outerParams];
 
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_TRACES(sqlWhere, errorsOnly, PAGE_SIZE, offset)[
-          DbUtilsGetType()
-        ],
-        sqlParams,
+        SQL_QUERIES.GET_TRACES_CTE(
+          rootsWhere,
+          errorsOnly,
+          PAGE_SIZE,
+          effectiveOffset,
+          statusCodeVarIdx,
+        )[dbType],
+        allParams,
       );
       const traces = [];
       rawTraces.forEach((rawTrace) => {
@@ -204,45 +185,65 @@ export class AnalyticsTracesRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_TRACES: (
-    sqlWhere: string,
+  // Two-phase CTE approach: first find root spans matching filters (index-only scan
+  // on idx_traces_rootspan_time), then aggregate only those traces' child spans.
+  // statusCodeVarIdx is the 1-based parameter index for SpanStatusCode.ERROR.
+  GET_TRACES_CTE: (
+    rootsWhere: string,
     errorsOnly: boolean,
     limit: number,
     offset: number,
+    statusCodeVarIdx: number,
   ) => {
     const havingPostgres = errorsOnly
-      ? ' HAVING COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) > 0'
+      ? ` HAVING COUNT(CASE WHEN t."statusCode" = $${statusCodeVarIdx} THEN 1 END) > 0`
       : "";
+    // SQLite uses positional ? placeholders — the statusCode param naturally
+    // sits at the boundary between rootsParams and outerParams in allParams.
     const havingSqlite = errorsOnly
       ? " HAVING COUNT(CASE WHEN t.statusCode = ? THEN 1 END) > 0"
       : "";
     return {
       postgres: `
-      SELECT  MIN(t."startTime") AS "startTime", 
-              MAX(t."endTime") AS "endTime", 
-              t."traceId", 
-              COUNT(*) as "spanCount", 
-              rootSpan."name" AS "name", 
-              rootSpan."serviceName" AS "serviceName", 
-              rootSpan."serviceVersion" AS "serviceVersion", 
-              COUNT(CASE WHEN t."statusCode" = $1 THEN 1 END) AS "nbErrors" 
-      FROM traces t 
-        LEFT JOIN traces rootSpan ON rootSpan."traceId" = t."traceId" AND rootSpan."parentSpanId" IS NULL${sqlWhere} 
-      GROUP BY t."traceId", rootSpan."name", rootSpan."serviceName", rootSpan."serviceVersion"${havingPostgres} 
-      ORDER BY "startTime" DESC LIMIT ${limit} OFFSET ${offset}`,
+      WITH roots AS (
+        SELECT "traceId", "name", "serviceName", "serviceVersion", "startTime"
+        FROM traces
+        WHERE ${rootsWhere}
+        ORDER BY "startTime" DESC
+        LIMIT ${limit} OFFSET ${offset}
+      )
+      SELECT  MIN(t."startTime") AS "startTime",
+              MAX(t."endTime") AS "endTime",
+              t."traceId",
+              COUNT(*) as "spanCount",
+              r."name" AS "name",
+              r."serviceName" AS "serviceName",
+              r."serviceVersion" AS "serviceVersion",
+              COUNT(CASE WHEN t."statusCode" = $${statusCodeVarIdx} THEN 1 END) AS "nbErrors"
+      FROM traces t
+        JOIN roots r ON r."traceId" = t."traceId"
+      GROUP BY t."traceId", r."name", r."serviceName", r."serviceVersion"${havingPostgres}
+      ORDER BY "startTime" DESC`,
       sqlite: `
-      SELECT  MIN(t.startTime) AS startTime, 
-              MAX(t.endTime) AS endTime, 
-              t.traceId, 
-              COUNT(*) as spanCount, 
-              rootSpan.name AS name, 
-              rootSpan.serviceName AS serviceName, 
-              rootSpan.serviceVersion AS serviceVersion, 
-              COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors 
-      FROM traces t 
-        LEFT JOIN traces rootSpan ON rootSpan.traceId = t.traceId AND rootSpan.parentSpanId IS NULL${sqlWhere} 
-      GROUP BY t.traceId${havingSqlite} 
-      ORDER BY t.startTime DESC LIMIT ${limit} OFFSET ${offset}`,
+      WITH roots AS (
+        SELECT traceId, name, serviceName, serviceVersion, startTime
+        FROM traces
+        WHERE ${rootsWhere}
+        ORDER BY startTime DESC
+        LIMIT ${limit} OFFSET ${offset}
+      )
+      SELECT  MIN(t.startTime) AS startTime,
+              MAX(t.endTime) AS endTime,
+              t.traceId,
+              COUNT(*) as spanCount,
+              r.name AS name,
+              r.serviceName AS serviceName,
+              r.serviceVersion AS serviceVersion,
+              COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors
+      FROM traces t
+        JOIN roots r ON r.traceId = t.traceId
+      GROUP BY t.traceId${havingSqlite}
+      ORDER BY t.startTime DESC`,
     };
   },
   GET_TRACE_SPANS: {

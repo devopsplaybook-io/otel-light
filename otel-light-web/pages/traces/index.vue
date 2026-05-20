@@ -71,10 +71,10 @@ export default {
   data() {
     return {
       traces: [],
-      page: 0,
       hasMore: true,
       isLoadingMore: false,
       newestStartTime: null,
+      oldestStartTime: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
@@ -154,10 +154,10 @@ export default {
   methods: {
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
-      this.page = 0;
       this.traces = [];
       this.hasMore = true;
       this.newestStartTime = null;
+      this.oldestStartTime = null;
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
@@ -198,10 +198,14 @@ export default {
       this.isLoadingMore = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const offset = this.page * PAGE_SIZE;
-      const qs = this.filter.queryString
-        ? `${this.filter.queryString}&offset=${offset}&limit=${PAGE_SIZE}`
-        : `offset=${offset}&limit=${PAGE_SIZE}`;
+      // Keyset pagination: use `before` cursor (startTime of last seen trace)
+      // instead of OFFSET. The first page has no `before`.
+      let qs = this.filter.queryString || "";
+      if (this.oldestStartTime) {
+        qs = qs
+          ? `${qs}&before=${this.oldestStartTime}`
+          : `before=${this.oldestStartTime}`;
+      }
       const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
@@ -215,10 +219,11 @@ export default {
               trace.duration = trace.endTime - trace.startTime;
             }
             this.traces = [...this.traces, ...newTraces];
-            this.page += 1;
             if (this.newestStartTime === null) {
               this.newestStartTime = newTraces[0].startTime;
             }
+            // Update cursor to the oldest trace on this page for next fetch
+            this.oldestStartTime = newTraces[newTraces.length - 1].startTime;
           }
           this.hasMore = response.data.hasMore === true;
         })
