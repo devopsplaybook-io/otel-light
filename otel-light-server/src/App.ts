@@ -13,6 +13,8 @@ import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { Config } from "./Config";
 import { MaintenanceInit } from "./Maintenance";
+import { RecommendationInit } from "./recommendation/Recommendation";
+import { RecommendationRoutes } from "./recommendation/RecommendationRoutes";
 import {
   OTelLogger,
   OTelSetMeter,
@@ -54,6 +56,7 @@ Promise.resolve().then(async () => {
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);
   await AnalyticsServicesCacheInit(span, config);
+  await RecommendationInit(span, config);
 
   span.end();
 
@@ -108,6 +111,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new SettingsRoutes().getRoutes, {
     prefix: "/api/settings",
+  });
+  fastify.register(new RecommendationRoutes().getRoutes, {
+    prefix: "/api/recommendation",
   });
 
   fastify.get("/api/status", async () => {

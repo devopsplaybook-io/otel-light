@@ -46,6 +46,12 @@ export class Config implements ConfigOTelInterface {
   public DATABASE_POSTGRES_DATABASE: string;
   // APi Limits
   public ANALYTICS_UTILS_RESULT_LIMIT_METRICS = 10000;
+  // LLM Recommendation
+  public LLM_API_KEY = "";
+  public LLM_API_URL = "https://api.deepseek.com/chat/completions";
+  public LLM_MODEL = "deepseek-chat";
+  public LLM_RECOMMENDATION_SCHEDULE_CRON = "0 0 * * *";
+  public LLM_RECOMMENDATION_PERIOD_HOURS = 24;
 
   constructor() {
     let version = "1";
@@ -108,5 +114,10 @@ export class Config implements ConfigOTelInterface {
     setIfSet("CACHE_REFRESH_MINUTES");
     setIfSet("METRICS_SELF_REFRESH_MINUTES");
     setIfSet("ANALYTICS_UTILS_RESULT_LIMIT_METRICS");
+    setIfSet("LLM_API_KEY", false);
+    setIfSet("LLM_API_URL");
+    setIfSet("LLM_MODEL");
+    setIfSet("LLM_RECOMMENDATION_SCHEDULE_CRON");
+    setIfSet("LLM_RECOMMENDATION_PERIOD_HOURS");
   }
 }
