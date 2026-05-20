@@ -195,7 +195,7 @@ async function callLLMWithRetry(
                 "- Trace status codes: 0 = UNSET, 1 = OK, 2 = ERROR.\n" +
                 "- Logs with severity='error' indicate failures.\n" +
                 "- Trace names typically represent the entry-point operation (e.g., HTTP method + route).\n" +
-                "- Service participation breakdown shows span-level data; durations may overlap due to parent-child nesting.\n" +
+                "- Traces are ranked in 4 independent dimensions: by count (most frequent, usually user-facing), by cumulative duration (heaviest total time), by average duration (slowest, min 3 occurrences), and by error count (most problematic). A trace can appear in multiple lists.\n" +
                 "- 'previousPeriod' data (if present) lets you compare against the prior time window.\n\n" +
                 "Output your answer in two clear sections:\n" +
                 "## Analysis\n" +
@@ -268,13 +268,6 @@ interface TraceTypeStats {
   p95DurationMs: number;
   p99DurationMs: number;
   errorCount: number;
-  perService: Array<{
-    serviceName: string;
-    count: number;
-    totalDurationMs: number;
-    avgDurationMs: number;
-    errorCount: number;
-  }>;
 }
 
 interface TracesStats {
@@ -282,7 +275,10 @@ interface TracesStats {
   requestsPerMinute: number;
   perService: Array<{ serviceName: string; count: number; errorCount: number }>;
   errorCount: number;
-  topByName: TraceTypeStats[];
+  topByCount: TraceTypeStats[];
+  topByDuration: TraceTypeStats[];
+  topByAvgDuration: TraceTypeStats[];
+  topByErrors: TraceTypeStats[];
   httpStatusBreakdown: Array<{
     serviceName: string;
     statusRange: string;
@@ -440,96 +436,100 @@ async function CollectStats(
       ? Math.round((tracesTotal / (periodHours * 60)) * 10) / 10
       : 0;
 
-  // Top trace names by cumulative duration (configurable limit)
-  const topTraceLimit = Math.max(
-    Number(config.LLM_RECOMMENDATION_TOP_TRACES) || 5,
+  // Top trace names — fetch all root spans once, aggregate in memory for 4 ranking dimensions
+  const topTraceLimitByCount = Math.max(
+    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_COUNT) || 10,
     1,
   );
-  const topTraceNamesRow = await DbUtilsNoTelemetryQuerySQL(
-    SQL_QUERIES.TRACES_TOP_BY_DURATION[DbUtilsGetType()],
-    [periodStart, periodEnd, topTraceLimit],
+  const topTraceLimitByDuration = Math.max(
+    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_DURATION) || 5,
+    1,
   );
-  const topByName: TraceTypeStats[] = [];
+  const topTraceLimitByAvg = Math.max(
+    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_AVG) || 5,
+    1,
+  );
+  const topTraceLimitByErrors = Math.max(
+    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_ERRORS) || 5,
+    1,
+  );
 
-  // Collect all root-span durations for percentile computation
-  const rootDurationsRow = await DbUtilsNoTelemetryQuerySQL(
-    SQL_QUERIES.TRACES_ROOT_DURATIONS[DbUtilsGetType()],
+  // Single efficient query: all root spans with their name, serviceName, duration, and status
+  const rootSpansRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.TRACES_ROOT_SPANS_AGGREGATED[DbUtilsGetType()],
     [periodStart, periodEnd],
   );
-  const allDurations: number[] = [];
-  for (const row of rootDurationsRow) {
-    allDurations.push(Number(row.duration) / 1_000_000); // ns → ms
+
+  // In-memory aggregation: group by trace name
+  const traceAgg: Record<
+    string,
+    {
+      durations: number[];
+      serviceName: string;
+      errorCount: number;
+    }
+  > = {};
+  for (const row of rootSpansRaw) {
+    const name = row.name;
+    const durationMs = Number(row.duration) / 1_000_000; // ns → ms
+    const isError = Number(row.statusCode) === 2;
+    if (!traceAgg[name]) {
+      traceAgg[name] = {
+        durations: [],
+        serviceName: row.serviceName || "unknown",
+        errorCount: 0,
+      };
+    }
+    traceAgg[name].durations.push(durationMs);
+    if (isError) traceAgg[name].errorCount++;
   }
-  allDurations.sort((a, b) => a - b);
-  const computePercentile = (p: number): number => {
-    if (allDurations.length === 0) return 0;
-    const idx = Math.ceil((p / 100) * allDurations.length) - 1;
-    return Math.round(
-      allDurations[Math.max(0, Math.min(idx, allDurations.length - 1))],
-    );
-  };
-  const globalP50 = computePercentile(50);
-  const globalP95 = computePercentile(95);
-  const globalP99 = computePercentile(99);
 
-  for (const topRow of topTraceNamesRow) {
-    const name = topRow.name;
-    const traceNameCount = Number(topRow.count);
-    const traceNameTotalDuration = Number(topRow.totalDuration);
-
-    // Breakdown per service for this trace name (span-level, durations may overlap due to nesting)
-    const breakdownRaw = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.TRACES_BREAKDOWN_BY_NAME[DbUtilsGetType()],
-      [periodStart, periodEnd, name],
-    );
-
-    const perService: TraceTypeStats["perService"] = [];
-    for (const br of breakdownRaw) {
-      const brCount = Number(br.count);
-      const brTotalDuration = Number(br.totalDuration);
-      perService.push({
-        serviceName: br.serviceName,
-        count: brCount,
-        totalDurationMs: Math.round(brTotalDuration / 1_000_000),
-        avgDurationMs:
-          brCount > 0 ? Math.round(brTotalDuration / brCount / 1_000_000) : 0,
-        errorCount: Number(br.errorCount || 0),
-      });
-    }
-
-    // Per-trace-type percentiles
-    const typeDurationsRow = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.TRACES_DURATIONS_BY_NAME[DbUtilsGetType()],
-      [periodStart, periodEnd, name],
-    );
-    const typeDurations: number[] = [];
-    for (const row of typeDurationsRow) {
-      typeDurations.push(Number(row.duration) / 1_000_000);
-    }
-    typeDurations.sort((a, b) => a - b);
-    const typePercentile = (p: number): number => {
-      if (typeDurations.length === 0) return 0;
-      const idx = Math.ceil((p / 100) * typeDurations.length) - 1;
-      return Math.round(
-        typeDurations[Math.max(0, Math.min(idx, typeDurations.length - 1))],
-      );
+  // Sort durations and compute percentiles per trace name
+  const buildTraceTypeStats = (
+    name: string,
+    agg: (typeof traceAgg)[string],
+  ): TraceTypeStats => {
+    const d = [...agg.durations].sort((a, b) => a - b);
+    const p = (pct: number): number => {
+      if (d.length === 0) return 0;
+      const idx = Math.ceil((pct / 100) * d.length) - 1;
+      return Math.round(d[Math.max(0, Math.min(idx, d.length - 1))]);
     };
-
-    topByName.push({
+    const sum = d.reduce((s, v) => s + v, 0);
+    return {
       name,
-      totalDurationMs: Math.round(traceNameTotalDuration / 1_000_000),
-      count: traceNameCount,
-      avgDurationMs:
-        traceNameCount > 0
-          ? Math.round(traceNameTotalDuration / traceNameCount / 1_000_000)
-          : 0,
-      p50DurationMs: typePercentile(50),
-      p95DurationMs: typePercentile(95),
-      p99DurationMs: typePercentile(99),
-      errorCount: Number(topRow.errorCount || 0),
-      perService,
-    });
-  }
+      count: d.length,
+      totalDurationMs: Math.round(sum),
+      avgDurationMs: d.length > 0 ? Math.round(sum / d.length) : 0,
+      p50DurationMs: p(50),
+      p95DurationMs: p(95),
+      p99DurationMs: p(99),
+      errorCount: agg.errorCount,
+    };
+  };
+
+  const allTraceStats: TraceTypeStats[] = Object.entries(traceAgg).map(
+    ([name, agg]) => buildTraceTypeStats(name, agg),
+  );
+
+  // Four ranking dimensions
+  const topByCount = [...allTraceStats]
+    .sort((a, b) => b.count - a.count)
+    .slice(0, topTraceLimitByCount);
+
+  const topByDuration = [...allTraceStats]
+    .sort((a, b) => b.totalDurationMs - a.totalDurationMs)
+    .slice(0, topTraceLimitByDuration);
+
+  const topByAvgDuration = [...allTraceStats]
+    .filter((t) => t.count >= 3) // exclude one-off anomalies
+    .sort((a, b) => b.avgDurationMs - a.avgDurationMs)
+    .slice(0, topTraceLimitByAvg);
+
+  const topByErrors = [...allTraceStats]
+    .filter((t) => t.errorCount > 0)
+    .sort((a, b) => b.errorCount - a.errorCount)
+    .slice(0, topTraceLimitByErrors);
 
   // HTTP status code breakdown
   const httpStatusRaw = await DbUtilsNoTelemetryQuerySQL(
@@ -562,7 +562,10 @@ async function CollectStats(
     requestsPerMinute,
     errorCount: tracesErrors,
     perService: tracesPerService,
-    topByName,
+    topByCount,
+    topByDuration,
+    topByAvgDuration,
+    topByErrors,
     httpStatusBreakdown,
   };
 
@@ -740,22 +743,49 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
     lines.push("");
   }
 
-  const topLabel = stats.traces.topByName.length;
-  lines.push(`Top ${topLabel} trace types by cumulative duration:`);
-  for (const t of stats.traces.topByName) {
+  // Four ranking dimensions — ensures both interactive (high-count) and background (high-duration) traces are visible
+  const fmtTraceLine = (t: TraceTypeStats): string =>
+    `${t.name}: ${t.count} traces, ${t.totalDurationMs}ms total, ${t.avgDurationMs}ms avg, p50=${t.p50DurationMs}ms, p95=${t.p95DurationMs}ms, p99=${t.p99DurationMs}ms, ${t.errorCount} errors`;
+
+  if (stats.traces.topByCount.length > 0) {
     lines.push(
-      `  - ${t.name}: ${t.count} traces, ${t.totalDurationMs}ms total, ${t.avgDurationMs}ms avg, p50=${t.p50DurationMs}ms, p95=${t.p95DurationMs}ms, p99=${t.p99DurationMs}ms, ${t.errorCount} errors`,
+      `Top ${stats.traces.topByCount.length} trace types by request count (most frequent — typically user-facing):`,
     );
-    lines.push(
-      "    Service participation (span-level, durations may overlap):",
-    );
-    for (const br of t.perService) {
-      lines.push(
-        `      - ${br.serviceName}: ${br.count} distinct traces, ${br.totalDurationMs}ms span-time, ${br.avgDurationMs}ms avg, ${br.errorCount} errors`,
-      );
+    for (const t of stats.traces.topByCount) {
+      lines.push(`  - ${fmtTraceLine(t)}`);
     }
+    lines.push("");
   }
-  lines.push("");
+
+  if (stats.traces.topByDuration.length > 0) {
+    lines.push(
+      `Top ${stats.traces.topByDuration.length} trace types by cumulative duration (heaviest total time):`,
+    );
+    for (const t of stats.traces.topByDuration) {
+      lines.push(`  - ${fmtTraceLine(t)}`);
+    }
+    lines.push("");
+  }
+
+  if (stats.traces.topByAvgDuration.length > 0) {
+    lines.push(
+      `Top ${stats.traces.topByAvgDuration.length} trace types by average duration (slowest — min 3 occurrences):`,
+    );
+    for (const t of stats.traces.topByAvgDuration) {
+      lines.push(`  - ${fmtTraceLine(t)}`);
+    }
+    lines.push("");
+  }
+
+  if (stats.traces.topByErrors.length > 0) {
+    lines.push(
+      `Top ${stats.traces.topByErrors.length} trace types by error count (most problematic):`,
+    );
+    for (const t of stats.traces.topByErrors) {
+      lines.push(`  - ${fmtTraceLine(t)}`);
+    }
+    lines.push("");
+  }
 
   // ── Metrics ──
 
@@ -920,6 +950,12 @@ const SQL_QUERIES = {
       'SELECT "serviceName", "attributes" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "attributes" LIKE \'%http.status_code%\' AND "parentSpanId" IS NULL LIMIT 2000',
     sqlite:
       "SELECT serviceName, attributes FROM traces WHERE startTime >= ? AND startTime < ? AND attributes LIKE '%http.status_code%' AND parentSpanId IS NULL LIMIT 2000",
+  },
+  TRACES_ROOT_SPANS_AGGREGATED: {
+    postgres:
+      'SELECT "name", "serviceName", ("endTime" - "startTime") AS duration, "statusCode" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL LIMIT 50000',
+    sqlite:
+      "SELECT name, serviceName, (endTime - startTime) AS duration, statusCode FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL LIMIT 50000",
   },
   // Metrics
   METRICS_TOTAL: {
