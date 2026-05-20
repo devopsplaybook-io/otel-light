@@ -81,8 +81,12 @@ export async function RecommendationGenerate(): Promise<void> {
       Number(config.LLM_RECOMMENDATION_PERIOD_HOURS) || 24,
       1,
     );
-    const periodEnd = Date.now() * 1_000_000; // nanoseconds
-    const periodStart = periodEnd - periodHours * 3_600_000 * 1_000_000;
+    // Use BigInt to avoid precision loss for large periodHours
+    const periodEndNs = BigInt(Date.now()) * 1_000_000n;
+    const periodStartNs =
+      periodEndNs - BigInt(periodHours) * BigInt(3_600_000) * 1_000_000n;
+    const periodEnd = Number(periodEndNs);
+    const periodStart = Number(periodStartNs);
 
     logger.info(
       `Collecting statistics for the last ${periodHours}h for LLM recommendation`,
@@ -91,7 +95,7 @@ export async function RecommendationGenerate(): Promise<void> {
 
     // ── Collect statistics ────────────────────────────────────────────────
 
-    const stats = await CollectStats(span, periodStart, periodEnd);
+    const stats = await CollectStats(span, periodStart, periodEnd, periodHours);
 
     // ── Call LLM ──────────────────────────────────────────────────────────
 
@@ -100,51 +104,31 @@ export async function RecommendationGenerate(): Promise<void> {
     let recommendations = "";
 
     try {
-      const response = await axios.post(
-        config.LLM_API_URL,
-        {
-          model: config.LLM_MODEL,
-          messages: [
-            {
-              role: "system",
-              content:
-                "You are an observability and site-reliability expert. " +
-                "Analyze the provided telemetry statistics and produce a concise report.\n\n" +
-                "Output your answer in two clear sections:\n" +
-                "## Analysis\n" +
-                "A concise analysis (3-6 paragraphs) covering:\n" +
-                "- Overall health of the system\n" +
-                "- Notable patterns, anomalies, or trends\n" +
-                "- Services or endpoints that stand out (positive or negative)\n" +
-                "- Error rates and their potential causes\n\n" +
-                "## Recommendations\n" +
-                "Actionable recommendations (3-6 bullet points) prioritized by impact. " +
-                "Each bullet should be specific and actionable, not generic.",
-            },
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${config.LLM_API_KEY}`,
-          },
-        },
-      );
-      const fullContent = response.data?.choices?.[0]?.message?.content || "";
+      const llmResponse = await callLLMWithRetry(prompt);
+      const fullContent = llmResponse || "";
 
-      // Split into Analysis and Recommendations sections
-      const analysisMatch = fullContent.match(
-        /## Analysis\s*([\s\S]*?)(?=## Recommendations|$)/i,
-      );
-      const recommendationsMatch = fullContent.match(
-        /## Recommendations\s*([\s\S]*)/i,
-      );
-      analysis = (analysisMatch?.[1] || fullContent).trim();
-      recommendations = (recommendationsMatch?.[1] || "").trim();
+      // Validate response has meaningful content
+      if (!fullContent || fullContent.trim().length < 20) {
+        logger.warn("LLM returned empty or very short response");
+        analysis =
+          "LLM returned an empty response. Please check API configuration.";
+        recommendations = "";
+      } else {
+        // Split into Analysis and Recommendations sections (start-of-line anchored)
+        const analysisMatch = fullContent.match(
+          /^## Analysis\s*\n([\s\S]*?)(?=\n^## Recommendations|\n?$)/im,
+        );
+        const recommendationsMatch = fullContent.match(
+          /^## Recommendations\s*\n([\s\S]*)/im,
+        );
+        analysis = (analysisMatch?.[1] || fullContent).trim();
+        recommendations = (recommendationsMatch?.[1] || "").trim();
+
+        // Fallback: if both sections failed to parse, include the full response as analysis
+        if (!analysis && !recommendations) {
+          analysis = fullContent.trim();
+        }
+      }
     } catch (error) {
       logger.error(`LLM API call failed: ${error.message}`, error, span);
       analysis = `LLM recommendation generation failed: ${error.message}`;
@@ -153,10 +137,21 @@ export async function RecommendationGenerate(): Promise<void> {
 
     // ── Persist result ────────────────────────────────────────────────────
 
+    // Strip raw nanosecond timestamps from the stats exposed to clients;
+    // keep them internally for future delta comparisons.
+    const clientStats = {
+      periodHours: stats.periodHours,
+      services: stats.services,
+      logs: stats.logs,
+      traces: stats.traces,
+      metrics: stats.metrics,
+      previousPeriod: stats.previousPeriod,
+    };
+
     const result = {
       generatedAt: new Date().toISOString(),
       periodHours,
-      stats,
+      stats: clientStats,
       analysis,
       recommendations,
     };
@@ -173,6 +168,82 @@ export async function RecommendationGenerate(): Promise<void> {
   span.end();
 }
 
+// ── LLM API call with retry ───────────────────────────────────────────────────
+
+async function callLLMWithRetry(
+  prompt: string,
+  maxRetries = 3,
+): Promise<string> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      const response = await axios.post(
+        config.LLM_API_URL,
+        {
+          model: config.LLM_MODEL,
+          temperature: 0.3,
+          max_tokens: 2000,
+          messages: [
+            {
+              role: "system",
+              content:
+                "You are an observability and site-reliability expert. " +
+                "Analyze the provided OpenTelemetry telemetry statistics and produce a concise report.\n\n" +
+                "Context:\n" +
+                "- All durations are in milliseconds (ms).\n" +
+                "- Trace status codes: 0 = UNSET, 1 = OK, 2 = ERROR.\n" +
+                "- Logs with severity='error' indicate failures.\n" +
+                "- Trace names typically represent the entry-point operation (e.g., HTTP method + route).\n" +
+                "- Service participation breakdown shows span-level data; durations may overlap due to parent-child nesting.\n" +
+                "- 'previousPeriod' data (if present) lets you compare against the prior time window.\n\n" +
+                "Output your answer in two clear sections:\n" +
+                "## Analysis\n" +
+                "A concise analysis (3-6 paragraphs) covering:\n" +
+                "- Overall health of the system and any notable changes from the previous period\n" +
+                "- Patterns, anomalies, or trends in latency, error rates, or throughput\n" +
+                "- Services or endpoints that stand out (positive or negative), referencing percentiles where relevant\n" +
+                "- Error patterns: common error messages, HTTP status code distribution, and potential root causes\n\n" +
+                "## Recommendations\n" +
+                "Actionable recommendations (3-6 bullet points) prioritized by impact. " +
+                "Each bullet must be specific, data-backed, and directly reference the statistics provided. " +
+                "Do NOT give generic advice like 'monitor your system' or 'set up alerts'—be concrete.",
+            },
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${config.LLM_API_KEY}`,
+          },
+          timeout: 60000,
+        },
+      );
+      return response.data?.choices?.[0]?.message?.content || "";
+    } catch (error) {
+      lastError = error as Error;
+      const status = (error as { response?: { status?: number } })?.response
+        ?.status;
+      // Retry on server errors (5xx) or rate limits (429), not on client errors (4xx)
+      if (status && status < 500 && status !== 429) {
+        throw error;
+      }
+      if (attempt < maxRetries - 1) {
+        const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        logger.warn(
+          `LLM API attempt ${attempt + 1} failed (status=${status}), retrying in ${delay}ms: ${lastError.message}`,
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastError || new Error("LLM API call failed after retries");
+}
+
 // ── Statistics Collection ─────────────────────────────────────────────────────
 
 interface LogsStats {
@@ -185,6 +256,7 @@ interface LogsStats {
     errorRate: number;
   }>;
   perSeverity: Array<{ severity: string; count: number }>;
+  topErrorMessages: Array<{ message: string; count: number }>;
 }
 
 interface TraceTypeStats {
@@ -192,6 +264,9 @@ interface TraceTypeStats {
   totalDurationMs: number;
   count: number;
   avgDurationMs: number;
+  p50DurationMs: number;
+  p95DurationMs: number;
+  p99DurationMs: number;
   errorCount: number;
   perService: Array<{
     serviceName: string;
@@ -204,29 +279,51 @@ interface TraceTypeStats {
 
 interface TracesStats {
   total: number;
-  perService: Array<{ serviceName: string; count: number }>;
+  requestsPerMinute: number;
+  perService: Array<{ serviceName: string; count: number; errorCount: number }>;
   errorCount: number;
   topByName: TraceTypeStats[];
+  httpStatusBreakdown: Array<{
+    serviceName: string;
+    statusRange: string;
+    count: number;
+  }>;
+}
+
+interface MetricTypeStats {
+  name: string;
+  type: string;
+  serviceName: string;
+  dataPointCount: number;
 }
 
 interface MetricsStats {
   total: number;
   perService: Array<{ serviceName: string; count: number }>;
+  byName: MetricTypeStats[];
 }
 
 interface RecommendationStats {
   periodStart: number;
   periodEnd: number;
+  periodHours: number;
   services: string[];
   logs: LogsStats;
   traces: TracesStats;
   metrics: MetricsStats;
+  previousPeriod?: {
+    logsTotal: number;
+    logsErrors: number;
+    tracesTotal: number;
+    tracesErrors: number;
+  };
 }
 
 async function CollectStats(
   context: Span,
   periodStart: number,
   periodEnd: number,
+  periodHours: number,
 ): Promise<RecommendationStats> {
   const span = OTelTracer().startSpan("CollectStats", context);
 
@@ -280,11 +377,25 @@ async function CollectStats(
     });
   }
 
+  // Top error messages
+  const topErrorMessagesRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.LOGS_TOP_ERROR_MESSAGES[DbUtilsGetType()],
+    [periodStart, periodEnd, 10],
+  );
+  const topErrorMessages: LogsStats["topErrorMessages"] = [];
+  for (const row of topErrorMessagesRaw) {
+    topErrorMessages.push({
+      message: String(row.logText || "").substring(0, 200),
+      count: Number(row.count),
+    });
+  }
+
   const logsStats: LogsStats = {
     total: logsTotal,
     errors: logsErrors,
     perService: logsPerService,
     perSeverity: logsPerSeverity,
+    topErrorMessages,
   };
 
   // ── Traces statistics ──────────────────────────────────────────────────
@@ -301,30 +412,72 @@ async function CollectStats(
   );
   const tracesErrors = Number(tracesErrorRow[0]?.count || 0);
 
+  // Per-service with error counts
   const tracesPerServiceRaw = await DbUtilsNoTelemetryQuerySQL(
     SQL_QUERIES.TRACES_PER_SERVICE[DbUtilsGetType()],
     [periodStart, periodEnd],
   );
+  const tracesErrorPerServiceRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.TRACES_ERRORS_PER_SERVICE[DbUtilsGetType()],
+    [periodStart, periodEnd],
+  );
+  const traceErrorMap: Record<string, number> = {};
+  for (const row of tracesErrorPerServiceRaw) {
+    traceErrorMap[row.serviceName] = Number(row.count);
+  }
   const tracesPerService: TracesStats["perService"] = [];
   for (const row of tracesPerServiceRaw) {
     tracesPerService.push({
       serviceName: row.serviceName,
       count: Number(row.count),
+      errorCount: traceErrorMap[row.serviceName] || 0,
     });
   }
 
-  // Top 5 trace names by cumulative duration
+  // Throughput
+  const requestsPerMinute =
+    periodHours > 0
+      ? Math.round((tracesTotal / (periodHours * 60)) * 10) / 10
+      : 0;
+
+  // Top trace names by cumulative duration (configurable limit)
+  const topTraceLimit = Math.max(
+    Number(config.LLM_RECOMMENDATION_TOP_TRACES) || 5,
+    1,
+  );
   const topTraceNamesRow = await DbUtilsNoTelemetryQuerySQL(
     SQL_QUERIES.TRACES_TOP_BY_DURATION[DbUtilsGetType()],
-    [periodStart, periodEnd, 5],
+    [periodStart, periodEnd, topTraceLimit],
   );
   const topByName: TraceTypeStats[] = [];
+
+  // Collect all root-span durations for percentile computation
+  const rootDurationsRow = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.TRACES_ROOT_DURATIONS[DbUtilsGetType()],
+    [periodStart, periodEnd],
+  );
+  const allDurations: number[] = [];
+  for (const row of rootDurationsRow) {
+    allDurations.push(Number(row.duration) / 1_000_000); // ns → ms
+  }
+  allDurations.sort((a, b) => a - b);
+  const computePercentile = (p: number): number => {
+    if (allDurations.length === 0) return 0;
+    const idx = Math.ceil((p / 100) * allDurations.length) - 1;
+    return Math.round(
+      allDurations[Math.max(0, Math.min(idx, allDurations.length - 1))],
+    );
+  };
+  const globalP50 = computePercentile(50);
+  const globalP95 = computePercentile(95);
+  const globalP99 = computePercentile(99);
+
   for (const topRow of topTraceNamesRow) {
     const name = topRow.name;
     const traceNameCount = Number(topRow.count);
     const traceNameTotalDuration = Number(topRow.totalDuration);
 
-    // Breakdown per service for this trace name
+    // Breakdown per service for this trace name (span-level, durations may overlap due to nesting)
     const breakdownRaw = await DbUtilsNoTelemetryQuerySQL(
       SQL_QUERIES.TRACES_BREAKDOWN_BY_NAME[DbUtilsGetType()],
       [periodStart, periodEnd, name],
@@ -344,6 +497,24 @@ async function CollectStats(
       });
     }
 
+    // Per-trace-type percentiles
+    const typeDurationsRow = await DbUtilsNoTelemetryQuerySQL(
+      SQL_QUERIES.TRACES_DURATIONS_BY_NAME[DbUtilsGetType()],
+      [periodStart, periodEnd, name],
+    );
+    const typeDurations: number[] = [];
+    for (const row of typeDurationsRow) {
+      typeDurations.push(Number(row.duration) / 1_000_000);
+    }
+    typeDurations.sort((a, b) => a - b);
+    const typePercentile = (p: number): number => {
+      if (typeDurations.length === 0) return 0;
+      const idx = Math.ceil((p / 100) * typeDurations.length) - 1;
+      return Math.round(
+        typeDurations[Math.max(0, Math.min(idx, typeDurations.length - 1))],
+      );
+    };
+
     topByName.push({
       name,
       totalDurationMs: Math.round(traceNameTotalDuration / 1_000_000),
@@ -352,16 +523,47 @@ async function CollectStats(
         traceNameCount > 0
           ? Math.round(traceNameTotalDuration / traceNameCount / 1_000_000)
           : 0,
+      p50DurationMs: typePercentile(50),
+      p95DurationMs: typePercentile(95),
+      p99DurationMs: typePercentile(99),
       errorCount: Number(topRow.errorCount || 0),
       perService,
     });
   }
 
+  // HTTP status code breakdown
+  const httpStatusRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.TRACES_HTTP_STATUS[DbUtilsGetType()],
+    [periodStart, periodEnd],
+  );
+  const httpStatusBreakdown: TracesStats["httpStatusBreakdown"] = [];
+  const statusMap: Record<string, Record<string, number>> = {};
+  for (const row of httpStatusRaw) {
+    const svc = row.serviceName || "unknown";
+    const attr = String(row.attributes || "");
+    const statusMatch = attr.match(
+      /"key"\s*:\s*"http\.status_code"[^}]*"(?:int|string)Value"\s*:\s*(?:"?(\d+)"?)/,
+    );
+    if (!statusMatch) continue;
+    const code = parseInt(statusMatch[1], 10);
+    const range = `${Math.floor(code / 100)}xx`;
+    if (!statusMap[svc]) statusMap[svc] = {};
+    statusMap[svc][range] = (statusMap[svc][range] || 0) + 1;
+  }
+  for (const [svc, ranges] of Object.entries(statusMap)) {
+    for (const [range, count] of Object.entries(ranges)) {
+      httpStatusBreakdown.push({ serviceName: svc, statusRange: range, count });
+    }
+  }
+  httpStatusBreakdown.sort((a, b) => b.count - a.count);
+
   const tracesStats: TracesStats = {
     total: tracesTotal,
+    requestsPerMinute,
     errorCount: tracesErrors,
     perService: tracesPerService,
     topByName,
+    httpStatusBreakdown,
   };
 
   // ── Metrics statistics ─────────────────────────────────────────────────
@@ -384,10 +586,50 @@ async function CollectStats(
     });
   }
 
+  // Metric names with types
+  const metricsByNameRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.METRICS_BY_NAME[DbUtilsGetType()],
+    [periodStart, periodEnd],
+  );
+  const metricsByName: MetricTypeStats[] = [];
+  for (const row of metricsByNameRaw) {
+    metricsByName.push({
+      name: row.name,
+      type: row.type,
+      serviceName: row.serviceName,
+      dataPointCount: Number(row.dataPointCount),
+    });
+  }
+
   const metricsStats: MetricsStats = {
     total: metricsTotal,
     perService: metricsPerService,
+    byName: metricsByName,
   };
+
+  // ── Previous period comparison ─────────────────────────────────────────
+
+  let previousPeriod: RecommendationStats["previousPeriod"] = undefined;
+  try {
+    if (await fs.pathExists(recommendationFilePath)) {
+      const cached = (await fs.readJson(recommendationFilePath)) as {
+        stats?: {
+          logs?: { total?: number; errors?: number };
+          traces?: { total?: number; errorCount?: number };
+        };
+      };
+      if (cached?.stats?.logs) {
+        previousPeriod = {
+          logsTotal: cached.stats.logs.total || 0,
+          logsErrors: cached.stats.logs.errors || 0,
+          tracesTotal: cached.stats.traces?.total || 0,
+          tracesErrors: cached.stats.traces?.errorCount || 0,
+        };
+      }
+    }
+  } catch {
+    // Ignore — previous period comparison is best-effort
+  }
 
   // ── Services ────────────────────────────────────────────────────────────
 
@@ -401,17 +643,37 @@ async function CollectStats(
   return {
     periodStart,
     periodEnd,
+    periodHours,
     services: Array.from(serviceSet).sort(),
     logs: logsStats,
     traces: tracesStats,
     metrics: metricsStats,
+    previousPeriod,
   };
 }
 
 // ── Prompt Builder ────────────────────────────────────────────────────────────
 
 function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
-  const fmtPct = (v: number) => `${(v * 100).toFixed(1)}%`;
+  const fmtPct = (v: number): string => {
+    const pct = v * 100;
+    if (v === 0) return "0%";
+    if (pct < 0.01) return `${pct.toFixed(4)}%`;
+    if (pct < 1) return `${pct.toFixed(2)}%`;
+    return `${pct.toFixed(1)}%`;
+  };
+
+  const fmtDelta = (current: number, previous: number | undefined): string => {
+    if (previous === undefined) return "";
+    const delta = current - previous;
+    const pctChange =
+      previous > 0 ? (delta / previous) * 100 : current > 0 ? Infinity : 0;
+    const arrow = delta > 0 ? "↑" : delta < 0 ? "↓" : "→";
+    const pctStr = isFinite(pctChange)
+      ? `${Math.abs(pctChange).toFixed(0)}%`
+      : "new";
+    return ` (${arrow}${pctStr} vs previous period)`;
+  };
 
   const lines: string[] = [];
   lines.push(`Telemetry statistics for the last ${periodHours} hours.\n`);
@@ -420,10 +682,14 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
   lines.push(stats.services.join(", "));
   lines.push("");
 
+  // ── Logs ──
+
   lines.push("--- Logs ---");
-  lines.push(`Total logs: ${stats.logs.total}`);
   lines.push(
-    `Error logs: ${stats.logs.errors} (${fmtPct(stats.logs.errors / Math.max(stats.logs.total, 1))})`,
+    `Total logs: ${stats.logs.total}${fmtDelta(stats.logs.total, stats.previousPeriod?.logsTotal)}`,
+  );
+  lines.push(
+    `Error logs: ${stats.logs.errors} (${fmtPct(stats.logs.errors / Math.max(stats.logs.total, 1))})${fmtDelta(stats.logs.errors, stats.previousPeriod?.logsErrors)}`,
   );
   lines.push("");
   lines.push("Logs per service:");
@@ -439,36 +705,90 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
   }
   lines.push("");
 
+  if (stats.logs.topErrorMessages.length > 0) {
+    lines.push("Top error log messages (most frequent):");
+    for (const e of stats.logs.topErrorMessages) {
+      lines.push(`  - [${e.count}x] ${e.message}`);
+    }
+    lines.push("");
+  }
+
+  // ── Traces ──
+
   lines.push("--- Traces ---");
-  lines.push(`Total traces: ${stats.traces.total}`);
-  lines.push(`Traces with errors: ${stats.traces.errorCount}`);
+  lines.push(
+    `Total traces: ${stats.traces.total}${fmtDelta(stats.traces.total, stats.previousPeriod?.tracesTotal)}`,
+  );
+  lines.push(
+    `Traces with errors: ${stats.traces.errorCount}${fmtDelta(stats.traces.errorCount, stats.previousPeriod?.tracesErrors)}`,
+  );
+  lines.push(`Throughput: ${stats.traces.requestsPerMinute} traces/minute`);
   lines.push("");
   lines.push("Traces per service:");
   for (const s of stats.traces.perService) {
-    lines.push(`  - ${s.serviceName}: ${s.count}`);
+    lines.push(
+      `  - ${s.serviceName}: ${s.count} traces, ${s.errorCount} errors`,
+    );
   }
   lines.push("");
-  lines.push("Top 5 trace types by cumulative duration:");
+
+  if (stats.traces.httpStatusBreakdown.length > 0) {
+    lines.push("HTTP status code distribution (root spans):");
+    for (const h of stats.traces.httpStatusBreakdown) {
+      lines.push(`  - ${h.serviceName}: ${h.statusRange} → ${h.count}`);
+    }
+    lines.push("");
+  }
+
+  const topLabel = stats.traces.topByName.length;
+  lines.push(`Top ${topLabel} trace types by cumulative duration:`);
   for (const t of stats.traces.topByName) {
     lines.push(
-      `  - ${t.name}: ${t.count} traces, ${t.totalDurationMs}ms total, ${t.avgDurationMs}ms avg, ${t.errorCount} errors`,
+      `  - ${t.name}: ${t.count} traces, ${t.totalDurationMs}ms total, ${t.avgDurationMs}ms avg, p50=${t.p50DurationMs}ms, p95=${t.p95DurationMs}ms, p99=${t.p99DurationMs}ms, ${t.errorCount} errors`,
     );
-    lines.push("    Breakdown per service:");
+    lines.push(
+      "    Service participation (span-level, durations may overlap):",
+    );
     for (const br of t.perService) {
       lines.push(
-        `      - ${br.serviceName}: ${br.count} traces, ${br.totalDurationMs}ms total, ${br.avgDurationMs}ms avg, ${br.errorCount} errors`,
+        `      - ${br.serviceName}: ${br.count} distinct traces, ${br.totalDurationMs}ms span-time, ${br.avgDurationMs}ms avg, ${br.errorCount} errors`,
       );
     }
   }
   lines.push("");
 
+  // ── Metrics ──
+
   lines.push("--- Metrics ---");
   lines.push(`Total metric data points: ${stats.metrics.total}`);
+  lines.push("");
+  if (stats.metrics.byName.length > 0) {
+    lines.push("Metrics by name, type, and service:");
+    for (const m of stats.metrics.byName) {
+      lines.push(
+        `  - ${m.serviceName} / ${m.name} (${m.type}): ${m.dataPointCount} data points`,
+      );
+    }
+    lines.push("");
+  }
   lines.push("Metrics per service:");
   for (const s of stats.metrics.perService) {
-    lines.push(`  - ${s.serviceName}: ${s.count}`);
+    lines.push(`  - ${s.serviceName}: ${s.count} data points`);
   }
   lines.push("");
+
+  // ── Previous period comparison ──
+
+  if (stats.previousPeriod) {
+    lines.push("--- Comparison with previous period ---");
+    lines.push(
+      `Logs: ${stats.previousPeriod.logsTotal} → ${stats.logs.total} total, ${stats.previousPeriod.logsErrors} → ${stats.logs.errors} errors`,
+    );
+    lines.push(
+      `Traces: ${stats.previousPeriod.tracesTotal} → ${stats.traces.total} total, ${stats.previousPeriod.tracesErrors} → ${stats.traces.errorCount} errors`,
+    );
+    lines.push("");
+  }
 
   lines.push(
     "Based on the above data, provide your Analysis and Recommendations.",
@@ -510,6 +830,12 @@ const SQL_QUERIES = {
     sqlite:
       "SELECT severity, COUNT(*) AS count FROM logs WHERE time >= ? AND time < ? GROUP BY severity ORDER BY count DESC",
   },
+  LOGS_TOP_ERROR_MESSAGES: {
+    postgres:
+      'SELECT "logText", COUNT(*) AS count FROM logs WHERE "time" >= $1 AND "time" < $2 AND LOWER("severity") = \'error\' GROUP BY "logText" ORDER BY count DESC LIMIT $3',
+    sqlite:
+      "SELECT logText, COUNT(*) AS count FROM logs WHERE time >= ? AND time < ? AND LOWER(severity) = 'error' GROUP BY logText ORDER BY count DESC LIMIT ?",
+  },
   // Traces
   TRACES_TOTAL: {
     postgres:
@@ -528,6 +854,24 @@ const SQL_QUERIES = {
       'SELECT "serviceName", COUNT(DISTINCT "traceId") AS count FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 GROUP BY "serviceName" ORDER BY count DESC',
     sqlite:
       "SELECT serviceName, COUNT(DISTINCT traceId) AS count FROM traces WHERE startTime >= ? AND startTime < ? GROUP BY serviceName ORDER BY count DESC",
+  },
+  TRACES_ERRORS_PER_SERVICE: {
+    postgres:
+      'SELECT "serviceName", COUNT(DISTINCT "traceId") AS count FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "statusCode" = 2 GROUP BY "serviceName" ORDER BY count DESC',
+    sqlite:
+      "SELECT serviceName, COUNT(DISTINCT traceId) AS count FROM traces WHERE startTime >= ? AND startTime < ? AND statusCode = 2 GROUP BY serviceName ORDER BY count DESC",
+  },
+  TRACES_ROOT_DURATIONS: {
+    postgres:
+      'SELECT ("endTime" - "startTime") AS duration FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL',
+    sqlite:
+      "SELECT (endTime - startTime) AS duration FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL",
+  },
+  TRACES_DURATIONS_BY_NAME: {
+    postgres:
+      'SELECT ("endTime" - "startTime") AS duration FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL AND "name" = $3',
+    sqlite:
+      "SELECT (endTime - startTime) AS duration FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL AND name = ?",
   },
   TRACES_TOP_BY_DURATION: {
     postgres: `
@@ -571,6 +915,12 @@ const SQL_QUERIES = {
       GROUP BY serviceName
       ORDER BY totalDuration DESC`,
   },
+  TRACES_HTTP_STATUS: {
+    postgres:
+      'SELECT "serviceName", "attributes" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "attributes" LIKE \'%http.status_code%\' AND "parentSpanId" IS NULL LIMIT 2000',
+    sqlite:
+      "SELECT serviceName, attributes FROM traces WHERE startTime >= ? AND startTime < ? AND attributes LIKE '%http.status_code%' AND parentSpanId IS NULL LIMIT 2000",
+  },
   // Metrics
   METRICS_TOTAL: {
     postgres:
@@ -583,5 +933,11 @@ const SQL_QUERIES = {
       'SELECT "serviceName", COUNT(*) AS count FROM metrics WHERE "time" >= $1 AND "time" < $2 GROUP BY "serviceName" ORDER BY count DESC',
     sqlite:
       "SELECT serviceName, COUNT(*) AS count FROM metrics WHERE time >= ? AND time < ? GROUP BY serviceName ORDER BY count DESC",
+  },
+  METRICS_BY_NAME: {
+    postgres:
+      'SELECT "name", "type", "serviceName", COUNT(*) AS "dataPointCount" FROM metrics WHERE "time" >= $1 AND "time" < $2 GROUP BY "name", "type", "serviceName" ORDER BY "dataPointCount" DESC',
+    sqlite:
+      "SELECT name, type, serviceName, COUNT(*) AS dataPointCount FROM metrics WHERE time >= ? AND time < ? GROUP BY name, type, serviceName ORDER BY dataPointCount DESC",
   },
 };
