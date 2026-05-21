@@ -9,7 +9,12 @@
       </li>
     </ul>
     <ul class="menu-links">
-      <li v-if="authenticationStore.isAuthenticated">
+      <li
+        v-if="
+          authenticationStore.isAuthenticated &&
+          authenticationStore.hasTracesScope
+        "
+      >
         <NuxtLink
           to="/traces"
           :class="activeRoute == '/traces' ? 'active' : 'inactive'"
@@ -17,7 +22,12 @@
           <span class="nav-label">Traces</span></NuxtLink
         >
       </li>
-      <li v-if="authenticationStore.isAuthenticated">
+      <li
+        v-if="
+          authenticationStore.isAuthenticated &&
+          authenticationStore.hasMetricsScope
+        "
+      >
         <NuxtLink
           to="/metrics"
           :class="activeRoute == '/metrics' ? 'active' : 'inactive'"
@@ -25,7 +35,12 @@
           <span class="nav-label">Metrics</span></NuxtLink
         >
       </li>
-      <li v-if="authenticationStore.isAuthenticated">
+      <li
+        v-if="
+          authenticationStore.isAuthenticated &&
+          authenticationStore.hasLogsScope
+        "
+      >
         <NuxtLink
           to="/logs"
           :class="activeRoute == '/logs' ? 'active' : 'inactive'"
@@ -33,7 +48,11 @@
           <span class="nav-label">Logs</span></NuxtLink
         >
       </li>
-      <li v-if="authenticationStore.isAuthenticated">
+      <li
+        v-if="
+          authenticationStore.isAuthenticated && authenticationStore.isAdmin
+        "
+      >
         <NuxtLink
           to="/settings"
           :class="activeRoute == '/settings' ? 'active' : 'inactive'"
@@ -46,7 +65,7 @@
           to="/users"
           :class="activeRoute == '/users' ? 'active' : 'inactive'"
           ><i class="bi bi-person-circle"></i>
-          <span class="nav-label">Users</span></NuxtLink
+          <span class="nav-label">Profile</span></NuxtLink
         >
       </li>
     </ul>
@@ -87,6 +106,7 @@ export default {
           )
           .then((res) => {
             AuthService.saveToken(res.data.token);
+            AuthenticationStore().refreshFromToken();
           });
       }, 10000);
     }

@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { Metric } from "../model/Metric";
-import { AuthGetUserSession } from "../users/Auth";
+import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsCompressJson,
@@ -26,6 +26,11 @@ export class AnalyticsMetricsRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "metrics");
+      } catch {
+        return;
       }
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
@@ -92,6 +97,11 @@ export class AnalyticsMetricsRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "metrics");
+      } catch {
+        return;
       }
       const dbType = DbUtilsGetType();
       const sqlParams = [];

@@ -3,7 +3,7 @@ import * as jwt from "jsonwebtoken";
 import * as path from "path";
 import { v4 as uuidv4 } from "uuid";
 import { Config } from "../Config";
-import { User } from "../model/User";
+import { User, UserRole, UserScope } from "../model/User";
 import { UserSession } from "../model/UserSession";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { DbUtilsQuerySQL } from "../utils-std-ts/DbUtils";
@@ -37,6 +37,8 @@ export async function AuthGenerateJWT(user: User): Promise<string> {
       exp: Math.floor(Date.now() / 1000) + config.JWT_VALIDITY_DURATION,
       userId: user.id,
       userName: user.name,
+      role: user.role,
+      scopes: user.role === "admin" ? User.ALL_SCOPES : user.scopes,
     },
     config.JWT_KEY,
   );
@@ -65,6 +67,52 @@ export async function AuthMustBeAuthenticated(
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function AuthMustBeAdmin(req: any, res: any): Promise<void> {
+  if (req.headers.authorization) {
+    try {
+      const info = jwt.verify(
+        req.headers.authorization.split(" ")[1],
+        config.JWT_KEY,
+      );
+      if (info.role === "admin") {
+        return;
+      }
+    } catch (err) {
+      // fall through
+    }
+  }
+  res.status(403).send({ error: "Access Denied" });
+  throw new Error("Access Denied");
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function AuthHasScope(
+  req: any,
+  res: any,
+  scope: UserScope,
+): Promise<void> {
+  if (req.headers.authorization) {
+    try {
+      const info = jwt.verify(
+        req.headers.authorization.split(" ")[1],
+        config.JWT_KEY,
+      );
+      if (info.role === "admin") {
+        return;
+      }
+      const scopes: UserScope[] = info.scopes || [];
+      if (scopes.includes(scope)) {
+        return;
+      }
+    } catch (err) {
+      // fall through
+    }
+  }
+  res.status(403).send({ error: "Access Denied" });
+  throw new Error("Access Denied");
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function AuthGetUserSession(req: any): Promise<UserSession> {
   const userSession: UserSession = { isAuthenticated: false };
   if (req.headers.authorization) {
@@ -74,6 +122,9 @@ export async function AuthGetUserSession(req: any): Promise<UserSession> {
         config.JWT_KEY,
       );
       userSession.userId = info.userId;
+      userSession.userName = info.userName;
+      userSession.role = info.role;
+      userSession.scopes = info.scopes;
       userSession.isAuthenticated = true;
     } catch (err) {
       logger.error("Error getting user session", err);
@@ -91,7 +142,9 @@ const SQL_QUERIES = {
     sqlite: 'SELECT value FROM metadata WHERE type = "auth_token" LIMIT 1',
   },
   INSERT_AUTH_TOKEN: {
-    postgres: 'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'auth_token\', $1, $2)',
-    sqlite: 'INSERT INTO metadata (type, value, dateCreated) VALUES ("auth_token", ?, ?)',
+    postgres:
+      'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'auth_token\', $1, $2)',
+    sqlite:
+      'INSERT INTO metadata (type, value, dateCreated) VALUES ("auth_token", ?, ?)',
   },
 };

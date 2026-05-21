@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession } from "../users/Auth";
+import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
@@ -33,6 +33,11 @@ export class AnalyticsTracesRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
       }
 
       const isRefresh = req.query.afterTime !== undefined;
@@ -149,6 +154,11 @@ export class AnalyticsTracesRoutes {
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
       }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
+      }
 
       const rawSpans = await DbUtilsNoTelemetryQuerySQL(
         SQL_QUERIES.GET_TRACE_SPANS[DbUtilsGetType()],
@@ -170,6 +180,11 @@ export class AnalyticsTracesRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(

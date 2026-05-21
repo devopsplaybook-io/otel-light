@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession } from "../users/Auth";
+import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
 import { Log } from "../model/Log";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
@@ -31,6 +31,11 @@ export class AnalyticsLogsRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "logs");
+      } catch {
+        return;
       }
       const sqlParams = [];
       const isRefresh = req.query.afterTime !== undefined;

@@ -1,7 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { Settings } from "../model/Settings";
 import { OTelRequestSpan } from "../OTelContext";
-import { AuthGetUserSession } from "../users/Auth";
+import { AuthGetUserSession, AuthMustBeAdmin } from "../users/Auth";
 import {
   DbUtilsExecSQL,
   DbUtilsQuerySQL,
@@ -41,9 +41,10 @@ export class SettingsRoutes {
     fastify.put<{ Params: { category: string }; Body: { content: any } }>(
       "/:category",
       async (req, res) => {
-        const userSession = await AuthGetUserSession(req);
-        if (!userSession.isAuthenticated) {
-          return res.status(403).send({ error: "Access Denied" });
+        try {
+          await AuthMustBeAdmin(req, res);
+        } catch {
+          return;
         }
         await DbUtilsExecSQL(
           OTelRequestSpan(req),

@@ -10,6 +10,14 @@
             Maintenance
           </NuxtLink>
         </li>
+        <li v-if="auth.isAdmin">
+          <NuxtLink
+            to="/settings/users"
+            :class="isActive('/settings/users') ? 'active' : 'inactive'"
+          >
+            Users
+          </NuxtLink>
+        </li>
       </ul>
     </nav>
   </div>
@@ -18,6 +26,7 @@
 <script setup>
 import { useRoute } from "vue-router";
 
+const auth = AuthenticationStore();
 const route = useRoute();
 
 function isActive(path) {
@@ -45,7 +54,9 @@ function isActive(path) {
   font-size: 1.1em;
   cursor: pointer;
   border-bottom: 2px solid transparent;
-  transition: border-color 0.2s, color 0.2s;
+  transition:
+    border-color 0.2s,
+    color 0.2s;
 }
 .menu-links .inactive {
   opacity: 0.3;
