@@ -9,6 +9,7 @@ import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 import { AnalyticsServicesRoutes } from "./analytics/AnalyticsServicesRoutes";
 import { AnalyticsServicesCacheInit } from "./analytics/AnalyticsServicesCache";
+import { AnalyticsMetricsNamesCacheInit } from "./analytics/AnalyticsMetricsNamesCache";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
@@ -57,6 +58,7 @@ Promise.resolve().then(async () => {
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);
   await AnalyticsServicesCacheInit(span, config);
+  await AnalyticsMetricsNamesCacheInit(span, config);
   await RecommendationInit(span, config);
 
   span.end();
