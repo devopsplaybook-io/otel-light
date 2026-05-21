@@ -10,8 +10,6 @@ import {
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
-const PAGE_SIZE = 200;
-
 export class AnalyticsMetricsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -22,7 +20,6 @@ export class AnalyticsMetricsRoutes {
         to?: number;
         serviceName?: string;
         name?: string;
-        offset?: number;
         afterTime?: number;
       };
     }>("/", async (req, res) => {
@@ -33,7 +30,6 @@ export class AnalyticsMetricsRoutes {
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       const isRefresh = req.query.afterTime !== undefined;
-      const offset = isRefresh ? 0 : req.query.offset || 0;
       let sqlWhere =
         " WHERE time >= " +
         AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
@@ -64,7 +60,9 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(String(req.query.name).trim());
       }
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS(sqlWhere, PAGE_SIZE, offset)[DbUtilsGetType()],
+        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
+          DbUtilsGetType()
+        ],
         sqlParams,
       );
       const metrics = [];
@@ -75,7 +73,6 @@ export class AnalyticsMetricsRoutes {
       const response = {
         metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
         compressed: true,
-        hasMore: rawMetrics.length === PAGE_SIZE,
       };
       if (rawMetrics.length >= AnalyticsUtilsResultLimitMetrics) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -96,40 +93,48 @@ export class AnalyticsMetricsRoutes {
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
       }
+      const dbType = DbUtilsGetType();
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
         " WHERE time >= " +
-        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
         sqlWhere +=
           " AND time <= " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
 
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
           ' AND "serviceName" = ' +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceName).trim());
       }
 
-      if (req.query.keywords?.trim()) {
+      const hasKeywords = !!req.query.keywords?.trim();
+      if (hasKeywords) {
         const kw = `%${req.query.keywords.toLowerCase().trim()}%`;
         sqlWhere +=
           " AND (name LIKE " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1) +
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1) +
           ' OR "serviceName" LIKE ' +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 2) +
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 2) +
           ")";
         sqlParams.push(kw, kw);
       }
 
+      // Use recursive CTE skip scan for PostgreSQL when no keywords filter.
+      // Skip scan does O(unique_names) index lookups instead of scanning all rows.
+      // Fall back to DISTINCT when keywords (LIKE) is active or for SQLite.
+      const template = hasKeywords
+        ? SQL_QUERIES.GET_METRICS_NAMES_DISTINCT(sqlWhere)
+        : SQL_QUERIES.GET_METRICS_NAMES_SKIP_SCAN(sqlWhere);
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS_NAMES(sqlWhere)[DbUtilsGetType()],
+        template[dbType],
         sqlParams,
       );
       const metricsNames: {
@@ -157,11 +162,40 @@ export class AnalyticsMetricsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_METRICS: (sqlWhere: string, limit: number, offset: number) => ({
-    postgres: `SELECT "name", "serviceName", "serviceVersion", "time", "type", "rawMetric" FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
-    sqlite: `SELECT name, serviceName, serviceVersion, time, type, rawMetric FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
+  GET_METRICS: (sqlWhere: string, limit: number) => ({
+    postgres: `SELECT "name", "serviceName", "serviceVersion", "time", "type", "rawMetric" FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
+    sqlite: `SELECT name, serviceName, serviceVersion, time, type, rawMetric FROM metrics ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
   }),
-  GET_METRICS_NAMES: (sqlWhere: string) => ({
+  // Recursive CTE skip scan: finds each unique (serviceName, name, type) triplet
+  // with a single index lookup per unique value, instead of scanning all matching rows.
+  // Falls back to DISTINCT when keywords filter is active (LIKE defeats skip scan).
+  GET_METRICS_NAMES_SKIP_SCAN: (sqlWhere: string) => ({
+    postgres: `
+      WITH RECURSIVE names AS (
+        SELECT "name", "serviceName", "type"
+        FROM metrics
+        ${sqlWhere}
+        ORDER BY "serviceName", "name", "type"
+        LIMIT 1
+        UNION ALL
+        SELECT m."name", m."serviceName", m."type"
+        FROM names n
+        CROSS JOIN LATERAL (
+          SELECT "name", "serviceName", "type"
+          FROM metrics
+          ${sqlWhere}
+            AND ("serviceName", "name", "type") > (n."serviceName", n."name", n."type")
+          ORDER BY "serviceName", "name", "type"
+          LIMIT 1
+        ) m
+      )
+      SELECT * FROM names
+      ORDER BY "serviceName", "name", "type"`,
+    sqlite: `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
+  }),
+  // Regular DISTINCT fallback — used when keywords (LIKE) filter is active,
+  // since the skip-scan CTE cannot incorporate OR'd LIKE conditions efficiently.
+  GET_METRICS_NAMES_DISTINCT: (sqlWhere: string) => ({
     postgres: `SELECT DISTINCT "name", "serviceName", "type" FROM metrics ${sqlWhere} ORDER BY "serviceName", "name", "type"`,
     sqlite: `SELECT DISTINCT name, serviceName, type FROM metrics ${sqlWhere} ORDER BY serviceName, name, type`,
   }),
