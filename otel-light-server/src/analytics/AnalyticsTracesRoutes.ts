@@ -42,40 +42,44 @@ export class AnalyticsTracesRoutes {
       const effectiveOffset = isRefresh || hasBefore ? 0 : offset;
       const errorsOnly = req.query.errorsOnly === "true";
       const dbType = DbUtilsGetType();
+      // Quote an identifier for the target DB: PostgreSQL needs double-quotes
+      // to preserve camelCase column names created with quoted identifiers.
+      const q = (ident: string) =>
+        dbType === "postgres" ? `"${ident}"` : ident;
 
       // Build roots CTE: find root spans matching all filters first.
       // This avoids the expensive self-JOIN with WHERE on the JOINed side.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rootsParams: any[] = [];
-      let rootsWhere = "parentSpanId IS NULL";
+      let rootsWhere = `${q("parentSpanId")} IS NULL`;
 
       if (req.query.traceId) {
         rootsWhere +=
-          " AND traceId = " +
+          ` AND ${q("traceId")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(req.query.traceId);
       } else {
         if (req.query.from) {
           rootsWhere +=
-            " AND startTime >= " +
+            ` AND ${q("startTime")} >= ` +
             AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
           rootsParams.push(req.query.from);
         }
         if (isRefresh) {
           rootsWhere +=
-            " AND startTime > " +
+            ` AND ${q("startTime")} > ` +
             AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
           rootsParams.push(req.query.afterTime);
         }
         if (req.query.to) {
           rootsWhere +=
-            " AND startTime <= " +
+            ` AND ${q("startTime")} <= ` +
             AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
           rootsParams.push(req.query.to);
         }
         if (hasBefore) {
           rootsWhere +=
-            " AND startTime < " +
+            ` AND ${q("startTime")} < ` +
             AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
           rootsParams.push(req.query.before);
         }
@@ -83,21 +87,21 @@ export class AnalyticsTracesRoutes {
 
       if (req.query.keywords?.trim()) {
         rootsWhere +=
-          " AND keywords LIKE " +
+          ` AND ${q("keywords")} LIKE ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
 
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         rootsWhere +=
-          " AND serviceName = " +
+          ` AND ${q("serviceName")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(String(req.query.serviceName).trim());
       }
 
       if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
         rootsWhere +=
-          " AND serviceVersion = " +
+          ` AND ${q("serviceVersion")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(String(req.query.serviceVersion).trim());
       }

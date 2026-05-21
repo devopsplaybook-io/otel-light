@@ -125,31 +125,35 @@ export class AnalyticsStatsRoutes {
       }
 
       const dbType = DbUtilsGetType();
+      // Quote an identifier for the target DB: PostgreSQL needs double-quotes
+      // to preserve camelCase column names created with quoted identifiers.
+      const q = (ident: string) =>
+        dbType === "postgres" ? `"${ident}"` : ident;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rootsParams: any[] = [];
-      let rootsWhere = "parentSpanId IS NULL";
+      let rootsWhere = `${q("parentSpanId")} IS NULL`;
 
       if (req.query.from) {
         rootsWhere +=
-          " AND startTime >= " +
+          ` AND ${q("startTime")} >= ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(req.query.from);
       }
       if (req.query.to) {
         rootsWhere +=
-          " AND startTime <= " +
+          ` AND ${q("startTime")} <= ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(req.query.to);
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         rootsWhere +=
-          " AND serviceName = " +
+          ` AND ${q("serviceName")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(String(req.query.serviceName).trim());
       }
       if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
         rootsWhere +=
-          " AND serviceVersion = " +
+          ` AND ${q("serviceVersion")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(String(req.query.serviceVersion).trim());
       }
