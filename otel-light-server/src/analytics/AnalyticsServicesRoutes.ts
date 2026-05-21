@@ -1,6 +1,6 @@
 import { FastifyInstance } from "fastify";
 import { AuthGetUserSession } from "../users/Auth";
-import { AnalyticsServicesCacheGet } from "./AnalyticsServicesCache";
+import { AnalyticsCacheGetServices } from "./AnalyticsCache";
 
 export interface ServiceVersionEntry {
   serviceName: string;
@@ -17,7 +17,7 @@ export class AnalyticsServicesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
 
-      const cached = AnalyticsServicesCacheGet();
+      const cached = AnalyticsCacheGetServices();
       if (!cached) {
         return res
           .status(503)

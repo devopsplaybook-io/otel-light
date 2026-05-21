@@ -1,4 +1,4 @@
-import { AnalyticsMetricsNamesCacheFilter } from "./AnalyticsMetricsNamesCache";
+import { AnalyticsCacheFilterMetricsNames } from "./AnalyticsCache";
 import { FastifyInstance } from "fastify";
 import { Metric } from "../model/Metric";
 import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
@@ -105,9 +105,11 @@ export class AnalyticsMetricsRoutes {
         return;
       }
 
-      const names = AnalyticsMetricsNamesCacheFilter(
+      const names = AnalyticsCacheFilterMetricsNames(
         req.query.serviceName,
         req.query.keywords,
+        req.query.from,
+        req.query.to,
       );
 
       const response = {
