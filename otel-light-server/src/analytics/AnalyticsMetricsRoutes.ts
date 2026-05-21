@@ -172,11 +172,13 @@ const SQL_QUERIES = {
   GET_METRICS_NAMES_SKIP_SCAN: (sqlWhere: string) => ({
     postgres: `
       WITH RECURSIVE names AS (
-        SELECT "name", "serviceName", "type"
-        FROM metrics
-        ${sqlWhere}
-        ORDER BY "serviceName", "name", "type"
-        LIMIT 1
+        (
+          SELECT "name", "serviceName", "type"
+          FROM metrics
+          ${sqlWhere}
+          ORDER BY "serviceName", "name", "type"
+          LIMIT 1
+        )
         UNION ALL
         SELECT m."name", m."serviceName", m."type"
         FROM names n
