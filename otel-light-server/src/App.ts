@@ -8,7 +8,8 @@ import * as path from "path";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 import { AnalyticsServicesRoutes } from "./analytics/AnalyticsServicesRoutes";
-import { AnalyticsServicesCacheInit } from "./analytics/AnalyticsServicesCache";
+import { AnalyticsCacheInit } from "./analytics/AnalyticsCache";
+import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { Config } from "./Config";
@@ -55,7 +56,7 @@ Promise.resolve().then(async () => {
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);
-  await AnalyticsServicesCacheInit(span, config);
+  await AnalyticsCacheInit(span, config);
   await RecommendationInit(span, config);
 
   span.end();
@@ -108,6 +109,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new AnalyticsServicesRoutes().getRoutes, {
     prefix: "/api/analytics/services",
+  });
+  fastify.register(new AnalyticsStatsRoutes().getRoutes, {
+    prefix: "/api/analytics",
   });
   fastify.register(new SettingsRoutes().getRoutes, {
     prefix: "/api/settings",

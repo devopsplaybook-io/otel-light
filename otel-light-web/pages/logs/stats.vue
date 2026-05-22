@@ -285,9 +285,6 @@ export default {
       const { fromNs, toNs } = this.parseWindow();
       this.windowFromNs = fromNs;
       this.windowToNs = toNs;
-      // If `from` is missing we still lazy-derive it from the first page, but
-      // `to` is always resolved (defaults to now) so bucket width can be set up
-      // front whenever `from` is known.
       if (fromNs !== null && toNs !== null) {
         this.bucketMsNs = this.computeBucketWidth(fromNs, toNs);
       }
@@ -297,39 +294,53 @@ export default {
       const authHeader = await AuthService.getAuthHeader();
 
       try {
-        let page = 0;
-        while (true) {
-          if (runId !== this.runId) return;
-          const qs = this.filter.queryString
-            ? `${this.filter.queryString}&offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`
-            : `offset=${page * PAGE_SIZE}&limit=${PAGE_SIZE}`;
-          const url = `${baseUrl}/analytics/logs?${qs}`;
-          let res;
-          try {
-            res = await axios.get(url, {
-              ...authHeader,
-              signal: ctrl.signal,
-            });
-          } catch (err) {
-            if (
-              axios.isCancel?.(err) ||
-              err?.name === "CanceledError" ||
-              err?.code === "ERR_CANCELED"
-            ) {
-              return;
-            }
-            handleError(err);
+        // Build query string for stats endpoint from existing filter params.
+        const params = new URLSearchParams(this.filter.queryString || "");
+        // Always include explicit from/to, overriding any existing values.
+        if (fromNs !== null) params.set("from", String(fromNs));
+        if (toNs !== null) params.set("to", String(toNs));
+        // Add bucket width in nanoseconds (derived from the time window).
+        if (this.bucketMsNs !== null) {
+          params.set("bucketNs", String(this.bucketMsNs));
+        }
+        const qs = params.toString();
+        const url = `${baseUrl}/analytics/logs/stats${qs ? "?" + qs : ""}`;
+
+        let res;
+        try {
+          res = await axios.get(url, {
+            ...authHeader,
+            signal: ctrl.signal,
+          });
+        } catch (err) {
+          if (
+            axios.isCancel?.(err) ||
+            err?.name === "CanceledError" ||
+            err?.code === "ERR_CANCELED"
+          ) {
             return;
           }
-          if (runId !== this.runId) return;
-          const logs = await UtilsDecompressJson(res.data.logs);
-          this.foldPage(logs);
-          if (Array.isArray(logs)) logs.length = 0;
-          this.pagesLoaded = page + 1;
-          this.scheduleRedraw();
-          if (res.data.hasMore !== true) break;
-          page++;
+          handleError(err);
+          return;
         }
+        if (runId !== this.runId) return;
+
+        const data = res.data;
+        // Populate the existing reactive data structures from server response.
+        this.totalCount = data.totalCount || 0;
+        this.severityCounts = data.severityCounts || {};
+        this.buckets = {};
+        this.bucketKeys = new Set();
+        if (data.buckets) {
+          for (const b of data.buckets) {
+            for (const [sev, cnt] of Object.entries(b.severities)) {
+              if (!this.buckets[sev]) this.buckets[sev] = new Map();
+              this.buckets[sev].set(b.bucket, Number(cnt));
+            }
+            this.bucketKeys.add(b.bucket);
+          }
+        }
+        this.pagesLoaded = 1;
         if (runId === this.runId) {
           this.scheduleRedraw(true);
         }

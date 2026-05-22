@@ -9,6 +9,10 @@ export default {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
+    if (!AuthenticationStore().isAdmin) {
+      useRouter().push({ path: "/" });
+      return;
+    }
     useRouter().push({ path: "/settings/maintenance" });
   },
   methods: {},

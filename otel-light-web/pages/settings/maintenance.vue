@@ -73,6 +73,10 @@ export default {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
     }
+    if (!AuthenticationStore().isAdmin) {
+      useRouter().push({ path: "/" });
+      return;
+    }
     this.fetchSettings();
     this.fetchServices();
   },

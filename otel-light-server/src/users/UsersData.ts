@@ -60,19 +60,43 @@ export async function UsersDataAdd(context: Span, user: User): Promise<void> {
     user.id,
     user.name,
     user.passwordEncrypted,
+    user.role,
+    JSON.stringify(user.scopes),
   ]);
   span.end();
 }
 
-export async function UsersDataUpdate(
+export async function UsersDataUpdatePassword(
   context: Span,
   user: User,
 ): Promise<void> {
-  const span = OTelTracer().startSpan("UsersDataUpdate", context);
-  await DbUtilsExecSQL(span, SQL_QUERIES.UPDATE_USER[DbUtilsGetType()], [
+  const span = OTelTracer().startSpan("UsersDataUpdatePassword", context);
+  await DbUtilsExecSQL(span, SQL_QUERIES.UPDATE_PASSWORD[DbUtilsGetType()], [
     user.passwordEncrypted,
     user.id,
   ]);
+  span.end();
+}
+
+export async function UsersDataUpdateUser(
+  context: Span,
+  user: User,
+): Promise<void> {
+  const span = OTelTracer().startSpan("UsersDataUpdateUser", context);
+  await DbUtilsExecSQL(span, SQL_QUERIES.UPDATE_USER[DbUtilsGetType()], [
+    user.role,
+    JSON.stringify(user.scopes),
+    user.id,
+  ]);
+  span.end();
+}
+
+export async function UsersDataDelete(
+  context: Span,
+  id: string,
+): Promise<void> {
+  const span = OTelTracer().startSpan("UsersDataDelete", context);
+  await DbUtilsExecSQL(span, SQL_QUERIES.DELETE_USER[DbUtilsGetType()], [id]);
   span.end();
 }
 
@@ -84,6 +108,14 @@ function fromRaw(userRaw: any): User {
   user.id = userRaw.id;
   user.name = userRaw.name;
   user.passwordEncrypted = userRaw.passwordEncrypted;
+  user.role = userRaw.role || "user";
+  if (userRaw.scopes) {
+    try {
+      user.scopes = JSON.parse(userRaw.scopes);
+    } catch {
+      user.scopes = [...User.DEFAULT_SCOPES];
+    }
+  }
   return user;
 }
 
@@ -104,11 +136,20 @@ const SQL_QUERIES = {
   },
   INSERT_USER: {
     postgres:
-      'INSERT INTO users ("id", "name", "passwordEncrypted") VALUES ($1, $2, $3)',
-    sqlite: "INSERT INTO users (id, name, passwordEncrypted) VALUES (?, ?, ?)",
+      'INSERT INTO users ("id", "name", "passwordEncrypted", "role", "scopes") VALUES ($1, $2, $3, $4, $5)',
+    sqlite:
+      "INSERT INTO users (id, name, passwordEncrypted, role, scopes) VALUES (?, ?, ?, ?, ?)",
   },
   UPDATE_USER: {
+    postgres: 'UPDATE users SET "role" = $1, "scopes" = $2 WHERE "id" = $3',
+    sqlite: "UPDATE users SET role = ?, scopes = ? WHERE id = ?",
+  },
+  UPDATE_PASSWORD: {
     postgres: 'UPDATE users SET "passwordEncrypted" = $1 WHERE "id" = $2',
     sqlite: "UPDATE users SET passwordEncrypted = ? WHERE id = ?",
+  },
+  DELETE_USER: {
+    postgres: 'DELETE FROM users WHERE "id" = $1',
+    sqlite: "DELETE FROM users WHERE id = ?",
   },
 };

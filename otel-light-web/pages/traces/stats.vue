@@ -75,21 +75,15 @@ import TraceSpan from "~/components/TraceSpan.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import Config from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
-
-function percentile(arr, p) {
-  if (!arr.length) return 0;
-  const sorted = [...arr].sort((a, b) => a - b);
-  const idx = Math.ceil((p / 100) * sorted.length) - 1;
-  return sorted[Math.max(0, idx)];
-}
 
 export default {
   components: { SearchOptions, Trace, TraceSpan },
   data() {
     return {
-      traces: [],
+      groups: [],
+      expandedGroupTraces: {},
       traceSpans: {},
       traceLogs: {},
       filter: {
@@ -97,6 +91,7 @@ export default {
       },
       fetchTime: null,
       expandedGroup: null,
+      loadingExpanded: false,
     };
   },
   async created() {
@@ -107,53 +102,11 @@ export default {
   },
   computed: {
     groupedTraces() {
-      // Group traces by serviceName, serviceVersion, name
-      const groups = {};
-      for (const trace of this.traces) {
-        const key = [
-          trace.serviceName || "",
-          trace.serviceVersion || "",
-          trace.name || "",
-        ].join("||");
-        if (!groups[key]) {
-          groups[key] = {
-            key,
-            serviceName: trace.serviceName,
-            serviceVersion: trace.serviceVersion,
-            name: trace.name,
-            traces: [],
-          };
-        }
-        groups[key].traces.push(trace);
-      }
-      // Compute stats for each group
-      return Object.values(groups).map((group) => {
-        // Order traces by duration (descending)
-        group.traces = group.traces
-          .slice()
-          .sort((a, b) => b.endTime - b.startTime - (a.endTime - a.startTime));
-        const durations = group.traces.map((t) => t.endTime - t.startTime);
-        const spanCounts = group.traces.map((t) => t.spanCount || 0);
-        const nbErrors = group.traces.filter((t) => t.nbErrors > 0).length;
-        const avgDuration =
-          durations.reduce((a, b) => a + b, 0) / (durations.length || 1);
-        const avgSpanCount =
-          spanCounts.reduce((a, b) => a + b, 0) / (spanCounts.length || 1);
-        const p90 = percentile(durations, 90);
-        const p95 = percentile(durations, 95);
-        const totalSpans = spanCounts.reduce((a, b) => a + b, 0);
-        const traceCount = group.traces.length;
-        return {
-          ...group,
-          avgDuration,
-          avgSpanCount,
-          nbErrors,
-          p90,
-          p95,
-          totalSpans,
-          traceCount,
-        };
-      });
+      // Server-side aggregated groups, enriched with per-group traces if expanded.
+      return this.groups.map((g) => ({
+        ...g,
+        traces: this.expandedGroupTraces[g.key] || [],
+      }));
     },
   },
   methods: {
@@ -197,33 +150,70 @@ export default {
     async fetchTraces() {
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces${
-        this.filter.queryString ? "?" + this.filter.queryString : ""
-      }`;
+      const qs = this.filter.queryString || "";
+      const url = `${(await Config.get()).SERVER_URL}/analytics/traces/stats${qs ? "?" + qs : ""}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
           }
-          this.traces = await UtilsDecompressJson(response.data.traces);
-          for (const trace of this.traces) {
-            trace.duration = trace.endTime - trace.startTime;
-          }
-          if (response.data.warning) {
-            EventBus.emit(EventTypes.ALERT_MESSAGE, {
-              type: "warning",
-              text: response.data.warning,
-            });
-          }
+          const serverGroups = response.data.compressed
+            ? await UtilsDecompressJson(response.data.groups)
+            : response.data.groups;
+          // Assign stable keys for expand tracking
+          this.groups = (serverGroups || []).map((g) => ({
+            ...g,
+            key: [
+              g.serviceName || "",
+              g.serviceVersion || "",
+              g.name || "",
+            ].join("||"),
+            p90: null,
+            p95: null,
+            totalSpans: Math.round((g.avgSpanCount || 0) * (g.traceCount || 0)),
+          }));
+          this.expandedGroupTraces = {};
+          this.expandedGroup = null;
         })
         .catch(handleError);
     },
     formatDuration(ms) {
       return getDurationText(ms);
     },
-    toggleGroup(idx) {
-      this.expandedGroup = this.expandedGroup === idx ? null : idx;
+    async toggleGroup(idx) {
+      if (this.expandedGroup === idx) {
+        this.expandedGroup = null;
+        return;
+      }
+      this.expandedGroup = idx;
+      const group = this.groups[idx];
+      if (!group || this.expandedGroupTraces[group.key]) return;
+      // Lazy-fetch individual traces for this group via the list endpoint.
+      this.loadingExpanded = true;
+      const params = new URLSearchParams(this.filter.queryString || "");
+      params.set("serviceName", group.serviceName);
+      params.set("serviceVersion", group.serviceVersion || "");
+      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${params.toString()}`;
+      axios
+        .get(url, await AuthService.getAuthHeader())
+        .then(async (response) => {
+          const traces = await UtilsDecompressJson(response.data.traces);
+          for (const t of traces) {
+            t.duration = t.endTime - t.startTime;
+          }
+          traces.sort(
+            (a, b) => b.endTime - b.startTime - (a.endTime - a.startTime),
+          );
+          this.expandedGroupTraces = {
+            ...this.expandedGroupTraces,
+            [group.key]: traces,
+          };
+        })
+        .catch(handleError)
+        .finally(() => {
+          this.loadingExpanded = false;
+        });
     },
     goToTraces() {
       this.$router.push({ path: "/traces/", query: this.$route.query });

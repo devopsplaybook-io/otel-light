@@ -46,10 +46,10 @@ export default {
   data() {
     return {
       logs: [],
-      page: 0,
       hasMore: true,
       isLoadingMore: false,
       newestTime: null,
+      oldestTime: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       logSpans: {},
@@ -97,10 +97,10 @@ export default {
   methods: {
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
-      this.page = 0;
       this.logs = [];
       this.hasMore = true;
       this.newestTime = null;
+      this.oldestTime = null;
       this.fetchLogs();
     },
     async fetchLogs() {
@@ -108,10 +108,14 @@ export default {
       this.isLoadingMore = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      const offset = this.page * PAGE_SIZE;
-      const qs = this.filter.queryString
-        ? `${this.filter.queryString}&offset=${offset}&limit=${PAGE_SIZE}`
-        : `offset=${offset}&limit=${PAGE_SIZE}`;
+      // Keyset pagination: use `before` cursor (time of last seen item) instead
+      // of OFFSET. The first page has no `before`.
+      let qs = this.filter.queryString || "";
+      if (this.oldestTime) {
+        qs = qs
+          ? `${qs}&before=${this.oldestTime}`
+          : `before=${this.oldestTime}`;
+      }
       const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
@@ -122,10 +126,11 @@ export default {
           const newLogs = await UtilsDecompressJson(response.data.logs);
           if (newLogs && newLogs.length > 0) {
             this.logs = [...this.logs, ...newLogs];
-            this.page += 1;
             if (this.newestTime === null) {
               this.newestTime = newLogs[0].time;
             }
+            // Update cursor to the oldest item on this page for next fetch
+            this.oldestTime = newLogs[newLogs.length - 1].time;
           }
           this.hasMore = response.data.hasMore === true;
         })
