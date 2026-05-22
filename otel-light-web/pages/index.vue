@@ -72,17 +72,17 @@
         </div>
         <small class="rec-generated-at" v-if="recommendation.generatedAt">
           {{ formatDate(recommendation.generatedAt) }} &middot;
-          {{ recommendation.periodHours }}h period
-        </small>
+          {{ recommendation.periodHours }}h period </small
+        ><br />
         <button
           v-if="isAdmin"
-          class="rec-regenerate"
+          class="rec-regenerate outline"
           type="button"
           @click="regenerateRecommendation"
           :disabled="regenerating"
         >
           <i class="bi bi-arrow-repeat"></i>
-          {{ regenerating ? 'Generating...' : 'Re-generate Recommendation' }}
+          {{ regenerating ? "Generating..." : "Re-generate" }}
         </button>
       </section>
     </article>
@@ -243,5 +243,9 @@ export default {
 
 .rec-regenerate {
   margin-top: 1rem;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  width: auto;
+  display: inline-block;
 }
 </style>

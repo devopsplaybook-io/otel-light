@@ -38,9 +38,10 @@ export async function RecommendationInit(
       );
     });
     // Generate on startup if no cached recommendation exists
-    if (!(await fs.pathExists(recommendationFilePath))) {
+    const cached = await RecommendationGetCached();
+    if (!cached) {
       logger.info(
-        "No cached recommendation found, triggering initial generation",
+        "No valid cached recommendation found, triggering initial generation",
       );
       RecommendationGenerate().catch((err) =>
         logger.error(
@@ -203,7 +204,11 @@ async function callLLMWithRetry(
                 "- Overall health of the system and any notable changes from the previous period\n" +
                 "- Patterns, anomalies, or trends in latency, error rates, or throughput\n" +
                 "- Services or endpoints that stand out (positive or negative), referencing percentiles where relevant\n" +
-                "- Error patterns: common error messages, HTTP status code distribution, and potential root causes\n\n" +
+                "- Error patterns: common error messages, HTTP status code distribution, and potential root causes\n" +
+                "\n" +
+                'IMPORTANT: Always explicitly reference the service name (e.g., "serviceName") when discussing any ' +
+                "trace, metric, log pattern, or endpoint. Do not mention metrics or traces without stating which " +
+                "service they belong to.\n\n" +
                 "## Recommendations\n" +
                 "Actionable recommendations (3-6 bullet points) prioritized by impact. " +
                 "Each bullet must be specific, data-backed, and directly reference the statistics provided. " +
