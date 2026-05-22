@@ -145,7 +145,6 @@ export async function RecommendationGenerate(): Promise<void> {
       services: stats.services,
       logs: stats.logs,
       traces: stats.traces,
-      metrics: stats.metrics,
       previousPeriod: stats.previousPeriod,
     };
 
@@ -207,7 +206,7 @@ async function callLLMWithRetry(
                 "- Error patterns: common error messages, HTTP status code distribution, and potential root causes\n" +
                 "\n" +
                 'IMPORTANT: Always explicitly reference the service name (e.g., "serviceName") when discussing any ' +
-                "trace, metric, log pattern, or endpoint. Do not mention metrics or traces without stating which " +
+                "trace or log pattern or endpoint. Do not mention traces without stating which " +
                 "service they belong to.\n\n" +
                 "## Recommendations\n" +
                 "Actionable recommendations (3-6 bullet points) prioritized by impact. " +
@@ -291,19 +290,6 @@ interface TracesStats {
   }>;
 }
 
-interface MetricTypeStats {
-  name: string;
-  type: string;
-  serviceName: string;
-  dataPointCount: number;
-}
-
-interface MetricsStats {
-  total: number;
-  perService: Array<{ serviceName: string; count: number }>;
-  byName: MetricTypeStats[];
-}
-
 interface RecommendationStats {
   periodStart: number;
   periodEnd: number;
@@ -311,7 +297,6 @@ interface RecommendationStats {
   services: string[];
   logs: LogsStats;
   traces: TracesStats;
-  metrics: MetricsStats;
   previousPeriod?: {
     logsTotal: number;
     logsErrors: number;
@@ -378,15 +363,15 @@ async function CollectStats(
     });
   }
 
-  // Top error messages
+  // Top error messages (limited to 5 with shorter text to reduce token usage)
   const topErrorMessagesRaw = await DbUtilsNoTelemetryQuerySQL(
     SQL_QUERIES.LOGS_TOP_ERROR_MESSAGES[DbUtilsGetType()],
-    [periodStart, periodEnd, 10],
+    [periodStart, periodEnd, 5],
   );
   const topErrorMessages: LogsStats["topErrorMessages"] = [];
   for (const row of topErrorMessagesRaw) {
     topErrorMessages.push({
-      message: String(row.logText || "").substring(0, 200),
+      message: String(row.logText || "").substring(0, 120),
       count: Number(row.count),
     });
   }
@@ -442,22 +427,8 @@ async function CollectStats(
       : 0;
 
   // Top trace names — fetch all root spans once, aggregate in memory for 4 ranking dimensions
-  const topTraceLimitByCount = Math.max(
-    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_COUNT) || 10,
-    1,
-  );
-  const topTraceLimitByDuration = Math.max(
-    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_DURATION) || 5,
-    1,
-  );
-  const topTraceLimitByAvg = Math.max(
-    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_AVG) || 5,
-    1,
-  );
-  const topTraceLimitByErrors = Math.max(
-    Number(config.LLM_RECOMMENDATION_TOP_TRACES_BY_ERRORS) || 5,
-    1,
-  );
+  // Dynamic limits based on actual number of services (computed later)
+  // We'll compute limits after we know how many services exist
 
   // Single efficient query: all root spans with their name, serviceName, duration, and status
   const rootSpansRaw = await DbUtilsNoTelemetryQuerySQL(
@@ -517,6 +488,13 @@ async function CollectStats(
     ([name, agg]) => buildTraceTypeStats(name, agg),
   );
 
+  // Dynamic limits based on actual number of services
+  const numServices = Math.max(tracesPerService.length, 1);
+  const topTraceLimitByCount = Math.min(3 * numServices, 15);
+  const topTraceLimitByDuration = Math.min(2 * numServices, 10);
+  const topTraceLimitByAvg = Math.min(2 * numServices, 10);
+  const topTraceLimitByErrors = Math.min(2 * numServices, 10);
+
   // Four ranking dimensions
   const topByCount = [...allTraceStats]
     .sort((a, b) => b.count - a.count)
@@ -574,47 +552,6 @@ async function CollectStats(
     httpStatusBreakdown,
   };
 
-  // ── Metrics statistics ─────────────────────────────────────────────────
-
-  const metricsTotalRow = await DbUtilsNoTelemetryQuerySQL(
-    SQL_QUERIES.METRICS_TOTAL[DbUtilsGetType()],
-    [periodStart, periodEnd],
-  );
-  const metricsTotal = Number(metricsTotalRow[0]?.count || 0);
-
-  const metricsPerServiceRaw = await DbUtilsNoTelemetryQuerySQL(
-    SQL_QUERIES.METRICS_PER_SERVICE[DbUtilsGetType()],
-    [periodStart, periodEnd],
-  );
-  const metricsPerService: MetricsStats["perService"] = [];
-  for (const row of metricsPerServiceRaw) {
-    metricsPerService.push({
-      serviceName: row.serviceName,
-      count: Number(row.count),
-    });
-  }
-
-  // Metric names with types
-  const metricsByNameRaw = await DbUtilsNoTelemetryQuerySQL(
-    SQL_QUERIES.METRICS_BY_NAME[DbUtilsGetType()],
-    [periodStart, periodEnd],
-  );
-  const metricsByName: MetricTypeStats[] = [];
-  for (const row of metricsByNameRaw) {
-    metricsByName.push({
-      name: row.name,
-      type: row.type,
-      serviceName: row.serviceName,
-      dataPointCount: Number(row.dataPointCount),
-    });
-  }
-
-  const metricsStats: MetricsStats = {
-    total: metricsTotal,
-    perService: metricsPerService,
-    byName: metricsByName,
-  };
-
   // ── Previous period comparison ─────────────────────────────────────────
 
   let previousPeriod: RecommendationStats["previousPeriod"] = undefined;
@@ -644,7 +581,6 @@ async function CollectStats(
   const serviceSet = new Set<string>();
   for (const s of logsPerService) serviceSet.add(s.serviceName);
   for (const s of tracesPerService) serviceSet.add(s.serviceName);
-  for (const s of metricsPerService) serviceSet.add(s.serviceName);
 
   span.end();
 
@@ -655,7 +591,6 @@ async function CollectStats(
     services: Array.from(serviceSet).sort(),
     logs: logsStats,
     traces: tracesStats,
-    metrics: metricsStats,
     previousPeriod,
   };
 }
@@ -791,26 +726,6 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
     }
     lines.push("");
   }
-
-  // ── Metrics ──
-
-  lines.push("--- Metrics ---");
-  lines.push(`Total metric data points: ${stats.metrics.total}`);
-  lines.push("");
-  if (stats.metrics.byName.length > 0) {
-    lines.push("Metrics by name, type, and service:");
-    for (const m of stats.metrics.byName) {
-      lines.push(
-        `  - ${m.serviceName} / ${m.name} (${m.type}): ${m.dataPointCount} data points`,
-      );
-    }
-    lines.push("");
-  }
-  lines.push("Metrics per service:");
-  for (const s of stats.metrics.perService) {
-    lines.push(`  - ${s.serviceName}: ${s.count} data points`);
-  }
-  lines.push("");
 
   // ── Previous period comparison ──
 
@@ -961,24 +876,5 @@ const SQL_QUERIES = {
       'SELECT "name", "serviceName", ("endTime" - "startTime") AS duration, "statusCode" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL LIMIT 50000',
     sqlite:
       "SELECT name, serviceName, (endTime - startTime) AS duration, statusCode FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL LIMIT 50000",
-  },
-  // Metrics
-  METRICS_TOTAL: {
-    postgres:
-      'SELECT COUNT(*) AS count FROM metrics WHERE "time" >= $1 AND "time" < $2',
-    sqlite:
-      "SELECT COUNT(*) AS count FROM metrics WHERE time >= ? AND time < ?",
-  },
-  METRICS_PER_SERVICE: {
-    postgres:
-      'SELECT "serviceName", COUNT(*) AS count FROM metrics WHERE "time" >= $1 AND "time" < $2 GROUP BY "serviceName" ORDER BY count DESC',
-    sqlite:
-      "SELECT serviceName, COUNT(*) AS count FROM metrics WHERE time >= ? AND time < ? GROUP BY serviceName ORDER BY count DESC",
-  },
-  METRICS_BY_NAME: {
-    postgres:
-      'SELECT "name", "type", "serviceName", COUNT(*) AS "dataPointCount" FROM metrics WHERE "time" >= $1 AND "time" < $2 GROUP BY "name", "type", "serviceName" ORDER BY "dataPointCount" DESC',
-    sqlite:
-      "SELECT name, type, serviceName, COUNT(*) AS dataPointCount FROM metrics WHERE time >= ? AND time < ? GROUP BY name, type, serviceName ORDER BY dataPointCount DESC",
   },
 };
