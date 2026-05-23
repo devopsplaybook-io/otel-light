@@ -1,66 +1,130 @@
 <template>
   <div id="traces-page" class="signals-page">
-    <SearchOptions @filterChanged="onFilterChanged" type="traces" />
-    <div id="traces" class="signals-scroll">
-      <div class="trace-group-summary">
-        <b>Service</b>
-        <b>Name</b>
-        <b>Traces</b>
-        <b>Avg Spans</b>
-        <b>Errors</b>
-        <b>Avg Duration</b>
-        <b>P90</b>
-        <b>P95</b>
-      </div>
-      <div v-for="(group, idx) in groupedTraces" :key="group.key">
-        <div
-          class="trace-group-summary"
-          style="cursor: pointer"
-          @click="toggleGroup(idx)"
-          :class="[
-            { 'trace-group-summary-errors': group.nbErrors > 0 },
-            expandedGroup === idx ? 'group-selected' : '',
-          ]"
-        >
-          <span>{{ group.serviceName }}:{{ group.serviceVersion }}</span>
-          <span>{{ group.name }}</span>
-          <span>{{ group.traceCount }}</span>
-          <span>{{ group.avgSpanCount.toFixed(1) }}</span>
-          <span>{{ group.nbErrors }}</span>
-          <span>{{ formatDuration(group.avgDuration) }}</span>
-          <span>{{ formatDuration(group.p90) }}</span>
-          <span>{{ formatDuration(group.p95) }}</span>
+    <div class="report-tabs">
+      <button
+        v-for="report in reports"
+        :key="report.id"
+        @click="activeReport = report.id"
+        :class="['report-tab', { active: activeReport === report.id }]"
+      >
+        {{ report.label }}
+      </button>
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Aggregated Traces Section (Dynamic)                                -->
+    <!-- ================================================================== -->
+    <div v-if="activeReport === 'aggregated'">
+      <SearchOptions @filterChanged="onFilterChanged" type="traces" />
+      <div id="traces" class="signals-scroll">
+        <div class="trace-group-summary">
+          <b>Service</b>
+          <b>Name</b>
+          <b>Traces</b>
+          <b>Avg Spans</b>
+          <b>Errors</b>
+          <b>Avg Duration</b>
+          <b>P90</b>
+          <b>P95</b>
         </div>
-        <div v-if="expandedGroup === idx" class="traces-group-expanded">
-          <div class="trace-summary">
-            <b>Service</b>
-            <b>Name</b>
-            <b>Time</b>
-            <b>Duration</b>
-            <b>ID</b>
-            <b>Errors</b>
-            <b>Spans</b>
+        <div v-for="(group, idx) in groupedTraces" :key="group.key">
+          <div
+            class="trace-group-summary"
+            style="cursor: pointer"
+            @click="toggleGroup(idx)"
+            :class="[
+              { 'trace-group-summary-errors': group.nbErrors > 0 },
+              expandedGroup === idx ? 'group-selected' : '',
+            ]"
+          >
+            <span>{{ group.serviceName }}:{{ group.serviceVersion }}</span>
+            <span>{{ group.name }}</span>
+            <span>{{ group.traceCount }}</span>
+            <span>{{ group.avgSpanCount.toFixed(1) }}</span>
+            <span>{{ group.nbErrors }}</span>
+            <span>{{ formatDuration(group.avgDuration) }}</span>
+            <span>{{ formatDuration(group.p90) }}</span>
+            <span>{{ formatDuration(group.p95) }}</span>
           </div>
-          <div v-for="trace in group.traces" :key="trace.traceId">
-            <LazyTrace
-              @click="onTraceClick(trace.traceId)"
-              style="cursor: pointer"
-              :trace="trace"
-              :class="[traceSpans[trace.traceId] ? 'trace-expanded' : '']"
-              hydrate-on-visible
-            />
-            <LazyTraceSpan
-              v-if="traceSpans[trace.traceId]"
-              :trace="trace"
-              :traceSpans="traceSpans[trace.traceId]"
-              :traceLogs="traceLogs[trace.traceId]"
-              :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
-              hydrate-on-visible
-            />
+          <div v-if="expandedGroup === idx" class="traces-group-expanded">
+            <div class="trace-summary">
+              <b>Service</b>
+              <b>Name</b>
+              <b>Time</b>
+              <b>Duration</b>
+              <b>ID</b>
+              <b>Errors</b>
+              <b>Spans</b>
+            </div>
+            <div v-for="trace in group.traces" :key="trace.traceId">
+              <LazyTrace
+                @click="onTraceClick(trace.traceId)"
+                style="cursor: pointer"
+                :trace="trace"
+                :class="[traceSpans[trace.traceId] ? 'trace-expanded' : '']"
+                hydrate-on-visible
+              />
+              <LazyTraceSpan
+                v-if="traceSpans[trace.traceId]"
+                :trace="trace"
+                :traceSpans="traceSpans[trace.traceId]"
+                :traceLogs="traceLogs[trace.traceId]"
+                :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
+                hydrate-on-visible
+              />
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    <!-- ================================================================== -->
+    <!-- Longest Traces Section (Static Report)                             -->
+    <!-- ================================================================== -->
+    <div v-if="activeReport === 'longest'" class="report-static">
+      <div class="report-header">
+        <div class="report-title-section">
+          <h3>Longest Traces</h3>
+          <span v-if="longestReport.generatedAt" class="report-meta">
+            Generated {{ formatDate(longestReport.generatedAt) }} &mdash; Top
+            {{ longestReport.topN }} &mdash; Last
+            {{ longestReport.periodDays }} days
+          </span>
+          <span v-else class="report-meta report-pending">Generating…</span>
+        </div>
+      </div>
+      <div v-if="longestReport.traces.length === 0" class="report-empty">
+        No data yet. The report is generated once daily.
+      </div>
+      <div v-else class="signals-scroll">
+        <div class="trace-group-summary">
+          <b>Service</b>
+          <b>Name</b>
+          <b>Time</b>
+          <b>Duration</b>
+          <b>ID</b>
+          <b>Errors</b>
+          <b>Spans</b>
+        </div>
+        <div
+          v-for="trace in longestReport.traces"
+          :key="trace.traceId"
+          class="trace-group-summary"
+          :class="{ 'trace-group-summary-errors': trace.nbErrors > 0 }"
+        >
+          <span>{{ trace.serviceName }}:{{ trace.serviceVersion }}</span>
+          <span>{{ trace.name }}</span>
+          <span>{{ formatDateNs(trace.startTime) }}</span>
+          <span>{{ formatDuration(trace.duration) }}</span>
+          <span class="trace-id" @click="copyTraceId(trace.traceId)">
+            {{ trace.traceId.substring(0, 12) }}&hellip;
+          </span>
+          <span>{{ trace.nbErrors }}</span>
+          <span>{{ trace.spanCount }}</span>
+        </div>
+      </div>
+    </div>
+
     <button class="fab-button" @click="goToTraces" title="Go to Analytics">
       <i class="bi bi-arrow-return-left"></i>&nbsp;Back
     </button>
@@ -92,6 +156,20 @@ export default {
       fetchTime: null,
       expandedGroup: null,
       loadingExpanded: false,
+      // Report tabs
+      reports: [
+        { id: "aggregated", label: "Aggregated Traces" },
+        { id: "longest", label: "Longest Traces" },
+      ],
+      activeReport: "aggregated",
+      longestReport: {
+        generatedAt: null,
+        periodDays: null,
+        topN: null,
+        fromTime: null,
+        toTime: null,
+        traces: [],
+      },
     };
   },
   async created() {
@@ -99,6 +177,7 @@ export default {
       useRouter().push({ path: "/users" });
     }
     this.fetchTraces();
+    this.fetchLongestTracesReport();
   },
   computed: {
     groupedTraces() {
@@ -113,6 +192,19 @@ export default {
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
       this.fetchTraces();
+    },
+    async fetchLongestTracesReport() {
+      try {
+        const response = await axios.get(
+          `${SERVER_URL}/reports/longest-traces`,
+          await AuthService.getAuthHeader(),
+        );
+        if (response.data && response.data.traces) {
+          this.longestReport = response.data;
+        }
+      } catch (err) {
+        handleError(err);
+      }
     },
     async getTraceSpans(traceId) {
       return await axios
@@ -178,6 +270,21 @@ export default {
     },
     formatDuration(ms) {
       return getDurationText(ms);
+    },
+    formatDate(isoString) {
+      if (!isoString) return "";
+      const d = new Date(isoString);
+      return d.toLocaleString();
+    },
+    formatDateNs(ns) {
+      if (!ns) return "";
+      const d = new Date(ns / 1_000_000);
+      return d.toLocaleString();
+    },
+    copyTraceId(traceId) {
+      if (navigator.clipboard) {
+        navigator.clipboard.writeText(traceId);
+      }
     },
     async toggleGroup(idx) {
       if (this.expandedGroup === idx) {
@@ -263,5 +370,66 @@ export default {
 }
 .trace-span-expanded {
   background-color: #dfe3eb11;
+}
+
+/* Report Tabs */
+.report-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 1rem;
+  border-bottom: 1px solid #ffffff22;
+  padding-bottom: 0;
+}
+.report-tab {
+  background: none;
+  border: none;
+  color: #aaa;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  border-bottom: 2px solid transparent;
+  transition:
+    color 0.2s,
+    border-color 0.2s;
+}
+.report-tab:hover {
+  color: #ddd;
+}
+.report-tab.active {
+  color: #fff;
+  border-bottom-color: #4a9eff;
+}
+
+/* Report Static Section */
+.report-static {
+  width: 100%;
+}
+.report-header {
+  margin-bottom: 1rem;
+}
+.report-title-section h3 {
+  margin: 0 0 0.25rem 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+.report-meta {
+  font-size: 0.8rem;
+  color: #888;
+}
+.report-pending {
+  font-style: italic;
+}
+.report-empty {
+  padding: 2rem;
+  text-align: center;
+  color: #888;
+  font-style: italic;
+}
+.trace-id {
+  cursor: pointer;
+  color: #4a9eff;
+}
+.trace-id:hover {
+  text-decoration: underline;
 }
 </style>
