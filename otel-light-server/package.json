@@ -6,8 +6,8 @@
   "scripts": {
     "//": "-------------------------------------------------------------------",
     "build": "tsc",
-    "lint": "eslint src || true",
-    "test": "jest --coverage || true",
+    "lint": "eslint src",
+    "test": "jest --coverage",
     "////": "-----------------------------------------------------------------",
     "dev": "ts-node-dev ./src/App.ts",
     "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'",

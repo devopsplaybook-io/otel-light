@@ -7,11 +7,9 @@ import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import { AnalyticsUtilsGetSQLVariable } from "./AnalyticsUtils";
 import {
   TraceGroupReport,
   TraceGroupSeries,
-  TraceTimeSeriesPoint,
 } from "./TraceGroupReportTypes";
 
 const logger = OTelLogger().createModuleLogger("LongestTracesReport");
@@ -84,8 +82,6 @@ export async function LongestTracesReportGenerate(): Promise<void> {
 
     const topN = config.STATIC_REPORT_TOP_N;
     const periodDays = config.STATIC_REPORT_PERIOD_DAYS;
-    const nowNs = Date.now() * 1_000_000;
-    const fromTime = nowNs - periodDays * 24 * 60 * 60 * 1_000_000_000;
     const bucketNs = 86_400_000_000_000; // 1 day in nanoseconds
 
     const dbType = DbUtilsGetType();
@@ -215,7 +211,6 @@ const SQL_QUERIES = {
   ) => {
     const fromExpr = `CAST( (CAST( (strftime('%s','now') * 1000) AS INTEGER) - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000 AS INTEGER)`;
     const fromPostgres = `(EXTRACT(EPOCH FROM NOW()) * 1000 - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000`;
-    const stsCode = AnalyticsUtilsGetSQLVariable(dbType, statusCodeVarIdx);
 
     if (dbType === "postgres") {
       return `
@@ -258,7 +253,6 @@ const SQL_QUERIES = {
   ) => {
     const fromExpr = `CAST( (CAST( (strftime('%s','now') * 1000) AS INTEGER) - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000 AS INTEGER)`;
     const fromPostgres = `(EXTRACT(EPOCH FROM NOW()) * 1000 - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000`;
-    const stsCode = AnalyticsUtilsGetSQLVariable(dbType, statusCodeVarIdx);
 
     if (dbType === "postgres") {
       return `

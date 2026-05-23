@@ -78,8 +78,6 @@ export async function MostCalledTracesReportGenerate(): Promise<void> {
 
     const topN = config.STATIC_REPORT_TOP_N;
     const periodDays = config.STATIC_REPORT_PERIOD_DAYS;
-    const nowNs = Date.now() * 1_000_000;
-    const fromTime = nowNs - periodDays * 24 * 60 * 60 * 1_000_000_000;
     const bucketNs = 86_400_000_000_000; // 1 day in nanoseconds
 
     const dbType = DbUtilsGetType();

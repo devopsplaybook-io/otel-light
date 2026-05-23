@@ -253,14 +253,14 @@ async function callLLMWithRetry(
 interface LogsStats {
   total: number;
   errors: number;
-  perService: Array<{
+  perService: {
     serviceName: string;
     total: number;
     errors: number;
     errorRate: number;
-  }>;
-  perSeverity: Array<{ severity: string; count: number }>;
-  topErrorMessages: Array<{ message: string; count: number }>;
+  }[];
+  perSeverity: { severity: string; count: number }[];
+  topErrorMessages: { message: string; count: number }[];
 }
 
 interface TraceTypeStats {
@@ -277,17 +277,17 @@ interface TraceTypeStats {
 interface TracesStats {
   total: number;
   requestsPerMinute: number;
-  perService: Array<{ serviceName: string; count: number; errorCount: number }>;
+  perService: { serviceName: string; count: number; errorCount: number }[];
   errorCount: number;
   topByCount: TraceTypeStats[];
   topByDuration: TraceTypeStats[];
   topByAvgDuration: TraceTypeStats[];
   topByErrors: TraceTypeStats[];
-  httpStatusBreakdown: Array<{
+  httpStatusBreakdown: {
     serviceName: string;
     statusRange: string;
     count: number;
-  }>;
+  }[];
 }
 
 interface RecommendationStats {
