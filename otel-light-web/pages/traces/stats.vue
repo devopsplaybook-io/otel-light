@@ -225,7 +225,8 @@ export default {
           await AuthService.getAuthHeader(),
         );
         if (response.data) {
-          const stateKey = reportId === "longest" ? "longestReport" : "mostCalledReport";
+          const stateKey =
+            reportId === "longest" ? "longestReport" : "mostCalledReport";
           const data = response.data;
           if (data.generatedAt === null) {
             this[stateKey] = {
