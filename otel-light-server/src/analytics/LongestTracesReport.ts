@@ -83,9 +83,9 @@ export async function LongestTracesReportGenerate(): Promise<void> {
     const dbType = DbUtilsGetType();
     const q = (ident: string) => (dbType === "postgres" ? `"${ident}"` : ident);
 
-    // Step 1: find the top N (serviceName, name) groups by max duration
+    // Step 1: find top N groups by max duration over the last 24h (reduces memory)
     const topGroups = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.TOP_GROUPS_BY_DURATION(q, topN, periodDays, dbType),
+      SQL_QUERIES.TOP_GROUPS_BY_DURATION(q, topN, 1, dbType),
     );
 
     if (!topGroups || topGroups.length === 0) {

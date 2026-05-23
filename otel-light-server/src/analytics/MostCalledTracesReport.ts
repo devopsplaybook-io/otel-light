@@ -83,9 +83,9 @@ export async function MostCalledTracesReportGenerate(): Promise<void> {
     const dbType = DbUtilsGetType();
     const q = (ident: string) => (dbType === "postgres" ? `"${ident}"` : ident);
 
-    // Step 1: find the top N (serviceName, name) groups by trace count
+    // Step 1: find top N groups by count over the last 24h (reduces memory)
     const topGroups = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.TOP_GROUPS_BY_COUNT(q, topN, periodDays, dbType),
+      SQL_QUERIES.TOP_GROUPS_BY_COUNT(q, topN, 1, dbType),
       [],
     );
 
