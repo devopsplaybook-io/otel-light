@@ -1,5 +1,4 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
-import { SpanStatusCode } from "@opentelemetry/api";
 import * as fse from "fs-extra";
 import * as path from "path";
 import * as schedule from "node-schedule";
@@ -7,14 +6,9 @@ import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import { AnalyticsUtilsGetSQLVariable } from "./AnalyticsUtils";
-import {
-  TraceGroupReport,
-  TraceGroupSeries,
-  TraceTimeSeriesPoint,
-} from "./TraceGroupReportTypes";
+import { TraceGroupReport, TraceGroupSeries } from "./TraceGroupReportTypes";
 
-const logger = OTelLogger().createModuleLogger("LongestTracesReport");
+const logger = OTelLogger().createModuleLogger("MostCalledTracesReport");
 
 // ── Module state ───────────────────────────────────────────────────────────────
 
@@ -23,47 +17,47 @@ let config: Config;
 
 // ── Public Interface ───────────────────────────────────────────────────────────
 
-export async function LongestTracesReportInit(
+export async function MostCalledTracesReportInit(
   context: Span,
   configIn: Config,
 ): Promise<void> {
-  const span = OTelTracer().startSpan("LongestTracesReportInit", context);
+  const span = OTelTracer().startSpan("MostCalledTracesReportInit", context);
   config = configIn;
   reportFilePath = path.join(
     configIn.DATA_DIR,
     "cache",
-    "longestTracesReport.json",
+    "mostCalledTracesReport.json",
   );
 
   logger.info(
-    `Longest traces report storage initialized at: ${reportFilePath}`,
+    `Most called traces report storage initialized at: ${reportFilePath}`,
   );
 
   const cronExpr = configIn.STATIC_REPORT_SCHEDULE_CRON;
-  logger.info(`Scheduling longest traces report: ${cronExpr}`);
+  logger.info(`Scheduling most called traces report: ${cronExpr}`);
   schedule.scheduleJob(cronExpr, () => {
-    LongestTracesReportGenerate().catch((err) =>
+    MostCalledTracesReportGenerate().catch((err) =>
       logger.error(
-        `Failed to generate scheduled longest traces report: ${err.message}`,
+        `Failed to generate scheduled most called traces report: ${err.message}`,
       ),
     );
   });
 
-  const cached = await LongestTracesReportGetCached();
+  const cached = await MostCalledTracesReportGetCached();
   if (!cached) {
     logger.info(
-      "No cached longest traces report found, triggering initial generation",
+      "No cached most called traces report found, triggering initial generation",
     );
-    LongestTracesReportGenerate().catch((err) =>
+    MostCalledTracesReportGenerate().catch((err) =>
       logger.error(
-        `Failed to generate initial longest traces report: ${err.message}`,
+        `Failed to generate initial most called traces report: ${err.message}`,
       ),
     );
   }
   span.end();
 }
 
-export async function LongestTracesReportGetCached(): Promise<TraceGroupReport | null> {
+export async function MostCalledTracesReportGetCached(): Promise<TraceGroupReport | null> {
   try {
     if (!(await fse.pathExists(reportFilePath))) {
       return null;
@@ -71,16 +65,16 @@ export async function LongestTracesReportGetCached(): Promise<TraceGroupReport |
     return await fse.readJson(reportFilePath);
   } catch (error) {
     logger.error(
-      `Failed to read cached longest traces report: ${error.message}`,
+      `Failed to read cached most called traces report: ${error.message}`,
     );
     return null;
   }
 }
 
-export async function LongestTracesReportGenerate(): Promise<void> {
-  const span = OTelTracer().startSpan("LongestTracesReportGenerate");
+export async function MostCalledTracesReportGenerate(): Promise<void> {
+  const span = OTelTracer().startSpan("MostCalledTracesReportGenerate");
   try {
-    logger.info("Generating longest traces report", span);
+    logger.info("Generating most called traces report", span);
 
     const topN = config.STATIC_REPORT_TOP_N;
     const periodDays = config.STATIC_REPORT_PERIOD_DAYS;
@@ -90,18 +84,11 @@ export async function LongestTracesReportGenerate(): Promise<void> {
 
     const dbType = DbUtilsGetType();
     const q = (ident: string) => (dbType === "postgres" ? `"${ident}"` : ident);
-    const statusCodeVarIdx = 1;
 
-    // Step 1: find the top N (serviceName, name) groups by max duration
+    // Step 1: find the top N (serviceName, name) groups by trace count
     const topGroups = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.TOP_GROUPS_BY_DURATION(
-        q,
-        topN,
-        periodDays,
-        statusCodeVarIdx,
-        dbType,
-      ),
-      [SpanStatusCode.ERROR],
+      SQL_QUERIES.TOP_GROUPS_BY_COUNT(q, topN, periodDays, dbType),
+      [],
     );
 
     if (!topGroups || topGroups.length === 0) {
@@ -114,23 +101,22 @@ export async function LongestTracesReportGenerate(): Promise<void> {
       };
       await fse.ensureDir(path.dirname(reportFilePath));
       await fse.writeJson(reportFilePath, emptyReport);
-      logger.info("Longest traces report generated: 0 groups", span);
+      logger.info("Most called traces report generated: 0 groups", span);
       span.end();
       return;
     }
 
-    // Step 2: get daily time series for each top group using a CTE
+    // Step 2: get daily time series for each top group
     const groupFilters = buildGroupFilterCTE(topGroups, q, dbType);
     const rawTimeSeries = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.GROUP_TIME_SERIES_DURATION(
+      SQL_QUERIES.GROUP_TIME_SERIES_COUNT(
         q,
         bucketNs,
         periodDays,
-        statusCodeVarIdx,
         groupFilters,
         dbType,
       ),
-      [SpanStatusCode.ERROR],
+      [],
     );
 
     // Step 3: assemble the report
@@ -150,7 +136,7 @@ export async function LongestTracesReportGenerate(): Promise<void> {
       });
     }
 
-    // Sort data points by bucket and keep only the top N groups
+    // Sort data points by bucket and keep only the top N groups in order
     const reportSeries: TraceGroupSeries[] = [];
     for (const group of topGroups) {
       const key = `${group.serviceName}::${group.name}`;
@@ -173,12 +159,12 @@ export async function LongestTracesReportGenerate(): Promise<void> {
     await fse.writeJson(reportFilePath, report);
 
     logger.info(
-      `Longest traces report generated: ${reportSeries.length} groups (top ${topN}, last ${periodDays} days)`,
+      `Most called traces report generated: ${reportSeries.length} groups (top ${topN}, last ${periodDays} days)`,
       span,
     );
   } catch (err) {
     span.setStatus({ code: 2, message: err.message });
-    logger.error("Error generating longest traces report", err, span);
+    logger.error("Error generating most called traces report", err, span);
   }
   span.end();
 }
@@ -206,66 +192,60 @@ function buildGroupFilterCTE(
 // ── SQL ────────────────────────────────────────────────────────────────────────
 
 const SQL_QUERIES = {
-  TOP_GROUPS_BY_DURATION: (
+  TOP_GROUPS_BY_COUNT: (
     q: (ident: string) => string,
     _topN: number,
     _periodDays: number,
-    statusCodeVarIdx: number,
     dbType: string,
   ) => {
     const fromExpr = `CAST( (CAST( (strftime('%s','now') * 1000) AS INTEGER) - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000 AS INTEGER)`;
     const fromPostgres = `(EXTRACT(EPOCH FROM NOW()) * 1000 - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000`;
-    const stsCode = AnalyticsUtilsGetSQLVariable(dbType, statusCodeVarIdx);
 
     if (dbType === "postgres") {
       return `
       WITH grp AS (
-        SELECT ${q("serviceName")}, ${q("name")},
-               MAX(${q("endTime")} - ${q("startTime")}) AS metric
+        SELECT ${q("serviceName")}, ${q("name")}, COUNT(*) AS cnt
         FROM traces
         WHERE ${q("parentSpanId")} IS NULL
           AND ${q("startTime")} >= ${fromPostgres}
         GROUP BY ${q("serviceName")}, ${q("name")}
       )
-      SELECT g.${q("serviceName")}, g.${q("name")}, g.metric
+      SELECT g.${q("serviceName")}, g.${q("name")}, g.cnt
       FROM grp g
-      ORDER BY g.metric DESC
+      ORDER BY g.cnt DESC
       LIMIT ${_topN}`;
     }
 
     return `
     WITH grp AS (
-      SELECT serviceName, name,
-             MAX(endTime - startTime) AS metric
+      SELECT serviceName, name, COUNT(*) AS cnt
       FROM traces
       WHERE parentSpanId IS NULL
         AND startTime >= ${fromExpr}
       GROUP BY serviceName, name
     )
-    SELECT g.serviceName, g.name, g.metric
+    SELECT g.serviceName, g.name, g.cnt
     FROM grp g
-    ORDER BY g.metric DESC
+    ORDER BY g.cnt DESC
     LIMIT ${_topN}`;
   },
 
-  GROUP_TIME_SERIES_DURATION: (
+  GROUP_TIME_SERIES_COUNT: (
     q: (ident: string) => string,
     _bucketNs: number,
     _periodDays: number,
-    statusCodeVarIdx: number,
     groupFilterCTE: string,
     dbType: string,
   ) => {
     const fromExpr = `CAST( (CAST( (strftime('%s','now') * 1000) AS INTEGER) - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000 AS INTEGER)`;
     const fromPostgres = `(EXTRACT(EPOCH FROM NOW()) * 1000 - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000`;
-    const stsCode = AnalyticsUtilsGetSQLVariable(dbType, statusCodeVarIdx);
 
     if (dbType === "postgres") {
       return `
       WITH target_groups AS (${groupFilterCTE})
       SELECT t.${q("serviceName")}, t.${q("name")},
              (FLOOR(t.${q("startTime")}::decimal / ${_bucketNs}) * ${_bucketNs})::bigint AS bucket,
-             MAX(t.${q("endTime")} - t.${q("startTime")}) AS value
+             COUNT(*)::int AS value
       FROM traces t
         JOIN target_groups g
           ON g.${q("svc")} = t.${q("serviceName")}
@@ -280,7 +260,7 @@ const SQL_QUERIES = {
     WITH target_groups AS (${groupFilterCTE})
     SELECT t.serviceName, t.name,
            (CAST(t.startTime / ${_bucketNs} AS INTEGER) * ${_bucketNs}) AS bucket,
-           MAX(t.endTime - t.startTime) AS value
+           COUNT(*) AS value
     FROM traces t
       JOIN target_groups g
         ON g.svc = t.serviceName

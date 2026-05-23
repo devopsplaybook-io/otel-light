@@ -79,7 +79,7 @@
     </div>
 
     <!-- ================================================================== -->
-    <!-- Longest Traces Section (Static Report)                             -->
+    <!-- Longest Traces Section (Static Report - Line Graph)               -->
     <!-- ================================================================== -->
     <div v-if="activeReport === 'longest'" class="report-static">
       <div class="report-header">
@@ -93,35 +93,42 @@
           <span v-else class="report-meta report-pending">Generating…</span>
         </div>
       </div>
-      <div v-if="longestReport.traces.length === 0" class="report-empty">
+      <div v-if="longestReport.series && longestReport.series.length > 0">
+        <TraceGroupLineChart
+          :series="longestReport.series"
+          :bucket-ns="longestReport.bucketNs"
+          value-label="Max Duration (ns)"
+        />
+      </div>
+      <div v-else class="report-empty">
         No data yet. The report is generated once daily.
       </div>
-      <div v-else class="signals-scroll">
-        <div class="trace-group-summary">
-          <b>Service</b>
-          <b>Name</b>
-          <b>Time</b>
-          <b>Duration</b>
-          <b>ID</b>
-          <b>Errors</b>
-          <b>Spans</b>
-        </div>
-        <div
-          v-for="trace in longestReport.traces"
-          :key="trace.traceId"
-          class="trace-group-summary"
-          :class="{ 'trace-group-summary-errors': trace.nbErrors > 0 }"
-        >
-          <span>{{ trace.serviceName }}:{{ trace.serviceVersion }}</span>
-          <span>{{ trace.name }}</span>
-          <span>{{ formatDateNs(trace.startTime) }}</span>
-          <span>{{ formatDuration(trace.duration) }}</span>
-          <span class="trace-id" @click="copyTraceId(trace.traceId)">
-            {{ trace.traceId.substring(0, 12) }}&hellip;
+    </div>
+
+    <!-- ================================================================== -->
+    <!-- Most Called Traces Section (Static Report - Line Graph)            -->
+    <!-- ================================================================== -->
+    <div v-if="activeReport === 'most-called'" class="report-static">
+      <div class="report-header">
+        <div class="report-title-section">
+          <h3>Most Called Traces</h3>
+          <span v-if="mostCalledReport.generatedAt" class="report-meta">
+            Generated {{ formatDate(mostCalledReport.generatedAt) }} &mdash; Top
+            {{ mostCalledReport.topN }} &mdash; Last
+            {{ mostCalledReport.periodDays }} days
           </span>
-          <span>{{ trace.nbErrors }}</span>
-          <span>{{ trace.spanCount }}</span>
+          <span v-else class="report-meta report-pending">Generating…</span>
         </div>
+      </div>
+      <div v-if="mostCalledReport.series && mostCalledReport.series.length > 0">
+        <TraceGroupLineChart
+          :series="mostCalledReport.series"
+          :bucket-ns="mostCalledReport.bucketNs"
+          value-label="Trace Count"
+        />
+      </div>
+      <div v-else class="report-empty">
+        No data yet. The report is generated once daily.
       </div>
     </div>
 
@@ -136,6 +143,7 @@ import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Trace from "~/components/Trace.vue";
 import TraceSpan from "~/components/TraceSpan.vue";
+import TraceGroupLineChart from "~/components/TraceGroupLineChart.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -143,7 +151,7 @@ import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
 
 export default {
-  components: { SearchOptions, Trace, TraceSpan },
+  components: { SearchOptions, Trace, TraceSpan, TraceGroupLineChart },
   data() {
     return {
       groups: [],
@@ -160,15 +168,22 @@ export default {
       reports: [
         { id: "aggregated", label: "Aggregated Traces" },
         { id: "longest", label: "Longest Traces" },
+        { id: "most-called", label: "Most Called Traces" },
       ],
       activeReport: "aggregated",
       longestReport: {
         generatedAt: null,
         periodDays: null,
         topN: null,
-        fromTime: null,
-        toTime: null,
-        traces: [],
+        bucketNs: null,
+        series: [],
+      },
+      mostCalledReport: {
+        generatedAt: null,
+        periodDays: null,
+        topN: null,
+        bucketNs: null,
+        series: [],
       },
     };
   },
@@ -177,7 +192,8 @@ export default {
       useRouter().push({ path: "/users" });
     }
     this.fetchTraces();
-    this.fetchLongestTracesReport();
+    this.fetchReport("longest");
+    this.fetchReport("most-called");
   },
   computed: {
     groupedTraces() {
@@ -194,13 +210,40 @@ export default {
       this.fetchTraces();
     },
     async fetchLongestTracesReport() {
+      return this.fetchReport("longest");
+    },
+    async fetchReport(reportId) {
+      const urlMap = {
+        longest: `${SERVER_URL}/reports/longest-traces`,
+        "most-called": `${SERVER_URL}/reports/most-called-traces`,
+      };
+      const url = urlMap[reportId];
+      if (!url) return;
       try {
         const response = await axios.get(
-          `${SERVER_URL}/reports/longest-traces`,
+          url,
           await AuthService.getAuthHeader(),
         );
-        if (response.data && response.data.traces) {
-          this.longestReport = response.data;
+        if (response.data) {
+          const stateKey = reportId === "longest" ? "longestReport" : "mostCalledReport";
+          const data = response.data;
+          if (data.generatedAt === null) {
+            this[stateKey] = {
+              generatedAt: null,
+              periodDays: null,
+              topN: null,
+              bucketNs: null,
+              series: [],
+            };
+          } else {
+            this[stateKey] = {
+              generatedAt: data.generatedAt,
+              periodDays: data.periodDays,
+              topN: data.topN,
+              bucketNs: data.bucketNs,
+              series: data.series || [],
+            };
+          }
         }
       } catch (err) {
         handleError(err);

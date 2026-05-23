@@ -18,6 +18,7 @@ import { RecommendationInit } from "./recommendation/Recommendation";
 import { RecommendationRoutes } from "./recommendation/RecommendationRoutes";
 import { ReportsRoutes } from "./analytics/ReportsRoutes";
 import { LongestTracesReportInit } from "./analytics/LongestTracesReport";
+import { MostCalledTracesReportInit } from "./analytics/MostCalledTracesReport";
 import {
   OTelLogger,
   OTelSetMeter,
@@ -61,6 +62,7 @@ Promise.resolve().then(async () => {
   await AnalyticsCacheInit(span, config);
   await RecommendationInit(span, config);
   await LongestTracesReportInit(span, config);
+  await MostCalledTracesReportInit(span, config);
 
   span.end();
 
