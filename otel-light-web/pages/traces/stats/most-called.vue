@@ -6,7 +6,7 @@
     :top-n="report.topN"
     :bucket-ns="report.bucketNs"
     :series="report.series"
-    value-label="Trace Count"
+    value-label="Avg Duration (s)"
   />
 </template>
 

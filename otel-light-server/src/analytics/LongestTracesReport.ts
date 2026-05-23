@@ -243,7 +243,7 @@ const SQL_QUERIES = {
       WITH target_groups AS (${groupFilterCTE})
       SELECT t.${q("serviceName")}, t.${q("name")},
              (FLOOR(t.${q("startTime")}::decimal / ${_bucketNs}) * ${_bucketNs})::bigint AS bucket,
-             MAX(t.${q("endTime")} - t.${q("startTime")}) AS value
+             MAX(t.${q("endTime")} - t.${q("startTime")}) / 1000000000 AS value
       FROM traces t
         JOIN target_groups g
           ON g.${q("svc")} = t.${q("serviceName")}
@@ -258,7 +258,7 @@ const SQL_QUERIES = {
     WITH target_groups AS (${groupFilterCTE})
     SELECT t.serviceName, t.name,
            (CAST(t.startTime / ${_bucketNs} AS INTEGER) * ${_bucketNs}) AS bucket,
-           MAX(t.endTime - t.startTime) AS value
+           MAX(t.endTime - t.startTime) / 1000000000 AS value
     FROM traces t
       JOIN target_groups g
         ON g.svc = t.serviceName
