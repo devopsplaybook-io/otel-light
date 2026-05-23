@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div id="traces-page" class="signals-page">
     <SearchOptions @filterChanged="onFilterChanged" type="traces" />
     <div id="traces" class="signals-scroll">
       <div class="trace-group-summary">

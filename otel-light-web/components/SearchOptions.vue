@@ -133,6 +133,9 @@ export default {
     };
   },
   computed: {
+    timeOptions() {
+      return TimeWindowOptions;
+    },
     availableVersions() {
       if (!this.serviceName) return [];
       return this.servicesStore.versionsForService(this.serviceName);

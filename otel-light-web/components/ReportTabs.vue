@@ -34,6 +34,8 @@ export default {
   margin-bottom: 1rem;
   border-bottom: 1px solid #ffffff22;
   padding-bottom: 0;
+  overflow-x: auto;
+  min-width: 0;
 }
 .report-tab {
   background: none;
@@ -43,6 +45,10 @@ export default {
   cursor: pointer;
   font-size: 0.9rem;
   border-bottom: 2px solid transparent;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
   transition:
     color 0.2s,
     border-color 0.2s;

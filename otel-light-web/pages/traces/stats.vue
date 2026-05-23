@@ -33,6 +33,12 @@ export default {
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
+      return;
+    }
+    // Redirect to aggregated child route if visiting the parent route
+    const path = this.$route.path.replace(/\/+$/, "");
+    if (path === "/traces/stats") {
+      this.$router.replace({ path: "/traces/stats/aggregated" });
     }
   },
   methods: {
