@@ -53,7 +53,7 @@ export class Config implements ConfigOTelInterface {
   public LLM_RECOMMENDATION_SCHEDULE_CRON = "0 0 * * *";
   public LLM_RECOMMENDATION_PERIOD_HOURS = 24;
   // Static Reports
-  public STATIC_REPORT_TOP_N = 50;
+  public STATIC_REPORT_TOP_N = 30;
   public STATIC_REPORT_PERIOD_DAYS = 30;
   public STATIC_REPORT_SCHEDULE_CRON = "0 0 * * *";
 
