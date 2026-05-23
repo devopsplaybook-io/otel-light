@@ -38,7 +38,7 @@ export default {
   methods: {
     onTabSelect(tabId) {
       const pathMap = {
-        aggregated: "/traces/stats/aggregated",
+        aggregated: "/traces/stats",
         longest: "/traces/stats/longest",
         "most-called": "/traces/stats/most-called",
       };

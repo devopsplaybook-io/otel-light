@@ -291,7 +291,7 @@ export default {
 }
 .search-attributes {
   display: flex;
-  flex-direction: row;
+  flex-wrap: wrap;
   gap: 1rem;
   align-items: center;
 }

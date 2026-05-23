@@ -49,6 +49,10 @@ export default {
         },
         yaxis: {
           title: { text: this.valueLabel },
+          labels: {
+            formatter: (val) =>
+              val != null ? Number(val.toFixed(2)).toString() : "",
+          },
         },
         stroke: {
           width: 2,
