@@ -1,6 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession } from "../users/Auth";
-import { RecommendationGetCached } from "./Recommendation";
+import { AuthGetUserSession, AuthMustBeAdmin } from "../users/Auth";
+import {
+  RecommendationGenerate,
+  RecommendationGetCached,
+} from "./Recommendation";
 
 export class RecommendationRoutes {
   //
@@ -21,6 +24,13 @@ export class RecommendationRoutes {
           recommendations: null,
         });
       }
+      return res.status(200).send(cached);
+    });
+
+    fastify.post("/regenerate", async (req, res) => {
+      await AuthMustBeAdmin(req, res);
+      await RecommendationGenerate();
+      const cached = await RecommendationGetCached();
       return res.status(200).send(cached);
     });
   }

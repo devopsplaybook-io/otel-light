@@ -72,8 +72,18 @@
         </div>
         <small class="rec-generated-at" v-if="recommendation.generatedAt">
           {{ formatDate(recommendation.generatedAt) }} &middot;
-          {{ recommendation.periodHours }}h period
-        </small>
+          {{ recommendation.periodHours }}h period </small
+        ><br />
+        <button
+          v-if="isAdmin"
+          class="rec-regenerate outline"
+          type="button"
+          @click="regenerateRecommendation"
+          :disabled="regenerating"
+        >
+          <i class="bi bi-arrow-repeat"></i>
+          {{ regenerating ? "Generating..." : "Re-generate" }}
+        </button>
       </section>
     </article>
   </div>
@@ -89,7 +99,13 @@ export default {
   data() {
     return {
       recommendation: null,
+      regenerating: false,
     };
+  },
+  computed: {
+    isAdmin() {
+      return AuthenticationStore().isAdmin;
+    },
   },
   async created() {
     if (await AuthenticationStore().ensureAuthenticated()) {
@@ -122,6 +138,24 @@ export default {
     formatDate(isoString) {
       const d = new Date(isoString);
       return d.toLocaleString();
+    },
+    async regenerateRecommendation() {
+      this.regenerating = true;
+      try {
+        const url = `${(await Config.get()).SERVER_URL}/recommendation/regenerate`;
+        const response = await axios.post(
+          url,
+          {},
+          await AuthService.getAuthHeader(),
+        );
+        if (response.data && response.data.generatedAt) {
+          this.recommendation = response.data;
+        }
+      } catch (err) {
+        // silently ignore
+      } finally {
+        this.regenerating = false;
+      }
     },
   },
 };
@@ -205,5 +239,13 @@ export default {
 }
 .rec-content strong {
   font-weight: 600;
+}
+
+.rec-regenerate {
+  margin-top: 1rem;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.6rem;
+  width: auto;
+  display: inline-block;
 }
 </style>
