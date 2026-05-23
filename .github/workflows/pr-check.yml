@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   pr-verify:
-    uses: devopsplaybook-io/common-utils/.github/workflows/reusable-pr-verify.yml@main
+    uses: devopsplaybook-io/common-utils/.github/workflows/reusable-pr-verify.yml@feature/2026.05-test-quality-dashboard
     with:
       node_app_directories: '["otel-light-server"]'
     secrets:
