@@ -1,12 +1,10 @@
 import { FastifyInstance } from "fastify";
-import { find } from "lodash";
-import { DbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/DbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
-import { DbUtilsGetType } from "../../utils-std-ts/DbUtils";
 
 export class TracesRoutes {
   //
@@ -23,33 +21,37 @@ export class TracesRoutes {
           resourceSpan.resource,
         );
         for (const scopeSpan of resourceSpan.scopeSpans) {
+          const rows = [];
           for (const span of scopeSpan.spans) {
+            const attrs = span.attributes || [];
             serviceName =
-              find(span.attributes, { key: "service.name" })?.value
+              attrs.find((a) => a?.key === "service.name")?.value
                 ?.stringValue || serviceName;
             serviceVersion =
-              find(span.attributes, { key: "service.version" })?.value
+              attrs.find((a) => a?.key === "service.version")?.value
                 ?.stringValue || serviceVersion;
 
             const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`;
-            await DbUtilsNoTelemetryExecSQL(
-              SQL_QUERIES.INSERT_TRACE[DbUtilsGetType()],
-              [
-                span.traceId,
-                span.spanId,
-                span.parentSpanId,
-                span.name,
-                serviceName,
-                serviceVersion,
-                span.startTimeUnixNano,
-                span.endTimeUnixNano,
-                span.status.code,
-                JSON.stringify(span.attributes),
-                JSON.stringify(span),
-                keywords.toLowerCase(),
-              ],
-            );
+            rows.push([
+              span.traceId,
+              span.spanId,
+              span.parentSpanId,
+              span.name,
+              serviceName,
+              serviceVersion,
+              span.startTimeUnixNano,
+              span.endTimeUnixNano,
+              span.status.code,
+              JSON.stringify(span.attributes),
+              JSON.stringify(span),
+              keywords.toLowerCase(),
+            ]);
           }
+          await DbUtilsNoTelemetryBatchInsert(
+            "INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords)",
+            12,
+            rows,
+          );
         }
       }
 
@@ -57,16 +59,3 @@ export class TracesRoutes {
     });
   }
 }
-
-// SQL
-
-const SQL_QUERIES = {
-  INSERT_TRACE: {
-    postgres:
-      'INSERT INTO traces ("traceId", "spanId", "parentSpanId", "name", "serviceName", "serviceVersion", "startTime", "endTime", "statusCode", "attributes", "rawSpan", "keywords") ' +
-      " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
-    sqlite:
-      "INSERT INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords) " +
-      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  },
-};

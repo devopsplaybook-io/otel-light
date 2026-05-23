@@ -53,7 +53,7 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 
 const PAGE_SIZE = 200;
@@ -290,7 +290,7 @@ export default {
       }
 
       this.isLoading = true;
-      const baseUrl = (await Config.get()).SERVER_URL;
+      const baseUrl = SERVER_URL;
       const authHeader = await AuthService.getAuthHeader();
 
       try {

@@ -35,7 +35,7 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
@@ -116,7 +116,7 @@ export default {
           ? `${qs}&before=${this.oldestTime}`
           : `before=${this.oldestTime}`;
       }
-      const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
+      const url = `${SERVER_URL}/analytics/logs?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -147,7 +147,7 @@ export default {
       const qs = this.filter.queryString
         ? `${this.filter.queryString}&afterTime=${this.newestTime}`
         : `afterTime=${this.newestTime}`;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
+      const url = `${SERVER_URL}/analytics/logs?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {

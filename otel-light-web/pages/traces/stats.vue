@@ -74,7 +74,7 @@ import Trace from "~/components/Trace.vue";
 import TraceSpan from "~/components/TraceSpan.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
 
@@ -117,9 +117,7 @@ export default {
     async getTraceSpans(traceId) {
       return await axios
         .get(
-          `${
-            (await Config.get()).SERVER_URL
-          }/analytics/traces/${traceId}/spans`,
+          `${SERVER_URL}/analytics/traces/${traceId}/spans`,
           await AuthService.getAuthHeader(),
         )
         .then((response) => {
@@ -129,7 +127,7 @@ export default {
     async getTraceLogs(traceId) {
       return await axios
         .get(
-          `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
+          `${SERVER_URL}/analytics/traces/${traceId}/logs`,
           await AuthService.getAuthHeader(),
         )
         .then((response) => {
@@ -151,7 +149,7 @@ export default {
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
       const qs = this.filter.queryString || "";
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces/stats${qs ? "?" + qs : ""}`;
+      const url = `${SERVER_URL}/analytics/traces/stats${qs ? "?" + qs : ""}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -194,7 +192,7 @@ export default {
       const params = new URLSearchParams(this.filter.queryString || "");
       params.set("serviceName", group.serviceName);
       params.set("serviceVersion", group.serviceVersion || "");
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${params.toString()}`;
+      const url = `${SERVER_URL}/analytics/traces?${params.toString()}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {

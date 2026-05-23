@@ -56,7 +56,7 @@
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { EventBus, EventTypes, handleError } from "~~/services/EventBus";
 
 export default {
@@ -95,7 +95,7 @@ export default {
     },
     async fetchServices() {
       try {
-        const url = `${(await Config.get()).SERVER_URL}/analytics/services`;
+        const url = `${SERVER_URL}/analytics/services`;
         const response = await axios.get(
           url,
           await AuthService.getAuthHeader(),
@@ -106,9 +106,7 @@ export default {
       }
     },
     async fetchSettings() {
-      const url = `${
-        (await Config.get()).SERVER_URL
-      }/settings/signal-cleanup-rules`;
+      const url = `${SERVER_URL}/settings/signal-cleanup-rules`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then((response) => {
@@ -136,9 +134,7 @@ export default {
         .catch(handleError);
     },
     async saveSettings() {
-      const url = `${
-        (await Config.get()).SERVER_URL
-      }/settings/signal-cleanup-rules`;
+      const url = `${SERVER_URL}/settings/signal-cleanup-rules`;
       const transformed = {
         deleteRules: this.settings.deleteRules.map((rule) => ({
           signalType: rule.signalType,

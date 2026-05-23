@@ -18,7 +18,7 @@ import {
   UtilsMetricSampleDataPoints,
 } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 
 export default {
@@ -80,7 +80,7 @@ export default {
       baseParams.delete("name");
       baseParams.set("serviceName", this.serviceName);
       baseParams.set("name", this.name);
-      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
+      const url = `${SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -127,6 +127,9 @@ export default {
       });
     },
     attributesToString(attributes) {
+      if (!attributes || attributes.length === 0) {
+        return "default";
+      }
       return attributes
         .map((item) => `${item.key}:${item.value.stringValue}`)
         .join("-");

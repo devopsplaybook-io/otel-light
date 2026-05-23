@@ -25,7 +25,7 @@ import {
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { AuthInit } from "./users/Auth";
 import { UsersRoutes } from "./users/UsersRoutes";
-import { DbUtilsInit, DbUtilsGetType } from "./utils-std-ts/DbUtils";
+import { DbUtilsInit } from "./utils-std-ts/DbUtils";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";

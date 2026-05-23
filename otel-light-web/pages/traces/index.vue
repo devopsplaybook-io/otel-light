@@ -60,7 +60,7 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
@@ -163,9 +163,7 @@ export default {
     async getTraceSpans(traceId) {
       return await axios
         .get(
-          `${
-            (await Config.get()).SERVER_URL
-          }/analytics/traces/${traceId}/spans`,
+          `${SERVER_URL}/analytics/traces/${traceId}/spans`,
           await AuthService.getAuthHeader(),
         )
         .then((response) => {
@@ -175,7 +173,7 @@ export default {
     async getTraceLogs(traceId) {
       return await axios
         .get(
-          `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
+          `${SERVER_URL}/analytics/traces/${traceId}/logs`,
           await AuthService.getAuthHeader(),
         )
         .then((response) => {
@@ -206,7 +204,7 @@ export default {
           ? `${qs}&before=${this.oldestStartTime}`
           : `before=${this.oldestStartTime}`;
       }
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
+      const url = `${SERVER_URL}/analytics/traces?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {
@@ -237,7 +235,7 @@ export default {
       const qs = this.filter.queryString
         ? `${this.filter.queryString}&afterTime=${this.newestStartTime}`
         : `afterTime=${this.newestStartTime}`;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
+      const url = `${SERVER_URL}/analytics/traces?${qs}`;
       axios
         .get(url, await AuthService.getAuthHeader())
         .then(async (response) => {

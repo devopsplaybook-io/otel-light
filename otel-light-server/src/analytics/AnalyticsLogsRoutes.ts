@@ -37,6 +37,7 @@ export class AnalyticsLogsRoutes {
       } catch {
         return;
       }
+      const dbType = DbUtilsGetType();
       const sqlParams = [];
       const isRefresh = req.query.afterTime !== undefined;
       const hasBefore = req.query.before !== undefined;
@@ -47,54 +48,54 @@ export class AnalyticsLogsRoutes {
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
         " WHERE time >= " +
-        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
         sqlWhere +=
           " AND time <= " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (isRefresh) {
         sqlWhere +=
           " AND time > " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.afterTime);
       }
       if (hasBefore) {
         sqlWhere +=
           " AND time < " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.before);
       }
       if (req.query.keywords?.trim()) {
         sqlWhere +=
           " AND keywords LIKE " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
       if (req.query.severity?.trim()) {
         sqlWhere +=
           " AND severity = " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.severity.toLowerCase().trim());
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
           ' AND "serviceName" = ' +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceName).trim());
       }
       if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
         sqlWhere +=
           ' AND "serviceVersion" = ' +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceVersion).trim());
       }
 
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_LOGS(sqlWhere, PAGE_SIZE, offset)[DbUtilsGetType()],
+        SQL_QUERIES.GET_LOGS(sqlWhere, PAGE_SIZE, offset)[dbType],
         sqlParams,
       );
       const logs = [];

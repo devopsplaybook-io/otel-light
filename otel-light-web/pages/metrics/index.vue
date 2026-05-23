@@ -55,7 +55,7 @@ import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { PreferencesService } from "~~/services/PreferencesService";
 
@@ -89,7 +89,7 @@ export default {
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
       this.loading = true;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics/names${
+      const url = `${SERVER_URL}/analytics/metrics/names${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
       axios

@@ -4,9 +4,12 @@ module.exports = {
     "^.+\\.(ts|tsx)$": [
       "ts-jest",
       {
-        tsconfig: "tsconfig.json",
+        tsconfig: "tsconfig.spec.json",
       },
     ],
+  },
+  moduleNameMapper: {
+    "^uuid$": "<rootDir>/src/__mocks__/uuid.ts",
   },
   testMatch: ["/**/src/**/*.spec.(ts|js)"],
   testEnvironment: "node",

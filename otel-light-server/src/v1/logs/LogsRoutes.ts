@@ -1,12 +1,10 @@
 import { FastifyInstance } from "fastify";
-import { find } from "lodash";
-import { DbUtilsNoTelemetryExecSQL } from "../../utils-std-ts/DbUtilsNoTelemetry";
+import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
-import { DbUtilsGetType } from "../../utils-std-ts/DbUtils";
 export class LogsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -20,19 +18,21 @@ export class LogsRoutes {
         let serviceName = SignalUtilsGetServiceName(resourceLog.resource);
         let serviceVersion = SignalUtilsGetServiceVersion(resourceLog.resource);
         for (const scopeLog of resourceLog.scopeLogs) {
+          const rows = [];
           for (const logRecord of scopeLog.logRecords) {
+            const attrs = logRecord.attributes || [];
             serviceName =
-              find(logRecord.attributes, { key: "service.name" })?.value
+              attrs.find((a) => a?.key === "service.name")?.value
                 ?.stringValue || serviceName;
             serviceVersion =
-              find(logRecord.attributes, { key: "service.version" })?.value
+              attrs.find((a) => a?.key === "service.version")?.value
                 ?.stringValue || serviceVersion;
-            const traceId = find(logRecord.attributes, { key: "trace.id" })
-              ?.value?.stringValue;
-            const spanId = find(logRecord.attributes, { key: "span.id" })?.value
+            const traceId = attrs.find((a) => a?.key === "trace.id")?.value
+              ?.stringValue;
+            const spanId = attrs.find((a) => a?.key === "span.id")?.value
               ?.stringValue;
             const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
-            let logText = "";
+            let logText: string;
             if (logRecord.body.stringValue) {
               logText = logRecord.body.stringValue || "";
             } else if (logRecord.body.kvlistValue) {
@@ -43,37 +43,26 @@ export class LogsRoutes {
               console.log("Unknown Log Body" + JSON.stringify(logRecord.body));
               logText = "Log Object: \n" + JSON.stringify(logRecord.body);
             }
-            await DbUtilsNoTelemetryExecSQL(
-              SQL_QUERIES.INSERT_LOG[DbUtilsGetType()],
-              [
-                serviceName,
-                serviceVersion,
-                traceId,
-                spanId,
-                logRecord.timeUnixNano,
-                logRecord.severityText,
-                logText,
-                JSON.stringify(logRecord.attributes),
-                keywords.toLowerCase(),
-              ],
-            );
+            rows.push([
+              serviceName,
+              serviceVersion,
+              traceId,
+              spanId,
+              logRecord.timeUnixNano,
+              logRecord.severityText,
+              logText,
+              JSON.stringify(logRecord.attributes),
+              keywords.toLowerCase(),
+            ]);
           }
+          await DbUtilsNoTelemetryBatchInsert(
+            "INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords)",
+            9,
+            rows,
+          );
         }
       }
       return res.status(201).send({});
     });
   }
 }
-
-// SQL
-
-const SQL_QUERIES = {
-  INSERT_LOG: {
-    postgres:
-      'INSERT INTO logs ("serviceName", "serviceVersion", "traceId", "spanId", "time", "severity", "logText", "attributes", "keywords") ' +
-      " VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)",
-    sqlite:
-      "INSERT INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords) " +
-      " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  },
-};

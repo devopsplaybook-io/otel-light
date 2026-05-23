@@ -91,7 +91,7 @@
 
 <script>
 import axios from "axios";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { AuthService } from "~~/services/AuthService";
 import { marked } from "marked";
 
@@ -117,7 +117,7 @@ export default {
   methods: {
     async fetchRecommendation() {
       try {
-        const url = `${(await Config.get()).SERVER_URL}/recommendation`;
+        const url = `${SERVER_URL}/recommendation`;
         const response = await axios.get(
           url,
           await AuthService.getAuthHeader(),
@@ -142,7 +142,7 @@ export default {
     async regenerateRecommendation() {
       this.regenerating = true;
       try {
-        const url = `${(await Config.get()).SERVER_URL}/recommendation/regenerate`;
+        const url = `${SERVER_URL}/recommendation/regenerate`;
         const response = await axios.post(
           url,
           {},

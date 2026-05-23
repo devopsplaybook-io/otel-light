@@ -57,8 +57,8 @@
               attribute.value.stringValue
                 ? attribute.value.stringValue
                 : attribute.value.intValue
-                ? attribute.value.intValue
-                : ""
+                  ? attribute.value.intValue
+                  : ""
             }}</kbd
           >
           <p
@@ -146,7 +146,7 @@ export default {
     sortedTraceSpans() {
       if (!this.traceSpans || !Array.isArray(this.traceSpans)) return [];
       const minTime = Math.min(
-        ...this.traceSpans.map((span) => span.startTime)
+        ...this.traceSpans.map((span) => span.startTime),
       );
       const maxTime = Math.max(...this.traceSpans.map((span) => span.endTime));
       const spans = this.traceSpans.map((span) => ({ ...span }));
@@ -171,7 +171,7 @@ export default {
     findParentIndex(span) {
       if (!span.parentSpanId) return -1;
       return this.sortedTraceSpans.findIndex(
-        (s) => s.spanId === span.parentSpanId
+        (s) => s.spanId === span.parentSpanId,
       );
     },
     getConnectorStyle(span, currentIndex) {
@@ -199,13 +199,6 @@ export default {
         this.$refs.eventsDialog.close();
       }
       this.spanSelected = null;
-    },
-    getSpanEventText(event) {
-      let text = event.name + "\n";
-      for (const attribute of event.attributes) {
-        text += `  ${attribute.key}: ${attribute.value.stringValue}\n`;
-      }
-      return text;
     },
     getSpanEventText(event) {
       let text = event.name + "\n";

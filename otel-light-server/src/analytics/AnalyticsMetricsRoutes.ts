@@ -33,41 +33,42 @@ export class AnalyticsMetricsRoutes {
       } catch {
         return;
       }
+      const dbType = DbUtilsGetType();
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       const isRefresh = req.query.afterTime !== undefined;
       let sqlWhere =
         " WHERE time >= " +
-        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
         sqlWhere +=
           " AND time <= " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (isRefresh) {
         sqlWhere +=
           " AND time > " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.afterTime);
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
           ' AND "serviceName" = ' +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceName).trim());
       }
       if (req.query.name && String(req.query.name).trim()) {
         sqlWhere +=
           " AND name = " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.name).trim());
       }
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
         SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
-          DbUtilsGetType()
+          dbType
         ],
         sqlParams,
       );

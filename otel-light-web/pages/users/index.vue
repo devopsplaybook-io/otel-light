@@ -192,7 +192,7 @@ const authenticationStore = AuthenticationStore();
 
 <script>
 import axios from "axios";
-import Config from "~~/services/Config.ts";
+import { SERVER_URL } from "~~/services/Config.ts";
 import { AuthService } from "~~/services/AuthService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UserService } from "~~/services/UserService";
@@ -298,7 +298,7 @@ export default {
         this.savingPassword = true;
         try {
           await axios.put(
-            `${(await Config.get()).SERVER_URL}/users/password`,
+            `${SERVER_URL}/users/password`,
             this.user,
             await AuthService.getAuthHeader(),
           );
