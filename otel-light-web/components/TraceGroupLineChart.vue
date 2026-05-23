@@ -1,6 +1,10 @@
 <template>
   <div class="trace-group-chart">
-    <apexchart :options="chartOptions" :series="chartSeries" height="400" />
+    <apexchart
+      :options="chartOptions"
+      :series="chartSeries"
+      :height="chartHeight"
+    />
   </div>
 </template>
 
@@ -27,11 +31,11 @@ export default {
   },
   data() {
     return {
+      chartHeight: 400,
       chartSeries: [],
       chartOptions: {
         chart: {
           type: "line",
-          height: 400,
           animations: { enabled: false },
           toolbar: {
             autoSelected: "selection",
@@ -77,9 +81,18 @@ export default {
     },
   },
   mounted() {
+    this.updateHeight();
+    window.addEventListener("resize", this.updateHeight);
     this.buildSeries();
   },
+  beforeUnmount() {
+    window.removeEventListener("resize", this.updateHeight);
+  },
   methods: {
+    updateHeight() {
+      const vh = window.visualViewport?.height ?? window.innerHeight;
+      this.chartHeight = Math.max(300, vh * 0.7 - 120);
+    },
     buildSeries() {
       if (!this.series || this.series.length === 0) {
         this.chartSeries = [];
@@ -100,7 +113,7 @@ export default {
 <style scoped>
 .trace-group-chart {
   width: 100%;
-  min-height: 420px;
+  min-height: 300px;
   margin-bottom: 1rem;
 }
 </style>

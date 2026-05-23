@@ -1,5 +1,4 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
-import { SpanStatusCode } from "@opentelemetry/api";
 import * as fse from "fs-extra";
 import * as path from "path";
 import * as schedule from "node-schedule";
@@ -7,10 +6,7 @@ import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import {
-  TraceGroupReport,
-  TraceGroupSeries,
-} from "./TraceGroupReportTypes";
+import { TraceGroupReport, TraceGroupSeries } from "./TraceGroupReportTypes";
 
 const logger = OTelLogger().createModuleLogger("LongestTracesReport");
 
@@ -86,18 +82,10 @@ export async function LongestTracesReportGenerate(): Promise<void> {
 
     const dbType = DbUtilsGetType();
     const q = (ident: string) => (dbType === "postgres" ? `"${ident}"` : ident);
-    const statusCodeVarIdx = 1;
 
     // Step 1: find the top N (serviceName, name) groups by max duration
     const topGroups = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.TOP_GROUPS_BY_DURATION(
-        q,
-        topN,
-        periodDays,
-        statusCodeVarIdx,
-        dbType,
-      ),
-      [SpanStatusCode.ERROR],
+      SQL_QUERIES.TOP_GROUPS_BY_DURATION(q, topN, periodDays, dbType),
     );
 
     if (!topGroups || topGroups.length === 0) {
@@ -122,11 +110,9 @@ export async function LongestTracesReportGenerate(): Promise<void> {
         q,
         bucketNs,
         periodDays,
-        statusCodeVarIdx,
         groupFilters,
         dbType,
       ),
-      [SpanStatusCode.ERROR],
     );
 
     // Step 3: assemble the report
@@ -206,7 +192,6 @@ const SQL_QUERIES = {
     q: (ident: string) => string,
     _topN: number,
     _periodDays: number,
-    statusCodeVarIdx: number,
     dbType: string,
   ) => {
     const fromExpr = `CAST( (CAST( (strftime('%s','now') * 1000) AS INTEGER) - ${_periodDays * 24 * 60 * 60 * 1000}) * 1000000 AS INTEGER)`;
@@ -247,7 +232,6 @@ const SQL_QUERIES = {
     q: (ident: string) => string,
     _bucketNs: number,
     _periodDays: number,
-    statusCodeVarIdx: number,
     groupFilterCTE: string,
     dbType: string,
   ) => {
