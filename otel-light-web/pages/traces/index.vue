@@ -158,6 +158,7 @@ export default {
       this.hasMore = true;
       this.newestStartTime = null;
       this.oldestStartTime = null;
+      this.isLoadingMore = false;
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {

@@ -101,6 +101,7 @@ export default {
       this.hasMore = true;
       this.newestTime = null;
       this.oldestTime = null;
+      this.isLoadingMore = false;
       this.fetchLogs();
     },
     async fetchLogs() {

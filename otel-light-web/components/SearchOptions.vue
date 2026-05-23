@@ -276,24 +276,14 @@ export default {
 #search-options-dates span {
   padding-bottom: 0.4rem;
 }
-.filter-select {
-  width: 7rem;
-}
-.filter-service {
-  width: 10rem;
-}
-.filter-service-version {
-  width: 8rem;
-}
 .filter-service-version:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .search-attributes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6rem, auto));
+  gap: 0.5rem;
 }
 .search-collapsible {
   display: grid;
@@ -307,10 +297,6 @@ export default {
 .search-collapsible.collapsed {
   max-height: 0;
   opacity: 0;
-}
-.search-collapsible > * {
-  min-height: 0;
-  overflow: hidden;
 }
 .collapse-button {
   padding-right: 0;
