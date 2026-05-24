@@ -69,7 +69,9 @@ Promise.resolve().then(async () => {
   // APIs
 
   const fastify = Fastify({
-    logger: config.LOG_LEVEL === process.env.FASTIFY_LOG_LEVEL,
+    logger: {
+      level: "error",
+    },
   });
 
   await fastify.register(fastifyCompress, {

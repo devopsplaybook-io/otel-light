@@ -38,6 +38,7 @@ export function DbUtilsNoTelemetryExecSQL(
         params,
         (error, result) => {
           if (error) {
+            logger.error(`SQL INSERT ERROR: ${sql.substring(0, 200)}`, error);
             reject(error);
           } else {
             resolve(result.rowCount || 0);

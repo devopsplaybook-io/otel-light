@@ -1,6 +1,8 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
-import { OTelTracer } from "../OTelContext";
+import { OTelLogger, OTelTracer } from "../OTelContext";
+
+const logger = OTelLogger().createModuleLogger("SignalUtils");
 
 let config: Config;
 
@@ -35,8 +37,16 @@ export function SignalUtilsCheckAuthHeader(req: any): boolean {
   if (!config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
     return true;
   }
-  return (
+  const authMatch =
     (req.headers["authorization"] || "").replace("Bearer ", "") ===
-    config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER
-  );
+    config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER;
+  if (!authMatch) {
+    logger.warn(
+      "Ingestion auth header mismatch: expected configured OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER, got " +
+        (req.headers["authorization"]
+          ? "Bearer ***"
+          : "no authorization header"),
+    );
+  }
+  return authMatch;
 }
