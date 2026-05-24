@@ -47,7 +47,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import VueApexCharts from "vue3-apexcharts";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
@@ -308,7 +308,7 @@ export default {
 
         let res;
         try {
-          res = await axios.get(url, {
+          res = await analyticsGet(url, {
             ...authHeader,
             signal: ctrl.signal,
           });

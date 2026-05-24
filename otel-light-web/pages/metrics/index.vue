@@ -51,7 +51,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
@@ -92,8 +92,7 @@ export default {
       const url = `${SERVER_URL}/analytics/metrics/names${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;

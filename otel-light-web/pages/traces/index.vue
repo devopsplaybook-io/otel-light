@@ -55,7 +55,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
@@ -162,24 +162,20 @@ export default {
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
-      return await axios
-        .get(
-          `${SERVER_URL}/analytics/traces/${traceId}/spans`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.spans;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.spans;
+      });
     },
     async getTraceLogs(traceId) {
-      return await axios
-        .get(
-          `${SERVER_URL}/analytics/traces/${traceId}/logs`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.logs;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.logs;
+      });
     },
     async toggleTrace(traceId) {
       if (this.traceSpans[traceId]) {
@@ -206,8 +202,7 @@ export default {
           : `before=${this.oldestStartTime}`;
       }
       const url = `${SERVER_URL}/analytics/traces?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -237,8 +232,7 @@ export default {
         ? `${this.filter.queryString}&afterTime=${this.newestStartTime}`
         : `afterTime=${this.newestStartTime}`;
       const url = `${SERVER_URL}/analytics/traces?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           const newTraces = await UtilsDecompressJson(response.data.traces);
           if (newTraces && newTraces.length > 0) {

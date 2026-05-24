@@ -30,7 +30,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
@@ -118,8 +118,7 @@ export default {
           : `before=${this.oldestTime}`;
       }
       const url = `${SERVER_URL}/analytics/logs?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -149,8 +148,7 @@ export default {
         ? `${this.filter.queryString}&afterTime=${this.newestTime}`
         : `afterTime=${this.newestTime}`;
       const url = `${SERVER_URL}/analytics/logs?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           const newLogs = await UtilsDecompressJson(response.data.logs);
           if (newLogs && newLogs.length > 0) {

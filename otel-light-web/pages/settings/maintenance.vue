@@ -53,6 +53,7 @@
 </template>
 
 <script>
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import axios from "axios";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
@@ -96,7 +97,7 @@ export default {
     async fetchServices() {
       try {
         const url = `${SERVER_URL}/analytics/services`;
-        const response = await axios.get(
+        const response = await analyticsGet(
           url,
           await AuthService.getAuthHeader(),
         );

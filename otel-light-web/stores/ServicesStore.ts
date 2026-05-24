@@ -1,5 +1,6 @@
 import { SERVER_URL } from "~~/services/Config";
 import { AuthService } from "~~/services/AuthService";
+import { analyticsFetch } from "~~/services/AnalyticsQueue";
 
 const REFRESH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const CACHE_KEY = "ServicesStore.cache";
@@ -67,7 +68,7 @@ export const ServicesStore = defineStore("ServicesStore", {
     async fetchServices(): Promise<void> {
       try {
         const authHeader = await AuthService.getAuthHeader();
-        const response = await fetch(`${SERVER_URL}/analytics/services`, {
+        const response = await analyticsFetch(`${SERVER_URL}/analytics/services`, {
           ...authHeader,
         });
         if (response.ok) {

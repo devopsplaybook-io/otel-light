@@ -6,8 +6,8 @@
 </template>
 
 <script>
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import VueApexCharts from "vue3-apexcharts";
-import axios from "axios";
 import {
   UtilsDecompressJson,
   UtilsMetricSampleDataPoints,
@@ -116,7 +116,7 @@ export default {
         const url = `${SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
 
         try {
-          const response = await axios.get(
+          const response = await analyticsGet(
             url,
             await AuthService.getAuthHeader(),
           );

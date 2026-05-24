@@ -65,7 +65,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Trace from "~/components/Trace.vue";
 import TraceSpan from "~/components/TraceSpan.vue";
@@ -108,24 +108,20 @@ export default {
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
-      return await axios
-        .get(
-          `${SERVER_URL}/analytics/traces/${traceId}/spans`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.spans;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.spans;
+      });
     },
     async getTraceLogs(traceId) {
-      return await axios
-        .get(
-          `${SERVER_URL}/analytics/traces/${traceId}/logs`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.logs;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.logs;
+      });
     },
     async toggleTrace(traceId) {
       if (this.traceSpans[traceId]) {
@@ -143,8 +139,7 @@ export default {
       this.fetchTime = fetchTime;
       const qs = this.filter.queryString || "";
       const url = `${SERVER_URL}/analytics/traces/stats${qs ? "?" + qs : ""}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -184,8 +179,7 @@ export default {
       params.set("serviceName", group.serviceName);
       params.set("serviceVersion", group.serviceVersion || "");
       const url = `${SERVER_URL}/analytics/traces?${params.toString()}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           const traces = await UtilsDecompressJson(response.data.traces);
           for (const t of traces) {

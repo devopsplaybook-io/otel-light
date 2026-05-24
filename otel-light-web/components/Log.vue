@@ -43,7 +43,7 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
@@ -85,22 +85,21 @@ export default {
           : null;
       if (traceIdAttr && traceIdAttr.value.stringValue) {
         const traceId = traceIdAttr.value.stringValue;
-        await axios
-          .get(
+        await analyticsGet(
             `${SERVER_URL}/analytics/traces?traceId=${traceId}`,
             await AuthService.getAuthHeader(),
           )
           .then(async (response) => {
             const traces = await UtilsDecompressJson(response.data.traces);
             this.trace = traces && traces.length === 1 ? traces[0] : null;
-            return axios.get(
+            return analyticsGet(
               `${SERVER_URL}/analytics/traces/${traceId}/spans`,
               await AuthService.getAuthHeader(),
             );
           })
           .then(async (response) => {
             this.traceSpans = response.data.spans;
-            return await axios.get(
+            return analyticsGet(
               `${SERVER_URL}/analytics/traces/${traceId}/logs`,
               await AuthService.getAuthHeader(),
             );
