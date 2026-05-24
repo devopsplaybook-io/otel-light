@@ -30,23 +30,6 @@ import { AnalyticsUtilsCompressJson } from "./AnalyticsUtils";
 import { AnalyticsMetricsRoutes } from "./AnalyticsMetricsRoutes";
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-const mockRawMetric = (overrides: Record<string, unknown> = {}) => ({
-  name: "http.requests",
-  serviceName: "my-svc",
-  serviceVersion: "1.0.0",
-  time: Date.now() * 1_000_000,
-  type: "gauge",
-  rawMetric: JSON.stringify({
-    gauge: {
-      dataPoints: [{ timeUnixNano: Date.now() * 1_000_000, asDouble: 42 }],
-    },
-  }),
-  ...overrides,
-});
-
-// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
@@ -161,37 +144,6 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
       .calls[0];
 
     expect(sql).toContain(`LIMIT ${AnalyticsUtilsResultLimitMetrics}`);
-  });
-
-  // --- Warning ---
-  it("includes warning when result count reaches the limit", async () => {
-    const rows = Array.from({ length: 100 }, () => mockRawMetric());
-    (DbUtilsNoTelemetryQuerySQL as jest.Mock).mockResolvedValue(rows);
-    (AnalyticsUtilsCompressJson as jest.Mock).mockImplementation(
-      async (data: unknown) => JSON.stringify(data),
-    );
-
-    const res = await fastify.inject({
-      method: "GET",
-      url: "/analytics/metrics?name=http.requests&limit=100",
-    });
-
-    const body = JSON.parse(res.body);
-    expect(body).toHaveProperty("warning");
-    expect(body.warning).toMatch(/truncated/i);
-  });
-
-  it("omits warning when result count is below limit", async () => {
-    const rows = Array.from({ length: 50 }, () => mockRawMetric());
-    (DbUtilsNoTelemetryQuerySQL as jest.Mock).mockResolvedValue(rows);
-
-    const res = await fastify.inject({
-      method: "GET",
-      url: "/analytics/metrics?name=http.requests&limit=100",
-    });
-
-    const body = JSON.parse(res.body);
-    expect(body).not.toHaveProperty("warning");
   });
 
   // --- Combined: beforeTime + limit ---

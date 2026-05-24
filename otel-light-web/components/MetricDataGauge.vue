@@ -19,7 +19,7 @@ import {
 } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 
 export default {
   components: {
@@ -117,13 +117,6 @@ export default {
           }
 
           const batchMetrics = await UtilsDecompressJson(response.data.metrics);
-
-          if (response.data.warning) {
-            EventBus.emit(EventTypes.ALERT_MESSAGE, {
-              type: "warning",
-              text: response.data.warning,
-            });
-          }
 
           allMetrics.push(...batchMetrics);
 

@@ -91,10 +91,6 @@ export class AnalyticsMetricsRoutes {
         metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
         compressed: true,
       };
-      if (rawMetrics.length >= resultLimit) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (response as any).warning = "Too much data. Results are truncated";
-      }
       return res.status(200).send(response);
     });
 
