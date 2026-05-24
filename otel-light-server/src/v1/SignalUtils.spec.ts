@@ -69,9 +69,7 @@ describe("SignalUtilsGetServiceName", () => {
 describe("SignalUtilsGetServiceVersion", () => {
   it("should return service version from resource attributes", () => {
     const resource = {
-      attributes: [
-        { key: "service.version", value: { stringValue: "1.2.3" } },
-      ],
+      attributes: [{ key: "service.version", value: { stringValue: "1.2.3" } }],
     };
     expect(SignalUtilsGetServiceVersion(resource)).toBe("1.2.3");
   });

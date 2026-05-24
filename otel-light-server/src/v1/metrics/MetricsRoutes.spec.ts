@@ -109,7 +109,8 @@ describe("MetricsRoutes POST /v1/metrics", () => {
       payload: buildBody(),
     });
 
-    const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0];
+    const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock)
+      .mock.calls[0];
     expect(tableCols).toContain("INTO metrics");
     expect(numCols).toBe(8);
   });

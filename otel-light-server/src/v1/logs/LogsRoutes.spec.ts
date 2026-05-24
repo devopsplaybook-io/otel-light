@@ -112,7 +112,8 @@ describe("LogsRoutes POST /v1/logs", () => {
       payload: buildBody(),
     });
 
-    const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0];
+    const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock)
+      .mock.calls[0];
     expect(tableCols).toContain("INTO logs");
     expect(numCols).toBe(9);
   });
@@ -165,9 +166,7 @@ describe("LogsRoutes POST /v1/logs", () => {
         mockLogRecord({
           body: {
             kvlistValue: {
-              values: [
-                { key: "event", value: { stringValue: "click" } },
-              ],
+              values: [{ key: "event", value: { stringValue: "click" } }],
             },
           },
         }),
