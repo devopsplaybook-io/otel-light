@@ -22,6 +22,8 @@ export class AnalyticsMetricsRoutes {
         serviceName?: string;
         name?: string;
         afterTime?: number;
+        beforeTime?: number;
+        limit?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -66,10 +68,18 @@ export class AnalyticsMetricsRoutes {
           AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.name).trim());
       }
+
+      // Cursor-based pagination: fetch records older than beforeTime
+      if (req.query.beforeTime) {
+        sqlWhere +=
+          " AND time < " +
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
+        sqlParams.push(req.query.beforeTime);
+      }
+
+      const resultLimit = req.query.limit || AnalyticsUtilsResultLimitMetrics;
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
-          dbType
-        ],
+        SQL_QUERIES.GET_METRICS(sqlWhere, resultLimit)[dbType],
         sqlParams,
       );
       const metrics = [];
@@ -81,7 +91,7 @@ export class AnalyticsMetricsRoutes {
         metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
         compressed: true,
       };
-      if (rawMetrics.length >= AnalyticsUtilsResultLimitMetrics) {
+      if (rawMetrics.length >= resultLimit) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (response as any).warning = "Too much data. Results are truncated";
       }
