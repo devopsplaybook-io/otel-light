@@ -28,11 +28,13 @@ const fakeSpan = {
   end: jest.fn(),
   addEvent: jest.fn(),
   setStatus: jest.fn(),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
 beforeAll(async () => {
   await SignalUtilsInit(fakeSpan, {
     OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
 });
 
@@ -96,6 +98,7 @@ describe("SignalUtilsCheckAuthHeader", () => {
   it("should reject when configured but request has no auth header", async () => {
     await SignalUtilsInit(fakeSpan, {
       OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "my-secret",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
     const req = { headers: {} };
@@ -105,6 +108,7 @@ describe("SignalUtilsCheckAuthHeader", () => {
   it("should reject when request auth header does not match", async () => {
     await SignalUtilsInit(fakeSpan, {
       OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "my-secret",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
     const req = { headers: { authorization: "Bearer wrong-secret" } };
@@ -114,6 +118,7 @@ describe("SignalUtilsCheckAuthHeader", () => {
   it("should pass when request auth header matches", async () => {
     await SignalUtilsInit(fakeSpan, {
       OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "my-secret",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
     const req = { headers: { authorization: "Bearer my-secret" } };
@@ -123,6 +128,7 @@ describe("SignalUtilsCheckAuthHeader", () => {
   it("should handle missing 'Bearer ' prefix", async () => {
     await SignalUtilsInit(fakeSpan, {
       OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "my-secret",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
 
     const req = { headers: { authorization: "my-secret" } };
@@ -133,6 +139,7 @@ describe("SignalUtilsCheckAuthHeader", () => {
     // Reset config to no auth for other test groups
     await SignalUtilsInit(fakeSpan, {
       OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
   });
 });

@@ -26,9 +26,8 @@ jest.mock("./DbUtils", () => {
   };
 });
 
-const { __setDbType: setDbType, __mockHandle: mockHandle } =
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  require("./DbUtils");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { __setDbType: setDbType, __mockHandle: mockHandle } = require("./DbUtils");
 
 // Sync handle reference for convenience
 Object.assign(mockDbHandle, mockHandle);
