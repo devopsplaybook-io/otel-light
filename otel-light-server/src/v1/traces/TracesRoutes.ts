@@ -52,7 +52,7 @@ export class TracesRoutes {
               ]);
             }
             await DbUtilsNoTelemetryBatchInsert(
-              "INTO traces (traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords)",
+              'INTO traces ("traceId", "spanId", "parentSpanId", "name", "serviceName", "serviceVersion", "startTime", "endTime", "statusCode", "attributes", "rawSpan", "keywords")',
               12,
               rows,
             );

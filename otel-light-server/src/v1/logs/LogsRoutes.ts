@@ -20,7 +20,9 @@ export class LogsRoutes {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const resourceLog of (req.body as any).resourceLogs) {
           let serviceName = SignalUtilsGetServiceName(resourceLog.resource);
-          let serviceVersion = SignalUtilsGetServiceVersion(resourceLog.resource);
+          let serviceVersion = SignalUtilsGetServiceVersion(
+            resourceLog.resource,
+          );
           for (const scopeLog of resourceLog.scopeLogs) {
             const rows = [];
             for (const logRecord of scopeLog.logRecords) {
@@ -31,10 +33,12 @@ export class LogsRoutes {
               serviceVersion =
                 attrs.find((a) => a?.key === "service.version")?.value
                   ?.stringValue || serviceVersion;
-              const traceId = attrs.find((a) => a?.key === "trace.id")?.value
-                ?.stringValue || null;
-              const spanId = attrs.find((a) => a?.key === "span.id")?.value
-                ?.stringValue || null;
+              const traceId =
+                attrs.find((a) => a?.key === "trace.id")?.value?.stringValue ||
+                null;
+              const spanId =
+                attrs.find((a) => a?.key === "span.id")?.value?.stringValue ||
+                null;
               const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
               let logText: string;
               if (logRecord.body.stringValue) {
@@ -44,7 +48,9 @@ export class LogsRoutes {
                   "Key Values: \n" +
                   JSON.stringify(logRecord.body.kvlistValue.values, null, 2);
               } else {
-                console.log("Unknown Log Body" + JSON.stringify(logRecord.body));
+                console.log(
+                  "Unknown Log Body" + JSON.stringify(logRecord.body),
+                );
                 logText = "Log Object: \n" + JSON.stringify(logRecord.body);
               }
               rows.push([
@@ -60,7 +66,7 @@ export class LogsRoutes {
               ]);
             }
             await DbUtilsNoTelemetryBatchInsert(
-              "INTO logs (serviceName, serviceVersion, traceId, spanId, time, severity, logText, attributes, keywords)",
+              'INTO logs ("serviceName", "serviceVersion", "traceId", "spanId", "time", "severity", "logText", "attributes", "keywords")',
               9,
               rows,
             );

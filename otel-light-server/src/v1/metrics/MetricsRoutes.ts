@@ -21,7 +21,9 @@ export class MetricsRoutes {
         const timeUnixNano = Date.now() * 1_000_000;
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const resourceMetric of (req.body as any).resourceMetrics) {
-          const serviceName = SignalUtilsGetServiceName(resourceMetric.resource);
+          const serviceName = SignalUtilsGetServiceName(
+            resourceMetric.resource,
+          );
           const serviceVersion = SignalUtilsGetServiceVersion(
             resourceMetric.resource,
           );
@@ -48,7 +50,7 @@ export class MetricsRoutes {
               ]);
             }
             await DbUtilsNoTelemetryBatchInsert(
-              "INTO metrics (name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords)",
+              'INTO metrics ("name", "serviceName", "serviceVersion", "type", "time", "attributes", "rawMetric", "keywords")',
               8,
               rows,
             );

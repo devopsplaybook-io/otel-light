@@ -27,7 +27,11 @@ jest.mock("../SignalUtils", () => ({
 // Imports
 // ---------------------------------------------------------------------------
 import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
-import { SignalUtilsCheckAuthHeader, SignalUtilsGetServiceName, SignalUtilsGetServiceVersion } from "../SignalUtils";
+import {
+  SignalUtilsCheckAuthHeader,
+  SignalUtilsGetServiceName,
+  SignalUtilsGetServiceVersion,
+} from "../SignalUtils";
 import { TracesRoutes } from "./TracesRoutes";
 
 // ---------------------------------------------------------------------------
@@ -120,7 +124,8 @@ describe("TracesRoutes POST /v1/traces", () => {
       payload: buildBody(),
     });
 
-    const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0];
+    const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock)
+      .mock.calls[0];
     expect(tableCols).toContain("INTO traces");
     expect(numCols).toBe(12);
   });

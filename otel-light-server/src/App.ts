@@ -88,7 +88,12 @@ Promise.resolve().then(async () => {
   }
 
   StandardTracerFastifyRegisterHooks(fastify, OTelTracer(), OTelLogger(), {
-    ignoreList: ["GET-/api/status"],
+    ignoreList: [
+      "GET-/api/status",
+      "POST-/v1/traces",
+      "POST-/v1/metrics",
+      "POST-/v1/logs",
+    ],
   });
 
   fastify.register(new UsersRoutes().getRoutes, {

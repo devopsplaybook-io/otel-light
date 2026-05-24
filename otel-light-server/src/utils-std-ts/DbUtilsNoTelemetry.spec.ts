@@ -1,4 +1,7 @@
-import { DbUtilsNoTelemetryBatchInsert, DbUtilsNoTelemetryExecSQL } from "./DbUtilsNoTelemetry";
+import {
+  DbUtilsNoTelemetryBatchInsert,
+  DbUtilsNoTelemetryExecSQL,
+} from "./DbUtilsNoTelemetry";
 
 // Store mock function references created inside the jest.mock factory so tests can control them.
 const mockDbHandle = { run: jest.fn(), query: jest.fn(), all: jest.fn() };
@@ -72,7 +75,11 @@ describe("DbUtilsNoTelemetryBatchInsert", () => {
       ["x", "y", "z"],
       ["p", "q", "r"],
     ];
-    const result = await DbUtilsNoTelemetryBatchInsert("INTO t (a,b,c)", 3, rows);
+    const result = await DbUtilsNoTelemetryBatchInsert(
+      "INTO t (a,b,c)",
+      3,
+      rows,
+    );
     expect(result).toBe(2);
   });
 });
