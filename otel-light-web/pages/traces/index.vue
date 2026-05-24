@@ -262,7 +262,10 @@ export default {
       };
     },
     goToAnalytics() {
-      this.$router.push({ path: "/traces/stats", query: this.$route.query });
+      this.$router.push({
+        path: "/traces/stats/aggregated",
+        query: this.$route.query,
+      });
     },
   },
 };
