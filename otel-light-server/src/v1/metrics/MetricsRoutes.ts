@@ -37,11 +37,17 @@ export class MetricsRoutes {
               else if (metric.exponentialHistogram)
                 metricType = "exponentialHistogram";
               else if (metric.summary) metricType = "summary";
-              const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metric.name}`;
+              const keywords =
+                `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metric.name}`.substring(
+                  0,
+                  4000,
+                );
               rows.push([
-                metric.name,
-                serviceName,
-                serviceVersion,
+                metric.name ? metric.name.substring(0, 2000) : metric.name,
+                serviceName ? serviceName.substring(0, 2000) : serviceName,
+                serviceVersion
+                  ? serviceVersion.substring(0, 2000)
+                  : serviceVersion,
                 metricType,
                 timeUnixNano,
                 JSON.stringify(resourceMetric.resource.attributes),

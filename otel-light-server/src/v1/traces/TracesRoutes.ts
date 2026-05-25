@@ -35,14 +35,20 @@ export class TracesRoutes {
                 attrs.find((a) => a?.key === "service.version")?.value
                   ?.stringValue || serviceVersion;
 
-              const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`;
+              const keywords =
+                `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`.substring(
+                  0,
+                  4000,
+                );
               rows.push([
                 span.traceId,
                 span.spanId,
                 span.parentSpanId,
-                span.name,
-                serviceName,
-                serviceVersion,
+                span.name ? span.name.substring(0, 2000) : span.name,
+                serviceName ? serviceName.substring(0, 2000) : serviceName,
+                serviceVersion
+                  ? serviceVersion.substring(0, 2000)
+                  : serviceVersion,
                 span.startTimeUnixNano,
                 span.endTimeUnixNano,
                 span.status.code,

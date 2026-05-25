@@ -39,7 +39,14 @@ export class LogsRoutes {
               const spanId =
                 attrs.find((a) => a?.key === "span.id")?.value?.stringValue ||
                 null;
-              const keywords = `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`;
+              if (serviceName) serviceName = serviceName.substring(0, 2000);
+              if (serviceVersion)
+                serviceVersion = serviceVersion.substring(0, 2000);
+              const keywords =
+                `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body.stringValue}`.substring(
+                  0,
+                  4000,
+                );
               let logText: string;
               if (logRecord.body.stringValue) {
                 logText = logRecord.body.stringValue || "";
