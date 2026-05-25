@@ -14,11 +14,11 @@ import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { Config } from "./Config";
 import { MaintenanceInit } from "./Maintenance";
-import { RecommendationInit } from "./recommendation/Recommendation";
-import { RecommendationRoutes } from "./recommendation/RecommendationRoutes";
-import { ReportsRoutes } from "./analytics/ReportsRoutes";
-import { LongestTracesReportInit } from "./analytics/LongestTracesReport";
-import { MostCalledTracesReportInit } from "./analytics/MostCalledTracesReport";
+import { RecommendationInit } from "./reports/Recommendation";
+import { RecommendationRoutes } from "./reports/RecommendationRoutes";
+import { ReportsRoutes } from "./reports/ReportsRoutes";
+import { LongestTracesReportInit } from "./reports/LongestTracesReport";
+import { MostCalledTracesReportInit } from "./reports/MostCalledTracesReport";
 import {
   OTelLogger,
   OTelSetMeter,
