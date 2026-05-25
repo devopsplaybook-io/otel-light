@@ -19,10 +19,21 @@ export async function PostgresDbUtilsInit(
   // PostgreSQL connection details
   pool = new Pool({
     host: config.DATABASE_POSTGRES_HOST,
-    port: config.DATABASE_POSTGRES_PORT,
+    port: Number(config.DATABASE_POSTGRES_PORT) || 5432,
     user: config.DATABASE_POSTGRES_USER,
     password: config.DATABASE_POSTGRES_PASSWORD,
     database: config.DATABASE_POSTGRES_DATABASE,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000,
+    keepAlive: true,
+  });
+
+  // Gracefully handle pool-level connection errors (e.g. server closes connection,
+  // network issues, idle client timeouts). Without this handler, Node.js treats
+  // unhandled 'error' events as exceptions.
+  pool.on("error", (err: Error) => {
+    logger.error("PostgreSQL pool connection error", err);
   });
 
   await PostgresDbUtilsExecSQLFile(span, `${SQL_DIR}/init-0000.sql`);

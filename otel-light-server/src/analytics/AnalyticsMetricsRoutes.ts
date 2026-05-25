@@ -22,6 +22,8 @@ export class AnalyticsMetricsRoutes {
         serviceName?: string;
         name?: string;
         afterTime?: number;
+        beforeTime?: number;
+        limit?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -33,42 +35,51 @@ export class AnalyticsMetricsRoutes {
       } catch {
         return;
       }
+      const dbType = DbUtilsGetType();
       const sqlParams = [];
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       const isRefresh = req.query.afterTime !== undefined;
       let sqlWhere =
         " WHERE time >= " +
-        AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+        AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
       sqlParams.push(fromTime);
 
       if (req.query.to) {
         sqlWhere +=
           " AND time <= " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.to);
       }
       if (isRefresh) {
         sqlWhere +=
           " AND time > " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(req.query.afterTime);
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
           ' AND "serviceName" = ' +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceName).trim());
       }
       if (req.query.name && String(req.query.name).trim()) {
         sqlWhere +=
           " AND name = " +
-          AnalyticsUtilsGetSQLVariable(DbUtilsGetType(), sqlParams.length + 1);
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
         sqlParams.push(String(req.query.name).trim());
       }
+
+      // Cursor-based pagination: fetch records older than beforeTime
+      if (req.query.beforeTime) {
+        sqlWhere +=
+          " AND time < " +
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
+        sqlParams.push(req.query.beforeTime);
+      }
+
+      const resultLimit = req.query.limit || AnalyticsUtilsResultLimitMetrics;
       const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS(sqlWhere, AnalyticsUtilsResultLimitMetrics)[
-          DbUtilsGetType()
-        ],
+        SQL_QUERIES.GET_METRICS(sqlWhere, resultLimit)[dbType],
         sqlParams,
       );
       const metrics = [];
@@ -80,10 +91,6 @@ export class AnalyticsMetricsRoutes {
         metrics: await AnalyticsUtilsCompressJson(metrics, "gzip"),
         compressed: true,
       };
-      if (rawMetrics.length >= AnalyticsUtilsResultLimitMetrics) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        (response as any).warning = "Too much data. Results are truncated";
-      }
       return res.status(200).send(response);
     });
 

@@ -30,12 +30,12 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
@@ -101,6 +101,7 @@ export default {
       this.hasMore = true;
       this.newestTime = null;
       this.oldestTime = null;
+      this.isLoadingMore = false;
       this.fetchLogs();
     },
     async fetchLogs() {
@@ -116,9 +117,8 @@ export default {
           ? `${qs}&before=${this.oldestTime}`
           : `before=${this.oldestTime}`;
       }
-      const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      const url = `${SERVER_URL}/analytics/logs?${qs}`;
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -147,9 +147,8 @@ export default {
       const qs = this.filter.queryString
         ? `${this.filter.queryString}&afterTime=${this.newestTime}`
         : `afterTime=${this.newestTime}`;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/logs?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      const url = `${SERVER_URL}/analytics/logs?${qs}`;
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           const newLogs = await UtilsDecompressJson(response.data.logs);
           if (newLogs && newLogs.length > 0) {

@@ -1,0 +1,38 @@
+/* ApexCharts overrides */
+.vue-apexcharts div[role="button"] {
+  background: none;
+  border: none;
+  padding: 0;
+}
+
+:root[data-theme="dark"] .apexcharts-xaxis text,
+:root[data-theme="dark"] .apexcharts-yaxis text {
+  fill: #eee !important;
+}
+
+:root[data-theme="dark"] .apexcharts-legend-text {
+  color: #eee !important;
+}
+
+:root[data-theme="dark"] .apexcharts-toolbar,
+:root[data-theme="dark"] .apexcharts-menu-open {
+  background: rgba(33, 33, 33, 0.7) !important;
+}
+
+:root[data-theme="light"] .apexcharts-xaxis text,
+:root[data-theme="light"] .apexcharts-yaxis text {
+  fill: #333 !important;
+}
+
+:root[data-theme="light"] .apexcharts-legend-text {
+  color: #333 !important;
+}
+
+.apexcharts-tooltip {
+  color: #333;
+}
+
+:root[data-theme="light"] .apexcharts-toolbar,
+:root[data-theme="light"] .apexcharts-menu-open {
+  background: rgba(240, 240, 240, 0.7) !important;
+}

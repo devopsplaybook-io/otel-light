@@ -43,9 +43,9 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UtilsDecompressJson } from "~/services/Utils";
 
@@ -74,42 +74,34 @@ export default {
         return;
       }
       const traceIdAttr = this.log.attributes.find(
-        (attr) => attr.key === "trace.id"
+        (attr) => attr.key === "trace.id",
       );
       const spanIdAttr = this.log.attributes.find(
-        (attr) => attr.key === "span.id"
+        (attr) => attr.key === "span.id",
       );
       this.logSpanId =
         spanIdAttr && spanIdAttr.value.stringValue
           ? spanIdAttr.value.stringValue
           : null;
       if (traceIdAttr && traceIdAttr.value.stringValue) {
-        await axios
-          .get(
-            `${(await Config.get()).SERVER_URL}/analytics/traces?traceId=${
-              traceIdAttr.value.stringValue
-            }`,
-            await AuthService.getAuthHeader()
+        const traceId = traceIdAttr.value.stringValue;
+        await analyticsGet(
+            `${SERVER_URL}/analytics/traces?traceId=${traceId}`,
+            await AuthService.getAuthHeader(),
           )
           .then(async (response) => {
             const traces = await UtilsDecompressJson(response.data.traces);
             this.trace = traces && traces.length === 1 ? traces[0] : null;
-            return axios.get(
-              `${(await Config.get()).SERVER_URL}/analytics/traces/${
-                traceIdAttr.value.stringValue
-              }/spans`,
-              await AuthService.getAuthHeader()
+            return analyticsGet(
+              `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+              await AuthService.getAuthHeader(),
             );
           })
           .then(async (response) => {
             this.traceSpans = response.data.spans;
-            return await axios.get(
-              `${
-                (
-                  await Config.get()
-                ).SERVER_URL
-              }/analytics/traces/${traceId}/logs`,
-              await AuthService.getAuthHeader()
+            return analyticsGet(
+              `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+              await AuthService.getAuthHeader(),
             );
           })
           .then((response) => {

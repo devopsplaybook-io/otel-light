@@ -1,5 +1,6 @@
 <template>
-  <div id="traces-page" class="signals-page">
+  <div id="traces-page" class="signals-page signals-page-stats">
+    <TabNavigation :tabs="reports" />
     <SearchOptions @filterChanged="onFilterChanged" type="traces" />
     <div id="traces" class="signals-scroll">
       <div class="trace-group-summary">
@@ -68,13 +69,13 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Trace from "~/components/Trace.vue";
 import TraceSpan from "~/components/TraceSpan.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
 
@@ -82,6 +83,19 @@ export default {
   components: { SearchOptions, Trace, TraceSpan },
   data() {
     return {
+      reports: [
+        {
+          id: "aggregated",
+          label: "Aggregated Traces",
+          to: "/traces/stats/aggregated",
+        },
+        { id: "longest", label: "Longest Traces", to: "/traces/stats/longest" },
+        {
+          id: "most-called",
+          label: "Most Called Traces",
+          to: "/traces/stats/most-called",
+        },
+      ],
       groups: [],
       expandedGroupTraces: {},
       traceSpans: {},
@@ -97,12 +111,12 @@ export default {
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
+      return;
     }
     this.fetchTraces();
   },
   computed: {
     groupedTraces() {
-      // Server-side aggregated groups, enriched with per-group traces if expanded.
       return this.groups.map((g) => ({
         ...g,
         traces: this.expandedGroupTraces[g.key] || [],
@@ -110,31 +124,28 @@ export default {
     },
   },
   methods: {
+    goToTraces() {
+      this.$router.push({ path: "/traces/", query: this.$route.query });
+    },
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
-      return await axios
-        .get(
-          `${
-            (await Config.get()).SERVER_URL
-          }/analytics/traces/${traceId}/spans`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.spans;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.spans;
+      });
     },
     async getTraceLogs(traceId) {
-      return await axios
-        .get(
-          `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.logs;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.logs;
+      });
     },
     async toggleTrace(traceId) {
       if (this.traceSpans[traceId]) {
@@ -151,9 +162,8 @@ export default {
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
       const qs = this.filter.queryString || "";
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces/stats${qs ? "?" + qs : ""}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      const url = `${SERVER_URL}/analytics/traces/stats${qs ? "?" + qs : ""}`;
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -161,7 +171,6 @@ export default {
           const serverGroups = response.data.compressed
             ? await UtilsDecompressJson(response.data.groups)
             : response.data.groups;
-          // Assign stable keys for expand tracking
           this.groups = (serverGroups || []).map((g) => ({
             ...g,
             key: [
@@ -189,14 +198,12 @@ export default {
       this.expandedGroup = idx;
       const group = this.groups[idx];
       if (!group || this.expandedGroupTraces[group.key]) return;
-      // Lazy-fetch individual traces for this group via the list endpoint.
       this.loadingExpanded = true;
       const params = new URLSearchParams(this.filter.queryString || "");
       params.set("serviceName", group.serviceName);
       params.set("serviceVersion", group.serviceVersion || "");
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${params.toString()}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      const url = `${SERVER_URL}/analytics/traces?${params.toString()}`;
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           const traces = await UtilsDecompressJson(response.data.traces);
           for (const t of traces) {
@@ -215,9 +222,6 @@ export default {
           this.loadingExpanded = false;
         });
     },
-    goToTraces() {
-      this.$router.push({ path: "/traces/", query: this.$route.query });
-    },
     onTraceClick(traceId) {
       this.toggleTrace(traceId);
     },
@@ -226,6 +230,10 @@ export default {
 </script>
 
 <style scoped>
+.signals-page-stats {
+  grid-template-rows: auto auto 1fr;
+}
+
 .trace-group-summary,
 .trace-span-expanded {
   min-width: 1200px;
@@ -236,10 +244,12 @@ export default {
   gap: 1rem;
   width: 100%;
 }
-.trace-group-summary span {
+.trace-group-summary span,
+.trace-group-summary b {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 .trace-group-summary b {
   cursor: pointer;
@@ -254,12 +264,10 @@ export default {
 .group-selected {
   background-color: #dfe3eb11;
 }
-
 .traces-group-expanded {
   padding: 1rem;
   background-color: #dfe3eb11;
 }
-
 .trace-expanded {
   background-color: #dfe3eb22;
 }

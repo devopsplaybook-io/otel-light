@@ -12,76 +12,85 @@ export type UserScope = "traces" | "metrics" | "logs";
 
 const AUTH_TOKEN_KEY = "auth_token";
 
+let _cachedToken: string | null = null;
+let _cachedInfo: JwtTokenInfo | null = null;
+
+function decodeToken(token: string): JwtTokenInfo | null {
+  try {
+    const decoded: any = jwtDecode(token);
+    if (decoded.exp < Date.now() / 1000) {
+      localStorage.removeItem(AUTH_TOKEN_KEY);
+      _cachedToken = null;
+      _cachedInfo = null;
+      return null;
+    }
+    return decoded as JwtTokenInfo;
+  } catch {
+    return null;
+  }
+}
+
 export class AuthService {
   //
-  public static async isAuthenticated(): Promise<boolean> {
-    if (await AuthService.getToken()) {
-      return true;
-    } else {
-      return false;
-    }
+  public static isAuthenticated(): boolean {
+    return !!AuthService.getToken();
   }
 
-  public static async saveToken(token: string): Promise<void> {
-    await localStorage.setItem(AUTH_TOKEN_KEY, token);
+  public static saveToken(token: string): void {
+    localStorage.setItem(AUTH_TOKEN_KEY, token);
+    _cachedToken = token;
+    _cachedInfo = decodeToken(token);
   }
 
-  public static async removeToken(): Promise<void> {
-    await localStorage.removeItem(AUTH_TOKEN_KEY);
+  public static removeToken(): void {
+    localStorage.removeItem(AUTH_TOKEN_KEY);
+    _cachedToken = null;
+    _cachedInfo = null;
   }
 
-  public static async getToken() {
+  public static getToken(): string | null {
+    if (_cachedToken) return _cachedToken;
     const storedKey = localStorage.getItem(AUTH_TOKEN_KEY);
     if (storedKey) {
-      try {
-        const decoded = jwtDecode(storedKey);
-        if ((decoded as any).exp < Date.now() / 1000) {
-          console.log("Auth token expired");
-          localStorage.removeItem(AUTH_TOKEN_KEY);
-          return null;
-        }
+      const info = decodeToken(storedKey);
+      if (info) {
+        _cachedToken = storedKey;
+        _cachedInfo = info;
         return storedKey;
-      } catch {
-        return null;
       }
-    } else {
-      return null;
     }
+    return null;
   }
 
-  public static async getTokenInfo(): Promise<JwtTokenInfo | null> {
+  public static getTokenInfo(): JwtTokenInfo | null {
+    if (_cachedInfo) return _cachedInfo;
     const storedKey = localStorage.getItem(AUTH_TOKEN_KEY);
     if (storedKey) {
-      try {
-        const decoded: any = jwtDecode(storedKey);
-        if (decoded.exp < Date.now() / 1000) {
-          localStorage.removeItem(AUTH_TOKEN_KEY);
-          return null;
-        }
-        return decoded as JwtTokenInfo;
-      } catch {
-        return null;
+      const info = decodeToken(storedKey);
+      if (info) {
+        _cachedToken = storedKey;
+        _cachedInfo = info;
       }
-    } else {
-      return null;
+      return info;
     }
+    return null;
   }
 
-  public static async isAdmin(): Promise<boolean> {
-    const info = await AuthService.getTokenInfo();
+  public static isAdmin(): boolean {
+    const info = AuthService.getTokenInfo();
     return info?.role === "admin";
   }
 
-  public static async hasScope(scope: UserScope): Promise<boolean> {
-    const info = await AuthService.getTokenInfo();
+  public static hasScope(scope: UserScope): boolean {
+    const info = AuthService.getTokenInfo();
     if (!info) return false;
     if (info.role === "admin") return true;
     return info.scopes?.includes(scope) || false;
   }
 
-  public static async getAuthHeader(): Promise<any> {
+  public static getAuthHeader(): any {
     try {
-      const token = await AuthService.getToken();
+      const token = AuthService.getToken();
       if (token) {
         return {
           headers: {
@@ -91,7 +100,7 @@ export class AuthService {
       } else {
         return {};
       }
-    } catch (error) {
+    } catch {
       return {};
     }
   }

@@ -1,6 +1,6 @@
 <template>
   <div id="settings-page">
-    <SettingsNavigation />
+    <TabNavigation :tabs="settingsTabs" />
     <h3>User Management</h3>
     <div class="settings-users-content">
       <button @click="openCreateUser()" style="margin-bottom: 1rem">
@@ -216,6 +216,19 @@ import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 export default {
   data() {
     return {
+      settingsTabs: [
+        {
+          id: "maintenance",
+          label: "Maintenance",
+          to: "/settings/maintenance",
+        },
+        {
+          id: "users",
+          label: "Users",
+          to: "/settings/users",
+          show: () => AuthenticationStore().isAdmin,
+        },
+      ],
       users: [],
       currentUserId: null,
       showUserModal: false,

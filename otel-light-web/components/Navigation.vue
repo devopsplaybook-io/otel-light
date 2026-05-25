@@ -80,7 +80,7 @@ const authenticationStore = AuthenticationStore();
 
 <script>
 import axios from "axios";
-import Config from "~~/services/Config.ts";
+import { SERVER_URL } from "~~/services/Config.ts";
 
 export default {
   watch: {
@@ -91,26 +91,34 @@ export default {
   data() {
     return {
       activeRoute: "",
+      _renewTimer: null,
     };
   },
   async created() {
     this.routeUpdated(this.$route);
     if (await AuthenticationStore().ensureAuthenticated()) {
-      setTimeout(async () => {
-        // Renew session tocken
-        axios
-          .post(
-            `${(await Config.get()).SERVER_URL}/users/session`,
+      this._renewTimer = setTimeout(async () => {
+        // Renew session token
+        try {
+          const res = await axios.post(
+            `${SERVER_URL}/users/session`,
             {},
             await AuthService.getAuthHeader(),
-          )
-          .then((res) => {
-            AuthService.saveToken(res.data.token);
-            AuthenticationStore().refreshFromToken();
-          });
+          );
+          AuthService.saveToken(res.data.token);
+          AuthenticationStore().refreshFromToken();
+        } catch {
+          // silently ignore
+        }
       }, 10000);
     }
     PreferencesService.applyTheme();
+  },
+  beforeUnmount() {
+    if (this._renewTimer) {
+      clearTimeout(this._renewTimer);
+      this._renewTimer = null;
+    }
   },
   methods: {
     routeUpdated(newRoute) {

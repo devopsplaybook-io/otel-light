@@ -52,6 +52,10 @@ export class Config implements ConfigOTelInterface {
   public LLM_MODEL = "deepseek-chat";
   public LLM_RECOMMENDATION_SCHEDULE_CRON = "0 0 * * *";
   public LLM_RECOMMENDATION_PERIOD_HOURS = 24;
+  // Static Reports
+  public STATIC_REPORT_TOP_N = 30;
+  public STATIC_REPORT_PERIOD_DAYS = 30;
+  public STATIC_REPORT_SCHEDULE_CRON = "0 0 * * *";
 
   constructor() {
     let version = "1";
@@ -119,5 +123,8 @@ export class Config implements ConfigOTelInterface {
     setIfSet("LLM_MODEL");
     setIfSet("LLM_RECOMMENDATION_SCHEDULE_CRON");
     setIfSet("LLM_RECOMMENDATION_PERIOD_HOURS");
+    setIfSet("STATIC_REPORT_TOP_N");
+    setIfSet("STATIC_REPORT_PERIOD_DAYS");
+    setIfSet("STATIC_REPORT_SCHEDULE_CRON");
   }
 }

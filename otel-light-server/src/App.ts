@@ -14,8 +14,11 @@ import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { Config } from "./Config";
 import { MaintenanceInit } from "./Maintenance";
-import { RecommendationInit } from "./recommendation/Recommendation";
-import { RecommendationRoutes } from "./recommendation/RecommendationRoutes";
+import { RecommendationInit } from "./reports/Recommendation";
+import { RecommendationRoutes } from "./reports/RecommendationRoutes";
+import { ReportsRoutes } from "./reports/ReportsRoutes";
+import { LongestTracesReportInit } from "./reports/LongestTracesReport";
+import { MostCalledTracesReportInit } from "./reports/MostCalledTracesReport";
 import {
   OTelLogger,
   OTelSetMeter,
@@ -25,7 +28,7 @@ import {
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { AuthInit } from "./users/Auth";
 import { UsersRoutes } from "./users/UsersRoutes";
-import { DbUtilsInit, DbUtilsGetType } from "./utils-std-ts/DbUtils";
+import { DbUtilsInit } from "./utils-std-ts/DbUtils";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
@@ -58,13 +61,17 @@ Promise.resolve().then(async () => {
   await SelfMetricsInit(span, config);
   await AnalyticsCacheInit(span, config);
   await RecommendationInit(span, config);
+  await LongestTracesReportInit(span, config);
+  await MostCalledTracesReportInit(span, config);
 
   span.end();
 
   // APIs
 
   const fastify = Fastify({
-    logger: config.LOG_LEVEL === process.env.FASTIFY_LOG_LEVEL,
+    logger: {
+      level: "error",
+    },
   });
 
   await fastify.register(fastifyCompress, {
@@ -81,7 +88,12 @@ Promise.resolve().then(async () => {
   }
 
   StandardTracerFastifyRegisterHooks(fastify, OTelTracer(), OTelLogger(), {
-    ignoreList: ["GET-/api/status"],
+    ignoreList: [
+      "GET-/api/status",
+      "POST-/v1/traces",
+      "POST-/v1/metrics",
+      "POST-/v1/logs",
+    ],
   });
 
   fastify.register(new UsersRoutes().getRoutes, {
@@ -118,6 +130,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new RecommendationRoutes().getRoutes, {
     prefix: "/api/recommendation",
+  });
+  fastify.register(new ReportsRoutes().getRoutes, {
+    prefix: "/api",
   });
 
   fastify.get("/api/status", async () => {

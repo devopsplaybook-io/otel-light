@@ -11,7 +11,6 @@ const signalData = {
 
 let config: Config;
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function SelfMetricsInit(context: Span, configIn: Config) {
   config = configIn;
   const span = OTelTracer().startSpan("SelfMetricsInit", context);
@@ -25,7 +24,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
         });
       });
     },
-    { description: "Count of traces per services" },
+    "Count of traces per services",
   );
   OTelMeter().createObservableGauge(
     "signals.metrics",
@@ -37,7 +36,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
         });
       });
     },
-    { description: "Count of metrics per services" },
+    "Count of metrics per services",
   );
   OTelMeter().createObservableGauge(
     "signals.logs",
@@ -49,7 +48,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
         });
       });
     },
-    { description: "Count of logs per services" },
+    "Count of logs per services",
   );
   OTelMeter().createObservableGauge(
     "signals.totals",
@@ -70,7 +69,7 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
       );
       observableResult.observe(totalLogs, { signal: "logs" });
     },
-    { description: "Total count of each signal type across all services" },
+    "Total count of each signal type across all services",
   );
 
   SelfMetricsRefreshMetrics();

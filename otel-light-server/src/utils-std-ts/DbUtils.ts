@@ -25,16 +25,23 @@ export function DbUtilsInitGetDatabase() {
   }
 }
 
+/** Convert SQLite ? placeholders to PostgreSQL $1, $2, ... numbering */
+export function convertToPostgresPlaceholders(sql: string): string {
+  let paramIndex = 1;
+  return sql.replace(/\?/g, () => `$${paramIndex++}`);
+}
+
 export function DbUtilsExecSQL(
   context: Span,
   sql: string,
   params = [],
 ): Promise<number> {
-  // Convert SQLite placeholders (?) to PostgreSQL ($1, $2, etc.)
   if (databaseType === "postgres") {
-    let paramIndex = 1;
-    const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
-    return PostgresUtils.PostgresDbUtilsExecSQL(context, convertedSql, params);
+    return PostgresUtils.PostgresDbUtilsExecSQL(
+      context,
+      convertToPostgresPlaceholders(sql),
+      params,
+    );
   } else {
     return SqliteUtils.SqlDbUtilsExecSQL(context, sql, params);
   }
@@ -47,13 +54,10 @@ export function DbUtilsQuerySQL(
   debug = false,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ): Promise<any[]> {
-  // Convert SQLite placeholders (?) to PostgreSQL ($1, $2, etc.)
   if (databaseType === "postgres") {
-    let paramIndex = 1;
-    const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
     return PostgresUtils.PostgresDbUtilsQuerySQL(
       context,
-      convertedSql,
+      convertToPostgresPlaceholders(sql),
       params,
       debug,
     );

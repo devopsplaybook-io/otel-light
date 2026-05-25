@@ -55,12 +55,12 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
@@ -158,29 +158,24 @@ export default {
       this.hasMore = true;
       this.newestStartTime = null;
       this.oldestStartTime = null;
+      this.isLoadingMore = false;
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
-      return await axios
-        .get(
-          `${
-            (await Config.get()).SERVER_URL
-          }/analytics/traces/${traceId}/spans`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.spans;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.spans;
+      });
     },
     async getTraceLogs(traceId) {
-      return await axios
-        .get(
-          `${(await Config.get()).SERVER_URL}/analytics/traces/${traceId}/logs`,
-          await AuthService.getAuthHeader(),
-        )
-        .then((response) => {
-          return response.data.logs;
-        });
+      return await analyticsGet(
+        `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+        await AuthService.getAuthHeader(),
+      ).then((response) => {
+        return response.data.logs;
+      });
     },
     async toggleTrace(traceId) {
       if (this.traceSpans[traceId]) {
@@ -206,9 +201,8 @@ export default {
           ? `${qs}&before=${this.oldestStartTime}`
           : `before=${this.oldestStartTime}`;
       }
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      const url = `${SERVER_URL}/analytics/traces?${qs}`;
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -237,9 +231,8 @@ export default {
       const qs = this.filter.queryString
         ? `${this.filter.queryString}&afterTime=${this.newestStartTime}`
         : `afterTime=${this.newestStartTime}`;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/traces?${qs}`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      const url = `${SERVER_URL}/analytics/traces?${qs}`;
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           const newTraces = await UtilsDecompressJson(response.data.traces);
           if (newTraces && newTraces.length > 0) {
@@ -269,7 +262,10 @@ export default {
       };
     },
     goToAnalytics() {
-      this.$router.push({ path: "/traces/stats", query: this.$route.query });
+      this.$router.push({
+        path: "/traces/stats/aggregated",
+        query: this.$route.query,
+      });
     },
   },
 };

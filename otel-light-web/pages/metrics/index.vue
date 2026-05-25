@@ -51,11 +51,11 @@
 </template>
 
 <script>
-import axios from "axios";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
-import Config from "~~/services/Config";
+import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { PreferencesService } from "~~/services/PreferencesService";
 
@@ -89,11 +89,10 @@ export default {
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
       this.loading = true;
-      const url = `${(await Config.get()).SERVER_URL}/analytics/metrics/names${
+      const url = `${SERVER_URL}/analytics/metrics/names${
         this.filter.queryString ? "?" + this.filter.queryString : ""
       }`;
-      axios
-        .get(url, await AuthService.getAuthHeader())
+      analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {
           if (fetchTime < this.fetchTime) {
             return;
@@ -183,25 +182,5 @@ export default {
   font-size: 3rem;
   opacity: 0.4;
   cursor: pointer;
-}
-</style>
-
-<style>
-:root[data-theme="dark"] .apexcharts-xaxis text,
-:root[data-theme="dark"] .apexcharts-yaxis text {
-  fill: #eee !important;
-}
-:root[data-theme="dark"] .apexcharts-legend-text {
-  color: #eee !important;
-}
-:root[data-theme="light"] .apexcharts-xaxis text,
-:root[data-theme="light"] .apexcharts-yaxis text {
-  fill: #333 !important;
-}
-:root[data-theme="light"] .apexcharts-legend-text {
-  color: #333 !important;
-}
-.apexcharts-tooltip {
-  color: #333;
 }
 </style>

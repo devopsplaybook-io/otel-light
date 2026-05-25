@@ -98,8 +98,10 @@
 </template>
 
 <script>
-import { debounce } from "lodash";
-import { getDefaultTimeWindow } from "~/services/PreferencesService";
+import {
+  TimeWindowOptions,
+  getDefaultTimeWindow,
+} from "~/services/PreferencesService";
 import { ServicesStore } from "~/stores/ServicesStore";
 export default {
   name: "SearchOptions",
@@ -128,28 +130,12 @@ export default {
       serviceVersion: "",
       filtersExpanded: savedExpanded === null ? true : savedExpanded === "true",
       isRefreshing: false,
-      timeOptions: [
-        { label: "now", value: 0 },
-        { label: "5 min ago", value: 5 * 60 },
-        { label: "10 min ago", value: 10 * 60 },
-        { label: "30 min ago", value: 30 * 60 },
-        { label: "1 h ago", value: 1 * 60 * 60 },
-        { label: "2 h ago", value: 2 * 60 * 60 },
-        { label: "6 h ago", value: 6 * 60 * 60 },
-        { label: "12 h ago", value: 12 * 60 * 60 },
-        { label: "1 day ago", value: 24 * 60 * 60 },
-        { label: "2 days ago", value: 2 * 24 * 60 * 60 },
-        { label: "5 days ago", value: 5 * 24 * 60 * 60 },
-        { label: "10 days ago", value: 10 * 24 * 60 * 60 },
-        { label: "30 days ago", value: 30 * 24 * 60 * 60 },
-        { label: "90 days ago", value: 90 * 24 * 60 * 60 },
-        { label: "180 days ago", value: 180 * 24 * 60 * 60 },
-        { label: "1 year ago", value: 365 * 24 * 60 * 60 },
-        { label: "all", value: 99999 * 24 * 60 * 60 },
-      ],
     };
   },
   computed: {
+    timeOptions() {
+      return TimeWindowOptions;
+    },
     availableVersions() {
       if (!this.serviceName) return [];
       return this.servicesStore.versionsForService(this.serviceName);
@@ -166,10 +152,23 @@ export default {
     if (query.severity) this.severity = query.severity;
     if (query.serviceName) this.serviceName = query.serviceName;
     if (query.serviceVersion) this.serviceVersion = query.serviceVersion;
-    this.emitFilterChanged = debounce(this.emitFilterChangedRaw, 500);
+    this.emitFilterChanged = this._debounce(
+      this.emitFilterChangedRaw.bind(this),
+      500,
+    );
     this.emitFilterChangedRaw();
   },
   methods: {
+    _debounce(fn, delay) {
+      let timer = null;
+      return function (...args) {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => {
+          fn(...args);
+          timer = null;
+        }, delay);
+      };
+    },
     onServiceNameChange() {
       this.serviceVersion = "";
       this.emitFilterChanged();
@@ -280,24 +279,14 @@ export default {
 #search-options-dates span {
   padding-bottom: 0.4rem;
 }
-.filter-select {
-  width: 7rem;
-}
-.filter-service {
-  width: 10rem;
-}
-.filter-service-version {
-  width: 8rem;
-}
 .filter-service-version:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
 .search-attributes {
-  display: flex;
-  flex-direction: row;
-  gap: 1rem;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(6rem, auto));
+  gap: 0.5rem;
 }
 .search-collapsible {
   display: grid;
@@ -311,10 +300,6 @@ export default {
 .search-collapsible.collapsed {
   max-height: 0;
   opacity: 0;
-}
-.search-collapsible > * {
-  min-height: 0;
-  overflow: hidden;
 }
 .collapse-button {
   padding-right: 0;

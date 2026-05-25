@@ -183,7 +183,7 @@ async function callLLMWithRetry(
         {
           model: config.LLM_MODEL,
           temperature: 0.3,
-          max_tokens: 2000,
+          max_tokens: 4000,
           messages: [
             {
               role: "system",
@@ -253,14 +253,14 @@ async function callLLMWithRetry(
 interface LogsStats {
   total: number;
   errors: number;
-  perService: Array<{
+  perService: {
     serviceName: string;
     total: number;
     errors: number;
     errorRate: number;
-  }>;
-  perSeverity: Array<{ severity: string; count: number }>;
-  topErrorMessages: Array<{ message: string; count: number }>;
+  }[];
+  perSeverity: { severity: string; count: number }[];
+  topErrorMessages: { message: string; count: number }[];
 }
 
 interface TraceTypeStats {
@@ -277,17 +277,17 @@ interface TraceTypeStats {
 interface TracesStats {
   total: number;
   requestsPerMinute: number;
-  perService: Array<{ serviceName: string; count: number; errorCount: number }>;
+  perService: { serviceName: string; count: number; errorCount: number }[];
   errorCount: number;
   topByCount: TraceTypeStats[];
   topByDuration: TraceTypeStats[];
   topByAvgDuration: TraceTypeStats[];
   topByErrors: TraceTypeStats[];
-  httpStatusBreakdown: Array<{
+  httpStatusBreakdown: {
     serviceName: string;
     statusRange: string;
     count: number;
-  }>;
+  }[];
 }
 
 interface RecommendationStats {
@@ -436,33 +436,37 @@ async function CollectStats(
     [periodStart, periodEnd],
   );
 
-  // In-memory aggregation: group by trace name
+  // In-memory aggregation: group by (serviceName, name) to avoid merging
+  // traces from different services that happen to share the same root span name
   const traceAgg: Record<
     string,
     {
       durations: number[];
       serviceName: string;
+      name: string;
       errorCount: number;
     }
   > = {};
   for (const row of rootSpansRaw) {
-    const name = row.name;
+    const svcName = row.serviceName || "unknown";
+    const traceName = row.name;
+    const key = `${svcName}::${traceName}`;
     const durationMs = Number(row.duration) / 1_000_000; // ns → ms
     const isError = Number(row.statusCode) === 2;
-    if (!traceAgg[name]) {
-      traceAgg[name] = {
+    if (!traceAgg[key]) {
+      traceAgg[key] = {
         durations: [],
-        serviceName: row.serviceName || "unknown",
+        serviceName: svcName,
+        name: traceName,
         errorCount: 0,
       };
     }
-    traceAgg[name].durations.push(durationMs);
-    if (isError) traceAgg[name].errorCount++;
+    traceAgg[key].durations.push(durationMs);
+    if (isError) traceAgg[key].errorCount++;
   }
 
-  // Sort durations and compute percentiles per trace name
+  // Sort durations and compute percentiles per (serviceName, name) group
   const buildTraceTypeStats = (
-    name: string,
     agg: (typeof traceAgg)[string],
   ): TraceTypeStats => {
     const d = [...agg.durations].sort((a, b) => a - b);
@@ -473,7 +477,7 @@ async function CollectStats(
     };
     const sum = d.reduce((s, v) => s + v, 0);
     return {
-      name,
+      name: agg.name,
       count: d.length,
       totalDurationMs: Math.round(sum),
       avgDurationMs: d.length > 0 ? Math.round(sum / d.length) : 0,
@@ -484,8 +488,8 @@ async function CollectStats(
     };
   };
 
-  const allTraceStats: TraceTypeStats[] = Object.entries(traceAgg).map(
-    ([name, agg]) => buildTraceTypeStats(name, agg),
+  const allTraceStats: TraceTypeStats[] = Object.values(traceAgg).map(
+    (agg) => buildTraceTypeStats(agg),
   );
 
   // Dynamic limits based on actual number of services
@@ -598,6 +602,8 @@ async function CollectStats(
 // ── Prompt Builder ────────────────────────────────────────────────────────────
 
 function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
+  const PROMPT_MAX_LENGTH = 8000;
+
   const fmtPct = (v: number): string => {
     const pct = v * 100;
     if (v === 0) return "0%";
@@ -616,6 +622,55 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
       ? `${Math.abs(pctChange).toFixed(0)}%`
       : "new";
     return ` (${arrow}${pctStr} vs previous period)`;
+  };
+
+  const fmtTraceLine = (t: TraceTypeStats): string =>
+    `${t.name}: ${t.count} traces, ${t.totalDurationMs}ms total, ${t.avgDurationMs}ms avg, p50=${t.p50DurationMs}ms, p95=${t.p95DurationMs}ms, p99=${t.p99DurationMs}ms, ${t.errorCount} errors`;
+
+  // Helper: push a trace ranking section, truncating per-section entries if
+  // the overall prompt would exceed PROMPT_MAX_LENGTH (priority order preserved).
+  const pushTraceRanking = (
+    lines: string[],
+    header: string,
+    entries: TraceTypeStats[],
+    maxPerSection: number,
+  ): void => {
+    if (entries.length === 0) return;
+    const currentLength = lines.join("\n").length;
+    if (currentLength > PROMPT_MAX_LENGTH) return; // already over budget, skip
+
+    // Compute how many entries we can fit; reserve ~200 chars for closing content
+    const budget = PROMPT_MAX_LENGTH - currentLength - 200;
+    const headerLine = `Top ${entries.length} trace types by ${header}:`;
+    let limit = Math.min(entries.length, maxPerSection);
+    let attempts = 0;
+    while (limit > 0 && attempts < 2) {
+      const preview =
+        headerLine +
+        "\n" +
+        entries
+          .slice(0, limit)
+          .map((t) => `  - ${fmtTraceLine(t)}`)
+          .join("\n");
+      if (preview.length <= budget || limit === 1) {
+        break;
+      }
+      limit = Math.max(1, limit - Math.ceil(limit / 3));
+      attempts++;
+    }
+
+    if (limit === 0) return;
+
+    const suffix =
+      limit < entries.length
+        ? `\n  (${entries.length - limit} more omitted to fit context limit)`
+        : "";
+    lines.push(headerLine);
+    for (const t of entries.slice(0, limit)) {
+      lines.push(`  - ${fmtTraceLine(t)}`);
+    }
+    if (suffix) lines.push(suffix.trimEnd());
+    lines.push("");
   };
 
   const lines: string[] = [];
@@ -683,49 +738,32 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
     lines.push("");
   }
 
-  // Four ranking dimensions — ensures both interactive (high-count) and background (high-duration) traces are visible
-  const fmtTraceLine = (t: TraceTypeStats): string =>
-    `${t.name}: ${t.count} traces, ${t.totalDurationMs}ms total, ${t.avgDurationMs}ms avg, p50=${t.p50DurationMs}ms, p95=${t.p95DurationMs}ms, p99=${t.p99DurationMs}ms, ${t.errorCount} errors`;
-
-  if (stats.traces.topByCount.length > 0) {
-    lines.push(
-      `Top ${stats.traces.topByCount.length} trace types by request count (most frequent — typically user-facing):`,
-    );
-    for (const t of stats.traces.topByCount) {
-      lines.push(`  - ${fmtTraceLine(t)}`);
-    }
-    lines.push("");
-  }
-
-  if (stats.traces.topByDuration.length > 0) {
-    lines.push(
-      `Top ${stats.traces.topByDuration.length} trace types by cumulative duration (heaviest total time):`,
-    );
-    for (const t of stats.traces.topByDuration) {
-      lines.push(`  - ${fmtTraceLine(t)}`);
-    }
-    lines.push("");
-  }
-
-  if (stats.traces.topByAvgDuration.length > 0) {
-    lines.push(
-      `Top ${stats.traces.topByAvgDuration.length} trace types by average duration (slowest — min 3 occurrences):`,
-    );
-    for (const t of stats.traces.topByAvgDuration) {
-      lines.push(`  - ${fmtTraceLine(t)}`);
-    }
-    lines.push("");
-  }
-
-  if (stats.traces.topByErrors.length > 0) {
-    lines.push(
-      `Top ${stats.traces.topByErrors.length} trace types by error count (most problematic):`,
-    );
-    for (const t of stats.traces.topByErrors) {
-      lines.push(`  - ${fmtTraceLine(t)}`);
-    }
-    lines.push("");
-  }
+  // Four ranking dimensions — priority: byCount > byErrors > byDuration > byAvgDuration
+  // Max entries per section scale down as prompt length grows
+  pushTraceRanking(
+    lines,
+    "request count (most frequent — typically user-facing)",
+    stats.traces.topByCount,
+    8,
+  );
+  pushTraceRanking(
+    lines,
+    "error count (most problematic)",
+    stats.traces.topByErrors,
+    6,
+  );
+  pushTraceRanking(
+    lines,
+    "cumulative duration (heaviest total time)",
+    stats.traces.topByDuration,
+    5,
+  );
+  pushTraceRanking(
+    lines,
+    "average duration (slowest — min 3 occurrences)",
+    stats.traces.topByAvgDuration,
+    5,
+  );
 
   // ── Previous period comparison ──
 
@@ -744,7 +782,13 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
     "Based on the above data, provide your Analysis and Recommendations.",
   );
 
-  return lines.join("\n");
+  const prompt = lines.join("\n");
+  if (prompt.length > PROMPT_MAX_LENGTH) {
+    logger.warn(
+      `LLM prompt length ${prompt.length} exceeds limit ${PROMPT_MAX_LENGTH}; some trace listings were truncated`,
+    );
+  }
+  return prompt;
 }
 
 // ── SQL Queries ───────────────────────────────────────────────────────────────
@@ -873,8 +917,8 @@ const SQL_QUERIES = {
   },
   TRACES_ROOT_SPANS_AGGREGATED: {
     postgres:
-      'SELECT "name", "serviceName", ("endTime" - "startTime") AS duration, "statusCode" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL LIMIT 50000',
+      'SELECT "name", "serviceName", ("endTime" - "startTime") AS duration, "statusCode" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL',
     sqlite:
-      "SELECT name, serviceName, (endTime - startTime) AS duration, statusCode FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL LIMIT 50000",
+      "SELECT name, serviceName, (endTime - startTime) AS duration, statusCode FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL",
   },
 };
