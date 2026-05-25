@@ -1,6 +1,6 @@
 <template>
   <div id="traces-page" class="signals-page signals-page-stats">
-    <ReportTabs :tabs="reports" :active="activeReport" @select="onTabSelect" />
+    <TabNavigation :tabs="reports" />
     <SearchOptions @filterChanged="onFilterChanged" type="traces" />
     <div id="traces" class="signals-scroll">
       <div class="trace-group-summary">
@@ -69,7 +69,6 @@
 </template>
 
 <script>
-import ReportTabs from "~/components/ReportTabs.vue";
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Trace from "~/components/Trace.vue";
@@ -81,13 +80,21 @@ import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
 
 export default {
-  components: { ReportTabs, SearchOptions, Trace, TraceSpan },
+  components: { SearchOptions, Trace, TraceSpan },
   data() {
     return {
       reports: [
-        { id: "aggregated", label: "Aggregated Traces" },
-        { id: "longest", label: "Longest Traces" },
-        { id: "most-called", label: "Most Called Traces" },
+        {
+          id: "aggregated",
+          label: "Aggregated Traces",
+          to: "/traces/stats/aggregated",
+        },
+        { id: "longest", label: "Longest Traces", to: "/traces/stats/longest" },
+        {
+          id: "most-called",
+          label: "Most Called Traces",
+          to: "/traces/stats/most-called",
+        },
       ],
       groups: [],
       expandedGroupTraces: {},
@@ -109,12 +116,6 @@ export default {
     this.fetchTraces();
   },
   computed: {
-    activeReport() {
-      const path = this.$route.path;
-      if (path.endsWith("/longest")) return "longest";
-      if (path.endsWith("/most-called")) return "most-called";
-      return "aggregated";
-    },
     groupedTraces() {
       return this.groups.map((g) => ({
         ...g,
@@ -123,14 +124,6 @@ export default {
     },
   },
   methods: {
-    onTabSelect(tabId) {
-      const pathMap = {
-        aggregated: "/traces/stats/aggregated",
-        longest: "/traces/stats/longest",
-        "most-called": "/traces/stats/most-called",
-      };
-      this.$router.push({ path: pathMap[tabId] });
-    },
     goToTraces() {
       this.$router.push({ path: "/traces/", query: this.$route.query });
     },

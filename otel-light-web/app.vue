@@ -310,16 +310,14 @@ dialog article header {
 
 /* Loading */
 
-@media (prefers-color-scheme: dark) {
-  .loading-indicator {
-    --c: no-repeat linear-gradient(#bcc6ce 0 0);
-  }
+:root[data-theme="dark"] .loading-indicator {
+  --c: no-repeat linear-gradient(#bcc6ce 0 0);
 }
-@media (prefers-color-scheme: light) {
-  .loading-indicator {
-    --c: no-repeat linear-gradient(#1d2832 0 0);
-  }
+
+:root[data-theme="light"] .loading-indicator {
+  --c: no-repeat linear-gradient(#1d2832 0 0);
 }
+
 .loading-indicator {
   width: 15%;
   margin-left: auto;
@@ -341,7 +339,7 @@ dialog article header {
       20% 100%,
       20% 100%;
   }
-  33% {
+  200% {
     background-size:
       20% 10%,
       20% 100%,
@@ -365,17 +363,5 @@ dialog article header {
       20% 100%,
       20% 100%;
   }
-}
-
-.vue-apexcharts,
-[role="button"] {
-  padding: 0;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  font: inherit;
-  color: inherit;
-  appearance: none;
 }
 </style>

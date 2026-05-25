@@ -20,7 +20,11 @@ export default defineNuxtConfig({
       ],
     },
   },
-  css: ["~/assets/css/main.css"],
+  css: [
+    "~/assets/css/main.css",
+    "~/assets/css/tab-navigation.css",
+    "~/assets/css/apexcharts.css",
+  ],
   modules: ["@pinia/nuxt", "@vite-pwa/nuxt"],
   imports: {
     dirs: ["./stores"],

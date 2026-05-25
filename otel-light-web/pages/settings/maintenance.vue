@@ -1,6 +1,6 @@
 <template>
   <div id="settings-page">
-    <SettingsNavigation />
+    <TabNavigation :tabs="settingsTabs" />
     <h3>Signal Deletion Settings</h3>
     <form id="settings">
       <div
@@ -64,6 +64,19 @@ export default {
   components: { SearchOptions },
   data() {
     return {
+      settingsTabs: [
+        {
+          id: "maintenance",
+          label: "Maintenance",
+          to: "/settings/maintenance",
+        },
+        {
+          id: "users",
+          label: "Users",
+          to: "/settings/users",
+          show: () => AuthenticationStore().isAdmin,
+        },
+      ],
       services: [],
       settings: {
         deleteRules: [],

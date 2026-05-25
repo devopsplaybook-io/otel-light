@@ -1,6 +1,6 @@
 <template>
   <div id="traces-page" class="signals-page">
-    <ReportTabs :tabs="reports" :active="activeReport" @select="onTabSelect" />
+    <TabNavigation :tabs="reports" />
     <div class="signals-scroll">
       <TraceReportStatic
         title="Most Called Traces"
@@ -19,7 +19,6 @@
 </template>
 
 <script>
-import ReportTabs from "~/components/ReportTabs.vue";
 import axios from "axios";
 import TraceReportStatic from "~/components/TraceReportStatic.vue";
 import { AuthService } from "~~/services/AuthService";
@@ -27,13 +26,21 @@ import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 
 export default {
-  components: { ReportTabs, TraceReportStatic },
+  components: { TraceReportStatic },
   data() {
     return {
       reports: [
-        { id: "aggregated", label: "Aggregated Traces" },
-        { id: "longest", label: "Longest Traces" },
-        { id: "most-called", label: "Most Called Traces" },
+        {
+          id: "aggregated",
+          label: "Aggregated Traces",
+          to: "/traces/stats/aggregated",
+        },
+        { id: "longest", label: "Longest Traces", to: "/traces/stats/longest" },
+        {
+          id: "most-called",
+          label: "Most Called Traces",
+          to: "/traces/stats/most-called",
+        },
       ],
       report: {
         generatedAt: null,
@@ -44,14 +51,6 @@ export default {
       },
     };
   },
-  computed: {
-    activeReport() {
-      const path = this.$route.path;
-      if (path.endsWith("/longest")) return "longest";
-      if (path.endsWith("/most-called")) return "most-called";
-      return "aggregated";
-    },
-  },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/users" });
@@ -60,14 +59,6 @@ export default {
     this.fetchReport();
   },
   methods: {
-    onTabSelect(tabId) {
-      const pathMap = {
-        aggregated: "/traces/stats/aggregated",
-        longest: "/traces/stats/longest",
-        "most-called": "/traces/stats/most-called",
-      };
-      this.$router.push({ path: pathMap[tabId] });
-    },
     goToTraces() {
       this.$router.push({ path: "/traces/", query: this.$route.query });
     },
