@@ -11,6 +11,6 @@ module.exports = {
   moduleNameMapper: {
     "^uuid$": "<rootDir>/src/__mocks__/uuid.ts",
   },
-  testMatch: ["/**/src/**/*.spec.(ts|js)"],
+  testMatch: ["**/src/**/*.spec.(ts|js)"],
   testEnvironment: "node",
 };

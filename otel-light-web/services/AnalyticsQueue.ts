@@ -8,13 +8,13 @@ interface QueueItem {
 
 /**
  * Bounded-concurrency queue for analytics API requests (traces, logs, metrics).
- * Only 2 requests execute concurrently. Failed / timed-out requests are
+ * Only 5 requests execute concurrently. Failed / timed-out requests are
  * released from the active slot immediately so queued requests can proceed.
  */
 class AnalyticsQueue {
   private readonly queue: QueueItem[] = [];
   private activeCount = 0;
-  private readonly maxConcurrent = 2;
+  private readonly maxConcurrent = 5;
 
   enqueue<T>(requestFn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -48,7 +48,7 @@ export const analyticsQueue = new AnalyticsQueue();
 
 /**
  * Drop-in replacement for `axios.get` that queues requests targeting
- * analytics endpoints (traces, logs, metrics). Only 2 concurrent
+ * analytics endpoints (traces, logs, metrics). Only 5 concurrent
  * requests are allowed.
  */
 export function analyticsGet(
@@ -60,7 +60,7 @@ export function analyticsGet(
 
 /**
  * Drop-in replacement for `fetch` that queues requests targeting
- * analytics endpoints. Only 2 concurrent requests are allowed.
+ * analytics endpoints. Only 5 concurrent requests are allowed.
  */
 export function analyticsFetch(
   url: string,
