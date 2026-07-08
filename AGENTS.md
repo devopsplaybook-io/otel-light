@@ -8,11 +8,11 @@ This file provides context for AI coding agents working on this repository.
 
 The repository is a monorepo with three components:
 
-| Component          | Technology                                    | Port | Role                                                        |
-| ------------------ | --------------------------------------------- | ---- | ----------------------------------------------------------- |
-| `otel-light-server`| Node.js + Fastify + TypeScript                | 8080 | API server: OTLP ingestion, analytics, auth, maintenance    |
-| `otel-light-web`   | Nuxt 3 (Vue 3)                                | 3000 | Static frontend (pre-rendered, served by the server)        |
-| `otel-light-proxy` | Traefik v2.9.6 (pre-compiled binary)          | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
+| Component           | Technology                           | Port | Role                                                               |
+| ------------------- | ------------------------------------ | ---- | ------------------------------------------------------------------ |
+| `otel-light-server` | Node.js + Fastify + TypeScript       | 8080 | API server: OTLP ingestion, analytics, auth, maintenance           |
+| `otel-light-web`    | Nuxt 3 (Vue 3)                       | 3000 | Static frontend (pre-rendered, served by the server)               |
+| `otel-light-proxy`  | Traefik v2.9.6 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
 
 In production, all three run inside a single Docker container. The server serves the pre-built web assets via `@fastify/static`, eliminating the need for the proxy. The proxy is only used in local development with PM2.
 
@@ -86,16 +86,19 @@ otel-light/
 ### Request Flow
 
 **Ingestion** (OTLP HTTP):
+
 ```
 Client → POST /v1/{traces|metrics|logs} → SignalUtilsCheckAuthHeader → parse OTLP JSON → DbUtilsNoTelemetryBatchInsert → DB
 ```
 
 **Analytics** (web UI):
+
 ```
 Browser → GET /api/analytics/* → AuthGetUserSession → DbUtilsQuerySQL (with OTel span) → JSON response
 ```
 
 **LLM Recommendation** (scheduled via node-cron):
+
 ```
 Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cache result to <DATA_DIR>/recommendation.json → GET /api/recommendation serves cached
 ```
@@ -119,14 +122,14 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 
 ## Database Schema
 
-| Table       | Key Columns                                                                 | Purpose                              |
-| ----------- | --------------------------------------------------------------------------- | ------------------------------------ |
-| `metadata`  | type, value, dateCreated                                                     | Migration tracking, auth token       |
-| `users`     | id, name, passwordEncrypted, role, scopes                                   | User accounts (role: admin/user)     |
-| `settings`  | category, content (JSON)                                                    | Maintenance rules, app settings      |
-| `traces`    | traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords | Ingested trace spans |
-| `metrics`   | name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords | Ingested metric data points     |
-| `logs`      | serviceName, serviceVersion, severity, time, logText, attributes, keywords, traceId, spanId | Ingested log records |
+| Table      | Key Columns                                                                                                                     | Purpose                          |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------- | -------------------------------- |
+| `metadata` | type, value, dateCreated                                                                                                        | Migration tracking, auth token   |
+| `users`    | id, name, passwordEncrypted, role, scopes                                                                                       | User accounts (role: admin/user) |
+| `settings` | category, content (JSON)                                                                                                        | Maintenance rules, app settings  |
+| `traces`   | traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords | Ingested trace spans             |
+| `metrics`  | name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords                                                  | Ingested metric data points      |
+| `logs`     | serviceName, serviceVersion, severity, time, logText, attributes, keywords, traceId, spanId                                     | Ingested log records             |
 
 Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0008). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
@@ -197,34 +200,34 @@ Both pass `node_app_directories: '["otel-light-server"]'` to tell the reusable w
 
 ### Server
 
-| Package                                    | Role                                                                       |
-| ------------------------------------------ | -------------------------------------------------------------------------- |
-| `@devopsplaybook.io/common-utils`          | Shared DB access (better-sqlite3/pg), ConfigBase, OTelContext, helpers     |
-| `@devopsplaybook.io/otel-utils`            | StandardTracer, StandardMeter, StandardLogger                              |
-| `@devopsplaybook.io/otel-utils-fastify`    | Fastify hooks for OTel request tracing                                     |
-| `fastify`                                  | Web framework (v5)                                                         |
-| `@fastify/compress`                        | Gzip/deflate response compression                                         |
-| `@fastify/cors`                            | CORS handling                                                              |
-| `@fastify/multipart`                        | Multipart form parsing                                                      |
-| `@fastify/static`                          | Static file serving (web assets in production)                             |
-| `better-sqlite3`                           | Synchronous SQLite driver (via common-utils)                               |
-| `pg`                                       | PostgreSQL client with connection pooling (via common-utils)              |
-| `jsonwebtoken`                             | JWT generation and verification                                            |
-| `bcrypt`                                   | Password hashing                                                           |
-| `uuid`                                     | UUID v4 generation (ESM — requires mock in tests)                          |
-| `fs-extra`                                  | Async file operations                                                      |
-| `axios`                                     | HTTP client (LLM API calls)                                                |
-| `node-cron`                                 | Cron scheduling for LLM recommendations and static reports                 |
-| `node-schedule`                             | Job scheduling (alternative to node-cron)                                 |
-| `minimatch`                                  | Glob pattern matching (maintenance rules)                                 |
+| Package                                 | Role                                                                   |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| `@devopsplaybook.io/common-utils`       | Shared DB access (better-sqlite3/pg), ConfigBase, OTelContext, helpers |
+| `@devopsplaybook.io/otel-utils`         | StandardTracer, StandardMeter, StandardLogger                          |
+| `@devopsplaybook.io/otel-utils-fastify` | Fastify hooks for OTel request tracing                                 |
+| `fastify`                               | Web framework (v5)                                                     |
+| `@fastify/compress`                     | Gzip/deflate response compression                                      |
+| `@fastify/cors`                         | CORS handling                                                          |
+| `@fastify/multipart`                    | Multipart form parsing                                                 |
+| `@fastify/static`                       | Static file serving (web assets in production)                         |
+| `better-sqlite3`                        | Synchronous SQLite driver (via common-utils)                           |
+| `pg`                                    | PostgreSQL client with connection pooling (via common-utils)           |
+| `jsonwebtoken`                          | JWT generation and verification                                        |
+| `bcrypt`                                | Password hashing                                                       |
+| `uuid`                                  | UUID v4 generation (ESM — requires mock in tests)                      |
+| `fs-extra`                              | Async file operations                                                  |
+| `axios`                                 | HTTP client (LLM API calls)                                            |
+| `node-cron`                             | Cron scheduling for LLM recommendations and static reports             |
+| `node-schedule`                         | Job scheduling (alternative to node-cron)                              |
+| `minimatch`                             | Glob pattern matching (maintenance rules)                              |
 
 ### Web
 
-| Package          | Role                                           |
-| ---------------- | ---------------------------------------------- |
-| `nuxt`           | Nuxt 3 framework (Vue 3, SSR disabled)         |
-| `apexcharts`     | Chart library for trace/metric visualization   |
-| `nuxtjs/apex`    | Vue 3 wrapper for ApexCharts                    |
+| Package       | Role                                         |
+| ------------- | -------------------------------------------- |
+| `nuxt`        | Nuxt 3 framework (Vue 3, SSR disabled)       |
+| `apexcharts`  | Chart library for trace/metric visualization |
+| `nuxtjs/apex` | Vue 3 wrapper for ApexCharts                 |
 
 ## Configuration
 
@@ -232,23 +235,23 @@ Config extends `ConfigBase` from common-utils with a 3-layer override: environme
 
 Key config fields (in addition to those inherited from ConfigBase):
 
-| Field                                      | Default                                     | Description                                           |
-| ------------------------------------------ | ------------------------------------------- | ----------------------------------------------------- |
-| `DATABASE_TYPE`                            | `sqlite`                                    | `sqlite` or `postgres`                                |
-| `API_PORT`                                 | `8080`                                      | Server listen port (inherited from ConfigBase)        |
-| `CORS_POLICY_ORIGIN`                       | `*`                                         | CORS origin (empty = disabled)                        |
-| `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` | (empty)                                   | Bearer token required for ingestion                   |
-| `OPENTELEMETRY_COLLECTOR_HTTP_*`            | `http://localhost:8080/v1/*`               | OTel collector endpoints (overridden in dev)           |
-| `MAINTENANCE_FREQUENCY_HOURS`              | `6`                                         | How often maintenance runs                             |
-| `METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS`  | `12`                                        | Hours before minute-level compression                  |
-| `METRICS_COMPRESS_HOUR_THRESHOLD_DAYS`     | `7`                                         | Days before hour-level compression                     |
-| `CACHE_REFRESH_MINUTES`                    | `10`                                        | Analytics cache refresh interval                       |
-| `LLM_API_KEY`                              | (empty)                                     | API key for LLM (empty = disabled)                    |
-| `LLM_API_URL`                              | `https://api.deepseek.com/chat/completions` | OpenAI-compatible endpoint                            |
-| `LLM_MODEL`                                | `deepseek-chat`                             | Model name                                            |
-| `LLM_RECOMMENDATION_SCHEDULE_CRON`         | `0 0 * * *`                                 | Daily at midnight                                      |
-| `STATIC_REPORT_TOP_N`                      | `30`                                        | Top N traces for static reports                       |
-| `STATIC_REPORT_PERIOD_DAYS`                | `30`                                        | Lookback period for static reports                     |
+| Field                                        | Default                                     | Description                                    |
+| -------------------------------------------- | ------------------------------------------- | ---------------------------------------------- |
+| `DATABASE_TYPE`                              | `sqlite`                                    | `sqlite` or `postgres`                         |
+| `API_PORT`                                   | `8080`                                      | Server listen port (inherited from ConfigBase) |
+| `CORS_POLICY_ORIGIN`                         | `*`                                         | CORS origin (empty = disabled)                 |
+| `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` | (empty)                                     | Bearer token required for ingestion            |
+| `OPENTELEMETRY_COLLECTOR_HTTP_*`             | `http://localhost:8080/v1/*`                | OTel collector endpoints (overridden in dev)   |
+| `MAINTENANCE_FREQUENCY_HOURS`                | `6`                                         | How often maintenance runs                     |
+| `METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS`    | `12`                                        | Hours before minute-level compression          |
+| `METRICS_COMPRESS_HOUR_THRESHOLD_DAYS`       | `7`                                         | Days before hour-level compression             |
+| `CACHE_REFRESH_MINUTES`                      | `10`                                        | Analytics cache refresh interval               |
+| `LLM_API_KEY`                                | (empty)                                     | API key for LLM (empty = disabled)             |
+| `LLM_API_URL`                                | `https://api.deepseek.com/chat/completions` | OpenAI-compatible endpoint                     |
+| `LLM_MODEL`                                  | `deepseek-chat`                             | Model name                                     |
+| `LLM_RECOMMENDATION_SCHEDULE_CRON`           | `0 0 * * *`                                 | Daily at midnight                              |
+| `STATIC_REPORT_TOP_N`                        | `30`                                        | Top N traces for static reports                |
+| `STATIC_REPORT_PERIOD_DAYS`                  | `30`                                        | Lookback period for static reports             |
 
 ## Known Gotchas
 
