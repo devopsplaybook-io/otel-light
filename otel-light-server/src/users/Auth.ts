@@ -131,12 +131,12 @@ const SQL_QUERIES = {
   GET_AUTH_TOKEN: {
     postgres:
       "SELECT value FROM metadata WHERE \"type\" = 'auth_token' LIMIT 1",
-    sqlite: 'SELECT value FROM metadata WHERE type = "auth_token" LIMIT 1',
+    sqlite: "SELECT value FROM metadata WHERE type = 'auth_token' LIMIT 1",
   },
   INSERT_AUTH_TOKEN: {
     postgres:
       'INSERT INTO metadata ("type", "value", "dateCreated") VALUES (\'auth_token\', $1, $2)',
     sqlite:
-      'INSERT INTO metadata (type, value, dateCreated) VALUES ("auth_token", ?, ?)',
+      "INSERT INTO metadata (type, value, dateCreated) VALUES ('auth_token', ?, ?)",
   },
 };

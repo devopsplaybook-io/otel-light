@@ -28,7 +28,8 @@ import {
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { AuthInit } from "./users/Auth";
 import { UsersRoutes } from "./users/UsersRoutes";
-import { DbUtilsInit } from "./utils-std-ts/DbUtils";
+import { DbUtilsSetOTel, DbUtilsInit } from "./utils-std-ts/DbUtils";
+import { DbUtilsNoTelemetrySetLogger } from "./utils-std-ts/DbUtilsNoTelemetry";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
@@ -52,10 +53,17 @@ Promise.resolve().then(async () => {
   OTelSetMeter(new StandardMeter(config));
   OTelLogger().initOTel(config);
 
+  DbUtilsSetOTel(OTelTracer(), OTelLogger());
+  DbUtilsNoTelemetrySetLogger(OTelLogger());
+
   const span = OTelTracer().startSpan("init");
 
   await SignalUtilsInit(span, config);
-  await DbUtilsInit(span, config);
+  await DbUtilsInit(
+    span,
+    config,
+    path.join(__dirname, `../sql/${config.DATABASE_TYPE}`),
+  );
   await AuthInit(span, config);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);

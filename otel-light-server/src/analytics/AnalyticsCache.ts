@@ -72,6 +72,10 @@ export async function AnalyticsCacheInit(
     logger.error("Failed to read analytics cache file", err, span);
   }
 
+  // Ensure the first scheduled refresh uses the short interval
+  // (otherwise lastAccessTime=0 triggers the 1-hour fallback)
+  lastAccessTime = Date.now();
+
   span.end();
 
   // Kick off initial refresh and start scheduler
@@ -173,10 +177,19 @@ async function AnalyticsCacheRefresh(): Promise<void> {
       metricsNames: cachedData?.metricsNames ?? null,
       lastUpdated: cachedData?.lastUpdated ?? Date.now(),
     };
-    if (servicesData) {
+    // Only overwrite cached data when the refresh returned actual entries.
+    // An empty result at startup (before metrics are first exported) should
+    // not wipe out data loaded from the cache file.
+    if (
+      servicesData &&
+      (servicesData.services.length > 0 || !cachedData?.services)
+    ) {
       newData.services = servicesData;
     }
-    if (metricsNamesData) {
+    if (
+      metricsNamesData &&
+      (metricsNamesData.names.length > 0 || !cachedData?.metricsNames)
+    ) {
       newData.metricsNames = metricsNamesData;
     }
     newData.lastUpdated = Date.now();
