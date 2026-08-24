@@ -27,6 +27,7 @@ export class Config extends ConfigBase {
   public LLM_API_KEY = "";
   public LLM_API_URL = "https://api.deepseek.com/chat/completions";
   public LLM_MODEL = "deepseek-chat";
+  public LLM_ENABLE_THINKING = false;
   public LLM_RECOMMENDATION_SCHEDULE_CRON = "0 0 * * *";
   public LLM_RECOMMENDATION_PERIOD_HOURS = 24;
 
@@ -63,6 +64,7 @@ export class Config extends ConfigBase {
     this.addConfigField({ field: "LLM_API_KEY", sensitive: true });
     this.addConfigField({ field: "LLM_API_URL" });
     this.addConfigField({ field: "LLM_MODEL" });
+    this.addConfigField({ field: "LLM_ENABLE_THINKING" });
     this.addConfigField({ field: "LLM_RECOMMENDATION_SCHEDULE_CRON" });
     this.addConfigField({ field: "LLM_RECOMMENDATION_PERIOD_HOURS" });
     this.addConfigField({ field: "STATIC_REPORT_TOP_N" });

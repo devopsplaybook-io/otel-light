@@ -249,6 +249,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `LLM_API_KEY`                                | (empty)                                     | API key for LLM (empty = disabled)             |
 | `LLM_API_URL`                                | `https://api.deepseek.com/chat/completions` | OpenAI-compatible endpoint                     |
 | `LLM_MODEL`                                  | `deepseek-chat`                             | Model name                                     |
+| `LLM_ENABLE_THINKING`                        | `false`                                     | Thinking mode for reasoning LLM models         |
 | `LLM_RECOMMENDATION_SCHEDULE_CRON`           | `0 0 * * *`                                 | Daily at midnight                              |
 | `STATIC_REPORT_TOP_N`                        | `30`                                        | Top N traces for static reports                |
 | `STATIC_REPORT_PERIOD_DAYS`                  | `30`                                        | Lookback period for static reports             |
@@ -266,3 +267,4 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **AnalyticsCache adaptive refresh**: The cache refreshes every 10 minutes when recently accessed (within 1 hour), otherwise every hour. This minimizes DB load during idle periods.
 - **Single-container production**: In production, the server serves pre-built web assets via `@fastify/static`. The Traefik proxy is NOT used. Only `dist/`, `node_modules/`, `sql/`, `config.json`, and `web/` are copied into the Docker image.
 - **Test mocks intercept re-exports**: Tests mock `../../utils-std-ts/DbUtils` etc., which are now re-export files. Jest intercepts the import at the re-export file path, so mocks work without changes. Do not mock `@devopsplaybook.io/common-utils` directly.
+- **LLM thinking mode**: Reasoning/thinking models (e.g. DeepSeek `-flash`/`-pro` variants) spend `max_tokens` on their internal chain-of-thought, which can leave `content` empty and trigger "LLM returned an empty response." `Recommendation.ts` sends `thinking.type=disabled` by default; set `LLM_ENABLE_THINKING=true` only when chain-of-thought is wanted (also raises the request timeout).
