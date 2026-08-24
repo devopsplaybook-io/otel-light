@@ -5,6 +5,7 @@ import * as path from "path";
 import * as schedule from "node-schedule";
 import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import { NotificationSendRecommendation } from "../NotificationService";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 
@@ -158,6 +159,9 @@ export async function RecommendationGenerate(): Promise<void> {
     await fs.ensureDir(path.dirname(recommendationFilePath));
     await fs.writeJson(recommendationFilePath, result);
     logger.info("LLM recommendation generated and cached successfully", span);
+
+    // Send notification with the recommendation
+    await NotificationSendRecommendation(periodHours, analysis, recommendations);
   } catch (err) {
     logger.error(
       `Failed to generate recommendation: ${err.message}`,
