@@ -1,26 +1,23 @@
-import { NotificationClient } from "./NotificationClient";
+import { NotificationsClient } from "@devopsplaybook.io/common-utils";
 import { Config } from "./Config";
 import { OTelLogger } from "./OTelContext";
 
 const logger = OTelLogger().createModuleLogger("notification-service");
 
-let notificationClient: NotificationClient | null = null;
+let notificationClient: NotificationsClient | null = null;
 
 /**
  * Initialize the notification service.
+ *
+ * The shared client logs the integration status (enabled or disabled) once
+ * at construction and never throws on partially configured settings.
  */
 export function NotificationInit(config: Config): void {
-  if (config.NOTIFICATIONS_API && config.NOTIFICATIONS_TOKEN) {
-    notificationClient = new NotificationClient({
-      apiEndpoint: config.NOTIFICATIONS_API,
-      apiToken: config.NOTIFICATIONS_TOKEN,
-    });
-    logger.info("Notification service initialized");
-  } else {
-    logger.info(
-      "Notification service disabled (NOTIFICATIONS_API or NOTIFICATIONS_TOKEN not set)",
-    );
-  }
+  notificationClient = new NotificationsClient({
+    apiEndpoint: config.NOTIFICATIONS_API,
+    apiToken: config.NOTIFICATIONS_TOKEN,
+    logger,
+  });
 }
 
 /**
@@ -35,28 +32,15 @@ export async function NotificationSendRecommendation(
   analysis: string,
   recommendations: string,
 ): Promise<void> {
-  if (!notificationClient) {
+  if (!notificationClient || !notificationClient.isEnabled()) {
     return;
   }
 
-  // Truncate analysis and recommendations to fit in notification body
-  const maxBodyLength = 500;
-  const truncatedAnalysis =
-    analysis.length > maxBodyLength
-      ? analysis.substring(0, maxBodyLength) + "..."
-      : analysis;
-  const truncatedRecommendations =
-    recommendations.length > maxBodyLength
-      ? recommendations.substring(0, maxBodyLength) + "..."
-      : recommendations;
-
   const title = `LLM Recommendation generated (${periodHours}h analysis)`;
-  const body = `## Analysis\n${truncatedAnalysis}\n\n## Recommendations\n${truncatedRecommendations}`;
+  const body = `## Analysis\n${analysis}\n\n## Recommendations\n${recommendations}`;
 
-  try {
-    await notificationClient.info(title, body, "otel-light");
+  const response = await notificationClient.info(title, body, "otel-light");
+  if (response) {
     logger.info("LLM recommendation notification sent successfully");
-  } catch (err) {
-    logger.error("Failed to send LLM recommendation notification", err);
   }
 }
