@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession, AuthMustBeAdmin } from "../users/Auth";
+import { AuthGetUserSession, AuthMustBeAdmin } from "@devopsplaybook.io/common-utils";
 import {
   RecommendationGenerate,
   RecommendationGetCached,

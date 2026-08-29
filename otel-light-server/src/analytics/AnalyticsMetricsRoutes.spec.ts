@@ -7,7 +7,8 @@ jest.mock("../utils-std-ts/DbUtilsNoTelemetry", () => ({
   DbUtilsNoTelemetryQuerySQL: jest.fn(),
 }));
 
-jest.mock("../users/Auth", () => ({
+jest.mock("@devopsplaybook.io/common-utils", () => ({
+  ...jest.requireActual("@devopsplaybook.io/common-utils"),
   AuthGetUserSession: jest.fn(),
   AuthHasScope: jest.fn(),
 }));
@@ -25,7 +26,7 @@ jest.mock("./AnalyticsUtils", () => ({
 // Imports
 // ---------------------------------------------------------------------------
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
+import { AuthGetUserSession, AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { AnalyticsUtilsCompressJson } from "./AnalyticsUtils";
 import { AnalyticsMetricsRoutes } from "./AnalyticsMetricsRoutes";
 
