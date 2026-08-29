@@ -1,4 +1,4 @@
-/* Shared tab navigation styles for TraceReportTabs and SettingsNavigation */
+/* Shared tab navigation styles for the traces pages and the settings pages */
 .tab-navigation {
   display: flex;
   gap: 0.25rem;
@@ -6,22 +6,22 @@
   border-bottom: 1px solid #ffffff22;
   padding: 0;
   overflow-x: auto;
+  max-width: 100%;
   min-width: 0;
   list-style: none;
+  scrollbar-width: thin;
 }
 .tab {
   background: none;
   border: none;
   display: inline-flex;
   align-items: center;
+  flex: 0 1 auto;
   padding: 0.5rem 1rem;
   cursor: pointer;
   font-size: 0.9rem;
   border-bottom: 2px solid transparent;
   margin-bottom: -1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   min-width: 0;
   text-decoration: none;
   color: inherit;
@@ -31,8 +31,26 @@
     color 0.2s,
     border-color 0.2s;
 }
+/* Ellipsis must live on the label: text-overflow has no effect on flex containers */
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
 .tab:hover {
   opacity: 0.6;
+}
+/* On phones, tighten spacing so full labels fit without truncation; the bar
+   falls back to horizontal scrolling below that. */
+@media (max-width: 480px) {
+  .tab-navigation {
+    gap: 0.1rem;
+  }
+  .tab {
+    padding: 0.5rem 0.6rem;
+    font-size: 0.85rem;
+  }
 }
 .tab.active {
   opacity: 1;

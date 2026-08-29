@@ -26,7 +26,10 @@ jest.mock("./AnalyticsUtils", () => ({
 // Imports
 // ---------------------------------------------------------------------------
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import { AuthGetUserSession, AuthHasScope } from "@devopsplaybook.io/common-utils";
+import {
+  AuthGetUserSession,
+  AuthHasScope,
+} from "@devopsplaybook.io/common-utils";
 import { AnalyticsUtilsCompressJson } from "./AnalyticsUtils";
 import { AnalyticsMetricsRoutes } from "./AnalyticsMetricsRoutes";
 
@@ -161,6 +164,86 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
     expect(sql).toContain("AND time <");
     expect(sql).toContain("LIMIT 200");
     expect(params).toContain("9999999");
+  });
+
+  // --- Server-side sampling: maxPoints ---
+  it("runs a COUNT query first when maxPoints is provided", async () => {
+    (DbUtilsNoTelemetryQuerySQL as jest.Mock)
+      .mockResolvedValueOnce([{ total: 100 }])
+      .mockResolvedValueOnce([]);
+
+    await fastify.inject({
+      method: "GET",
+      url: "/analytics/metrics?name=http.requests&serviceName=my-svc&maxPoints=500",
+    });
+
+    expect(DbUtilsNoTelemetryQuerySQL).toHaveBeenCalledTimes(2);
+    const [countSql]: [string] = (DbUtilsNoTelemetryQuerySQL as jest.Mock).mock
+      .calls[0];
+    expect(countSql).toContain("COUNT(*)");
+  });
+
+  it("uses the plain query when total count fits within maxPoints", async () => {
+    (DbUtilsNoTelemetryQuerySQL as jest.Mock)
+      .mockResolvedValueOnce([{ total: 100 }])
+      .mockResolvedValueOnce([]);
+
+    await fastify.inject({
+      method: "GET",
+      url: "/analytics/metrics?name=http.requests&serviceName=my-svc&maxPoints=500",
+    });
+
+    const [sql]: [string] = (DbUtilsNoTelemetryQuerySQL as jest.Mock).mock
+      .calls[1];
+    expect(sql).not.toContain("ROW_NUMBER");
+    expect(sql).toContain("LIMIT 500");
+  });
+
+  it("samples with ROW_NUMBER when total count exceeds maxPoints", async () => {
+    (DbUtilsNoTelemetryQuerySQL as jest.Mock)
+      .mockResolvedValueOnce([{ total: 10000 }])
+      .mockResolvedValueOnce([]);
+
+    await fastify.inject({
+      method: "GET",
+      url: "/analytics/metrics?name=http.requests&serviceName=my-svc&maxPoints=500",
+    });
+
+    const [sql]: [string] = (DbUtilsNoTelemetryQuerySQL as jest.Mock).mock
+      .calls[1];
+    expect(sql).toContain("ROW_NUMBER()");
+    // step = ceil(10000 / 500) = 20
+    expect(sql).toContain("(rn % 20) = 1");
+    expect(sql).toContain("LIMIT 500");
+  });
+
+  it("clamps maxPoints to AnalyticsUtilsResultLimitMetrics", async () => {
+    const { AnalyticsUtilsResultLimitMetrics } =
+      await import("./AnalyticsUtils");
+    (DbUtilsNoTelemetryQuerySQL as jest.Mock)
+      .mockResolvedValueOnce([{ total: 10 }])
+      .mockResolvedValueOnce([]);
+
+    await fastify.inject({
+      method: "GET",
+      url: "/analytics/metrics?name=http.requests&maxPoints=99999999",
+    });
+
+    const [sql]: [string] = (DbUtilsNoTelemetryQuerySQL as jest.Mock).mock
+      .calls[1];
+    expect(sql).toContain(`LIMIT ${AnalyticsUtilsResultLimitMetrics}`);
+  });
+
+  it("ignores invalid maxPoints values", async () => {
+    await fastify.inject({
+      method: "GET",
+      url: "/analytics/metrics?name=http.requests&maxPoints=abc",
+    });
+
+    expect(DbUtilsNoTelemetryQuerySQL).toHaveBeenCalledTimes(1);
+    const [sql]: [string] = (DbUtilsNoTelemetryQuerySQL as jest.Mock).mock
+      .calls[0];
+    expect(sql).not.toContain("COUNT(*)");
   });
 
   // --- Success ---

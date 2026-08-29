@@ -24,6 +24,7 @@ export class AnalyticsMetricsRoutes {
         afterTime?: number;
         beforeTime?: number;
         limit?: number;
+        maxPoints?: number;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -77,11 +78,41 @@ export class AnalyticsMetricsRoutes {
         sqlParams.push(req.query.beforeTime);
       }
 
-      const resultLimit = req.query.limit || AnalyticsUtilsResultLimitMetrics;
-      const rawMetrics = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_METRICS(sqlWhere, resultLimit)[dbType],
-        sqlParams,
+      const resultLimit =
+        parsePositiveInt(req.query.limit, AnalyticsUtilsResultLimitMetrics) ||
+        AnalyticsUtilsResultLimitMetrics;
+      // When maxPoints is set, rows are downsampled server-side (evenly over
+      // the time range) so the client receives a bounded payload instead of
+      // paginating through the full data set only to downsample it locally.
+      const maxPoints = parsePositiveInt(
+        req.query.maxPoints,
+        AnalyticsUtilsResultLimitMetrics,
       );
+      let rawMetrics;
+      if (maxPoints) {
+        const countRows = await DbUtilsNoTelemetryQuerySQL(
+          SQL_QUERIES.COUNT_METRICS(sqlWhere)[dbType],
+          sqlParams,
+        );
+        const totalCount = Number(countRows[0]?.total || 0);
+        const step = Math.max(1, Math.ceil(totalCount / maxPoints));
+        if (step > 1) {
+          rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+            SQL_QUERIES.GET_METRICS_SAMPLED(sqlWhere, step, maxPoints)[dbType],
+            sqlParams,
+          );
+        } else {
+          rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+            SQL_QUERIES.GET_METRICS(sqlWhere, maxPoints)[dbType],
+            sqlParams,
+          );
+        }
+      } else {
+        rawMetrics = await DbUtilsNoTelemetryQuerySQL(
+          SQL_QUERIES.GET_METRICS(sqlWhere, resultLimit)[dbType],
+          sqlParams,
+        );
+      }
       const metrics = [];
       rawMetrics.forEach((rawMetric) => {
         metrics.push(new Metric(rawMetric));
@@ -130,9 +161,27 @@ export class AnalyticsMetricsRoutes {
 
 // SQL
 
+function parsePositiveInt(value: unknown, max: number): number | null {
+  const parsed = parseInt(String(value ?? ""), 10);
+  if (isNaN(parsed) || parsed < 1) {
+    return null;
+  }
+  return Math.min(parsed, max);
+}
+
 const SQL_QUERIES = {
   GET_METRICS: (sqlWhere: string, limit: number) => ({
     postgres: `SELECT "name", "serviceName", "serviceVersion", "time", "type", "rawMetric" FROM metrics ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit}`,
     sqlite: `SELECT name, serviceName, serviceVersion, time, type, rawMetric FROM metrics ${sqlWhere} ORDER BY time DESC LIMIT ${limit}`,
+  }),
+  COUNT_METRICS: (sqlWhere: string) => ({
+    postgres: `SELECT COUNT(*) AS total FROM metrics ${sqlWhere}`,
+    sqlite: `SELECT COUNT(*) AS total FROM metrics ${sqlWhere}`,
+  }),
+  // Evenly samples 1 row every `step` rows (keeping the most recent one) so
+  // that at most `maxPoints` rows are returned whatever the total volume.
+  GET_METRICS_SAMPLED: (sqlWhere: string, step: number, maxPoints: number) => ({
+    postgres: `SELECT "name", "serviceName", "serviceVersion", "time", "type", "rawMetric" FROM (SELECT "name", "serviceName", "serviceVersion", "time", "type", "rawMetric", ROW_NUMBER() OVER (ORDER BY "time" DESC) AS rn FROM metrics ${sqlWhere}) sampled WHERE (rn % ${step}) = 1 ORDER BY "time" DESC LIMIT ${maxPoints}`,
+    sqlite: `SELECT name, serviceName, serviceVersion, time, type, rawMetric FROM (SELECT name, serviceName, serviceVersion, time, type, rawMetric, ROW_NUMBER() OVER (ORDER BY time DESC) AS rn FROM metrics ${sqlWhere}) WHERE (rn % ${step}) = 1 ORDER BY time DESC LIMIT ${maxPoints}`,
   }),
 };

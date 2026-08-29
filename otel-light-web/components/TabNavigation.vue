@@ -3,10 +3,10 @@
     <NuxtLink
       v-for="tab in visibleTabs"
       :key="tab.id"
-      :to="tab.to"
+      :to="{ path: tab.to, query: route.query }"
       :class="['tab', { active: isActive(tab) }]"
     >
-      {{ tab.label }}
+      <span class="tab-label">{{ tab.label }}</span>
     </NuxtLink>
   </div>
 </template>
@@ -32,7 +32,16 @@ const visibleTabs = computed(() => {
   });
 });
 
+function normalizePath(path) {
+  return String(path || "").replace(/\/+$/, "") || "/";
+}
+
 function isActive(tab) {
-  return route.path === tab.to || route.path.startsWith(tab.to + "/");
+  const currentPath = normalizePath(route.path);
+  const tabPath = normalizePath(tab.to);
+  if (tab.exact) {
+    return currentPath === tabPath;
+  }
+  return currentPath === tabPath || currentPath.startsWith(tabPath + "/");
 }
 </script>

@@ -121,6 +121,11 @@ main {
   height: 100%;
 }
 
+/* Pages with a tab bar on top of the search options (e.g. traces) */
+.signals-page-with-tabs {
+  grid-template-rows: auto auto 1fr;
+}
+
 .signals-scroll {
   max-width: 100%;
   overflow-x: auto;

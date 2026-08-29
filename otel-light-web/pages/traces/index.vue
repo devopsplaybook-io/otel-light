@@ -1,5 +1,6 @@
 <template>
-  <div id="traces-page" class="signals-page">
+  <div id="traces-page" class="signals-page signals-page-with-tabs">
+    <TabNavigation :tabs="tracesTabs" />
     <SearchOptions
       ref="searchOptions"
       @filterChanged="onFilterChanged"
@@ -48,9 +49,6 @@
         >
       </div>
     </div>
-    <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
-      <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
-    </button>
   </div>
 </template>
 
@@ -58,6 +56,7 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
+import { TracesTabs } from "~~/services/TracesTabs";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -70,6 +69,7 @@ export default {
   components: { SearchOptions, Loading },
   data() {
     return {
+      tracesTabs: TracesTabs,
       traces: [],
       hasMore: true,
       isLoadingMore: false,
@@ -260,12 +260,6 @@ export default {
         asc: this.sortKey === key && this.sortOrder === "asc",
         desc: this.sortKey === key && this.sortOrder === "desc",
       };
-    },
-    goToAnalytics() {
-      this.$router.push({
-        path: "/traces/stats/aggregated",
-        query: this.$route.query,
-      });
     },
   },
 };
