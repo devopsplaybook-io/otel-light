@@ -1,6 +1,6 @@
 <template>
   <div id="traces-page" class="signals-page">
-    <TabNavigation :tabs="reports" />
+    <TabNavigation :tabs="tracesTabs" />
     <div class="signals-scroll">
       <TraceReportStatic
         title="Most Called Traces"
@@ -12,15 +12,13 @@
         value-label="Avg Duration (s)"
       />
     </div>
-    <button class="fab-button" @click="goToTraces" title="Go to Analytics">
-      <i class="bi bi-arrow-return-left"></i>&nbsp;Back
-    </button>
   </div>
 </template>
 
 <script>
 import axios from "axios";
 import TraceReportStatic from "~/components/TraceReportStatic.vue";
+import { TracesTabs } from "~~/services/TracesTabs";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
@@ -29,19 +27,7 @@ export default {
   components: { TraceReportStatic },
   data() {
     return {
-      reports: [
-        {
-          id: "aggregated",
-          label: "Aggregated Traces",
-          to: "/traces/stats/aggregated",
-        },
-        { id: "longest", label: "Longest Traces", to: "/traces/stats/longest" },
-        {
-          id: "most-called",
-          label: "Most Called Traces",
-          to: "/traces/stats/most-called",
-        },
-      ],
+      tracesTabs: TracesTabs,
       report: {
         generatedAt: null,
         periodDays: null,
@@ -59,9 +45,6 @@ export default {
     this.fetchReport();
   },
   methods: {
-    goToTraces() {
-      this.$router.push({ path: "/traces/", query: this.$route.query });
-    },
     async fetchReport() {
       try {
         const response = await axios.get(

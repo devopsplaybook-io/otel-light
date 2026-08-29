@@ -6,14 +6,9 @@
 </template>
 
 <script>
-import { analyticsGet } from "~~/services/AnalyticsQueue";
 import VueApexCharts from "vue3-apexcharts";
-import {
-  UtilsDecompressJson,
-  UtilsMetricSampleDataPoints,
-} from "~/services/Utils";
-import { AuthService } from "~~/services/AuthService";
-import { SERVER_URL } from "~~/services/Config";
+import { UtilsMetricSampleDataPoints } from "~/services/Utils";
+import { MetricsServiceFetchMetricData } from "~~/services/MetricsService";
 import { handleError } from "~~/services/EventBus";
 
 export default {
@@ -98,58 +93,21 @@ export default {
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
 
-      const PAGE_SIZE = 500;
-      const allMetrics = [];
-      let beforeTime = null;
-      let hasMore = true;
-
-      while (hasMore) {
+      try {
+        const allMetrics = await MetricsServiceFetchMetricData(
+          this.serviceName,
+          this.name,
+          this.filter.queryString,
+        );
         if (fetchTime < this.fetchTime) {
           return;
         }
-
-        const baseParams = new URLSearchParams(this.filter.queryString || "");
-        baseParams.delete("serviceName");
-        baseParams.delete("name");
-        baseParams.delete("limit");
-        baseParams.set("serviceName", this.serviceName);
-        baseParams.set("name", this.name);
-        baseParams.set("limit", String(PAGE_SIZE));
-
-        if (beforeTime) {
-          baseParams.set("beforeTime", String(beforeTime));
-        }
-
-        const url = `${SERVER_URL}/analytics/metrics?${baseParams.toString()}`;
-
-        try {
-          const response = await analyticsGet(
-            url,
-            await AuthService.getAuthHeader(),
-          );
-
-          if (fetchTime < this.fetchTime) {
-            return;
-          }
-
-          const batchMetrics = await UtilsDecompressJson(response.data.metrics);
-
-          allMetrics.push(...batchMetrics);
-
-          if (batchMetrics.length < PAGE_SIZE) {
-            hasMore = false;
-          } else {
-            beforeTime = Math.min(...batchMetrics.map((m) => m.time));
-          }
-        } catch (error) {
-          handleError(error);
-          hasMore = false;
-        }
+        this.allMetrics = allMetrics;
+        this.metrics = UtilsMetricSampleDataPoints(allMetrics, 500);
+        this.displayMetrics();
+      } catch (error) {
+        handleError(error);
       }
-
-      this.allMetrics = allMetrics;
-      this.metrics = UtilsMetricSampleDataPoints(allMetrics, 500);
-      this.displayMetrics();
       this.loading = false;
     },
     displayMetrics() {

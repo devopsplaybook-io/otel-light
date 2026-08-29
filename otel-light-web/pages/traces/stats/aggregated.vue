@@ -1,6 +1,6 @@
 <template>
-  <div id="traces-page" class="signals-page signals-page-stats">
-    <TabNavigation :tabs="reports" />
+  <div id="traces-page" class="signals-page signals-page-with-tabs">
+    <TabNavigation :tabs="tracesTabs" />
     <SearchOptions @filterChanged="onFilterChanged" type="traces" />
     <div id="traces" class="signals-scroll">
       <div class="trace-group-summary">
@@ -62,9 +62,6 @@
         </div>
       </div>
     </div>
-    <button class="fab-button" @click="goToTraces" title="Go to Analytics">
-      <i class="bi bi-arrow-return-left"></i>&nbsp;Back
-    </button>
   </div>
 </template>
 
@@ -73,6 +70,7 @@ import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Trace from "~/components/Trace.vue";
 import TraceSpan from "~/components/TraceSpan.vue";
+import { TracesTabs } from "~~/services/TracesTabs";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -83,19 +81,7 @@ export default {
   components: { SearchOptions, Trace, TraceSpan },
   data() {
     return {
-      reports: [
-        {
-          id: "aggregated",
-          label: "Aggregated Traces",
-          to: "/traces/stats/aggregated",
-        },
-        { id: "longest", label: "Longest Traces", to: "/traces/stats/longest" },
-        {
-          id: "most-called",
-          label: "Most Called Traces",
-          to: "/traces/stats/most-called",
-        },
-      ],
+      tracesTabs: TracesTabs,
       groups: [],
       expandedGroupTraces: {},
       traceSpans: {},
@@ -124,9 +110,6 @@ export default {
     },
   },
   methods: {
-    goToTraces() {
-      this.$router.push({ path: "/traces/", query: this.$route.query });
-    },
     onFilterChanged(filter) {
       this.filter.queryString = filter.queryString;
       this.fetchTraces();
@@ -230,10 +213,6 @@ export default {
 </script>
 
 <style scoped>
-.signals-page-stats {
-  grid-template-rows: auto auto 1fr;
-}
-
 .trace-group-summary,
 .trace-span-expanded {
   min-width: 1200px;
