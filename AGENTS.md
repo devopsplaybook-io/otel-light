@@ -61,13 +61,8 @@ otel-light/
 │       │   ├── MostCalledTracesReport.ts # Top N traces by frequency (scheduled)
 │       │   ├── ReportsRoutes.ts        # GET/POST /api/reports/*
 │       │   └── TraceGroupReportTypes.ts # Shared types for trace grouping
-│       ├── users/                       # User management & JWT auth
-│       │   ├── Auth.ts                 # JWT generation, verification, scope checking
-│       │   ├── UserPassword.ts         # bcrypt wrapper
-│       │   ├── UsersData.ts            # CRUD for users table
-│       │   └── UsersRoutes.ts          # GET/POST/PUT/DELETE /api/users
 │       ├── settings/SettingsRoutes.ts  # GET/PUT /api/settings (maintenance rules)
-│       ├── model/                       # Data models (User, Span, Trace, Log, Metric, Settings)
+│       ├── model/                       # Data models (Span, Trace, Log, Metric, Settings)
 │       └── utils-std-ts/               # Re-exports from @devopsplaybook.io/common-utils
 │           ├── DbUtils.ts              # → DbUtilsSetOTel, DbUtilsInit, DbUtilsExecSQL, DbUtilsQuerySQL, ...
 │           ├── DbUtilsNoTelemetry.ts   # → DbUtilsNoTelemetrySetLogger, DbUtilsNoTelemetryBatchInsert, ...
@@ -112,7 +107,7 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 5. `DbUtilsSetOTel(OTelTracer(), OTelLogger())` — inject OTel into DB utils
 6. `DbUtilsNoTelemetrySetLogger(OTelLogger())` — inject logger into no-telemetry DB utils
 7. `DbUtilsInit(span, config, sqlDir)` — run SQL migrations, open DB connection
-8. `AuthInit` — generate or load JWT signing key from DB
+8. `AuthSetOTel` / `UsersDataSetOTel` + `AuthInit(span, config, scopes)` (from common-utils) — register app scopes, generate or load JWT signing key from DB
 9. `MaintenanceInit` — start signal cleanup + metrics compression scheduler
 10. `SelfMetricsInit` — register observable gauges for signal counts
 11. `AnalyticsCacheInit` — load cached analytics from file, start refresh scheduler

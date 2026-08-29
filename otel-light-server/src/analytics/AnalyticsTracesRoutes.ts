@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
+import { AuthGetUserSession, AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";

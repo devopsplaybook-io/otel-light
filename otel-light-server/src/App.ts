@@ -27,8 +27,12 @@ import {
   OTelTracer,
 } from "./OTelContext";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
-import { AuthInit } from "./users/Auth";
-import { UsersRoutes } from "./users/UsersRoutes";
+import {
+  AuthInit,
+  AuthSetOTel,
+  UsersDataSetOTel,
+  UsersRoutes,
+} from "@devopsplaybook.io/common-utils";
 import { DbUtilsSetOTel, DbUtilsInit } from "./utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetrySetLogger } from "./utils-std-ts/DbUtilsNoTelemetry";
 import { LogsRoutes } from "./v1/logs/LogsRoutes";
@@ -65,7 +69,9 @@ Promise.resolve().then(async () => {
     config,
     path.join(__dirname, `../sql/${config.DATABASE_TYPE}`),
   );
-  await AuthInit(span, config);
+  AuthSetOTel(OTelTracer());
+  UsersDataSetOTel(OTelTracer());
+  await AuthInit(span, config, ["traces", "metrics", "logs"]);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);
   await AnalyticsCacheInit(span, config);

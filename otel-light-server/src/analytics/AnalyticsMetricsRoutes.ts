@@ -1,7 +1,7 @@
 import { AnalyticsCacheFilterMetricsNames } from "./AnalyticsCache";
 import { FastifyInstance } from "fastify";
 import { Metric } from "../model/Metric";
-import { AuthGetUserSession, AuthHasScope } from "../users/Auth";
+import { AuthGetUserSession, AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsCompressJson,
