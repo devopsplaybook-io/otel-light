@@ -27,6 +27,7 @@ export class Config extends ConfigBase {
   public LLM_API_KEY = "";
   public LLM_API_URL = "https://api.deepseek.com/chat/completions";
   public LLM_MODEL = "deepseek-chat";
+  public LLM_ENABLE_THINKING = false;
   public LLM_RECOMMENDATION_SCHEDULE_CRON = "0 0 * * *";
   public LLM_RECOMMENDATION_PERIOD_HOURS = 24;
 
@@ -34,6 +35,10 @@ export class Config extends ConfigBase {
   public STATIC_REPORT_TOP_N = 30;
   public STATIC_REPORT_PERIOD_DAYS = 30;
   public STATIC_REPORT_SCHEDULE_CRON = "0 0 * * *";
+
+  // Notifications
+  public NOTIFICATIONS_API = "";
+  public NOTIFICATIONS_TOKEN = "";
 
   constructor() {
     super("otel-light-server");
@@ -59,11 +64,14 @@ export class Config extends ConfigBase {
     this.addConfigField({ field: "LLM_API_KEY", sensitive: true });
     this.addConfigField({ field: "LLM_API_URL" });
     this.addConfigField({ field: "LLM_MODEL" });
+    this.addConfigField({ field: "LLM_ENABLE_THINKING" });
     this.addConfigField({ field: "LLM_RECOMMENDATION_SCHEDULE_CRON" });
     this.addConfigField({ field: "LLM_RECOMMENDATION_PERIOD_HOURS" });
     this.addConfigField({ field: "STATIC_REPORT_TOP_N" });
     this.addConfigField({ field: "STATIC_REPORT_PERIOD_DAYS" });
     this.addConfigField({ field: "STATIC_REPORT_SCHEDULE_CRON" });
+    this.addConfigField({ field: "NOTIFICATIONS_API" });
+    this.addConfigField({ field: "NOTIFICATIONS_TOKEN", sensitive: true });
   }
 
   public async reload(): Promise<void> {

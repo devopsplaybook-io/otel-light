@@ -100,6 +100,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | LLM_API_KEY                                             | API key for the LLM service (leave empty to disable)  | (empty)                                     | Config file or environment variable |
 | LLM_API_URL                                             | LLM API endpoint (OpenAI-compatible)                  | `https://api.deepseek.com/chat/completions` | Config file or environment variable |
 | LLM_MODEL                                               | LLM model name                                        | `deepseek-chat`                             | Config file or environment variable |
+| LLM_ENABLE_THINKING                                     | Enable thinking/reasoning mode for the LLM request    | `false`                                     | Config file or environment variable |
 | LLM_RECOMMENDATION_SCHEDULE_CRON                        | Cron expression for daily recommendation generation   | `0 0 * * *`                                 | Config file or environment variable |
 | LLM_RECOMMENDATION_PERIOD_HOURS                         | Hours of telemetry data to include in each report     | 24                                          | Config file or environment variable |
 

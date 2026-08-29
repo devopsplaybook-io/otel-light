@@ -5,6 +5,7 @@ import * as path from "path";
 import * as schedule from "node-schedule";
 import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import { NotificationSendRecommendation } from "../NotificationService";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 
@@ -158,6 +159,13 @@ export async function RecommendationGenerate(): Promise<void> {
     await fs.ensureDir(path.dirname(recommendationFilePath));
     await fs.writeJson(recommendationFilePath, result);
     logger.info("LLM recommendation generated and cached successfully", span);
+
+    // Send notification with the recommendation
+    await NotificationSendRecommendation(
+      periodHours,
+      analysis,
+      recommendations,
+    );
   } catch (err) {
     logger.error(
       `Failed to generate recommendation: ${err.message}`,
@@ -176,6 +184,9 @@ async function callLLMWithRetry(
 ): Promise<string> {
   let lastError: Error | undefined;
 
+  const thinkingEnabled =
+    String(config.LLM_ENABLE_THINKING).toLowerCase() === "true";
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       const response = await axios.post(
@@ -184,6 +195,10 @@ async function callLLMWithRetry(
           model: config.LLM_MODEL,
           temperature: 0.3,
           max_tokens: 4000,
+          // Thinking/reasoning models consume max_tokens with their internal
+          // chain-of-thought, which can leave content empty. Thinking is not
+          // needed for this report, so disable it by default.
+          thinking: { type: thinkingEnabled ? "enabled" : "disabled" },
           messages: [
             {
               role: "system",
@@ -224,10 +239,18 @@ async function callLLMWithRetry(
             "Content-Type": "application/json",
             Authorization: `Bearer ${config.LLM_API_KEY}`,
           },
-          timeout: 60000,
+          timeout: thinkingEnabled ? 120000 : 60000,
         },
       );
-      return response.data?.choices?.[0]?.message?.content || "";
+      const content = response.data?.choices?.[0]?.message?.content || "";
+      if (!content) {
+        const finishReason =
+          response.data?.choices?.[0]?.finish_reason || "unknown";
+        logger.warn(
+          `LLM response has empty content (finish_reason=${finishReason})`,
+        );
+      }
+      return content;
     } catch (error) {
       lastError = error as Error;
       const status = (error as { response?: { status?: number } })?.response
@@ -488,8 +511,8 @@ async function CollectStats(
     };
   };
 
-  const allTraceStats: TraceTypeStats[] = Object.values(traceAgg).map(
-    (agg) => buildTraceTypeStats(agg),
+  const allTraceStats: TraceTypeStats[] = Object.values(traceAgg).map((agg) =>
+    buildTraceTypeStats(agg),
   );
 
   // Dynamic limits based on actual number of services
