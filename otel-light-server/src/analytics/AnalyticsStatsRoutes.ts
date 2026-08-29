@@ -1,5 +1,5 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession } from "../users/Auth";
+import { AuthGetUserSession } from "@devopsplaybook.io/common-utils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
