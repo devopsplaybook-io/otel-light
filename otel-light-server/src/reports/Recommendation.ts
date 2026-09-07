@@ -139,9 +139,11 @@ export async function RecommendationGenerate(): Promise<void> {
 
     // ── Persist result ────────────────────────────────────────────────────
 
-    // Strip raw nanosecond timestamps from the stats exposed to clients;
-    // keep them internally for future delta comparisons.
+    // Include period boundaries so future runs can validate the previous
+    // period doesn't overlap with the current one before comparing.
     const clientStats = {
+      periodStart: stats.periodStart,
+      periodEnd: stats.periodEnd,
       periodHours: stats.periodHours,
       services: stats.services,
       logs: stats.logs,
@@ -211,7 +213,13 @@ async function callLLMWithRetry(
                 "- Logs with severity='error' indicate failures.\n" +
                 "- Trace names typically represent the entry-point operation (e.g., HTTP method + route).\n" +
                 "- Traces are ranked in 4 independent dimensions: by count (most frequent, usually user-facing), by cumulative duration (heaviest total time), by average duration (slowest, min 3 occurrences), and by error count (most problematic). A trace can appear in multiple lists.\n" +
-                "- 'previousPeriod' data (if present) lets you compare against the prior time window.\n\n" +
+                "- 'previousPeriod' data (if present) lets you compare against the prior time window. " +
+                "It covers the adjacent, non-overlapping window of equal duration immediately before the current period.\n\n" +
+                "IMPORTANT: The statistics cover the exact time window stated in the prompt. " +
+                "If no previous-period comparison data is provided, do not invent or assume prior values; " +
+                "do not describe trends, drops, or spikes relative to a period you have no data for. " +
+                "A low absolute count is not an anomaly on its own—only flag changes when you have " +
+                "both current and previous numbers to compare.\n\n" +
                 "Output your answer in two clear sections:\n" +
                 "## Analysis\n" +
                 "A concise analysis (3-6 paragraphs) covering:\n" +
@@ -580,25 +588,38 @@ async function CollectStats(
   };
 
   // ── Previous period comparison ─────────────────────────────────────────
+  // Query the immediately preceding, non-overlapping period of equal duration
+  // from the database. This avoids misleading deltas caused by comparing
+  // overlapping or misaligned time windows from cached recommendation files.
 
   let previousPeriod: RecommendationStats["previousPeriod"] = undefined;
   try {
-    if (await fs.pathExists(recommendationFilePath)) {
-      const cached = (await fs.readJson(recommendationFilePath)) as {
-        stats?: {
-          logs?: { total?: number; errors?: number };
-          traces?: { total?: number; errorCount?: number };
-        };
-      };
-      if (cached?.stats?.logs) {
-        previousPeriod = {
-          logsTotal: cached.stats.logs.total || 0,
-          logsErrors: cached.stats.logs.errors || 0,
-          tracesTotal: cached.stats.traces?.total || 0,
-          tracesErrors: cached.stats.traces?.errorCount || 0,
-        };
-      }
-    }
+    const prevPeriodEnd = periodStart;
+    const prevPeriodStart = periodStart - (periodEnd - periodStart);
+
+    const prevLogsTotalRow = await DbUtilsNoTelemetryQuerySQL(
+      SQL_QUERIES.LOGS_TOTAL[DbUtilsGetType()],
+      [prevPeriodStart, prevPeriodEnd],
+    );
+    const prevLogsErrorsRow = await DbUtilsNoTelemetryQuerySQL(
+      SQL_QUERIES.LOGS_ERRORS[DbUtilsGetType()],
+      [prevPeriodStart, prevPeriodEnd],
+    );
+    const prevTracesTotalRow = await DbUtilsNoTelemetryQuerySQL(
+      SQL_QUERIES.TRACES_TOTAL[DbUtilsGetType()],
+      [prevPeriodStart, prevPeriodEnd],
+    );
+    const prevTracesErrorsRow = await DbUtilsNoTelemetryQuerySQL(
+      SQL_QUERIES.TRACES_ERRORS[DbUtilsGetType()],
+      [prevPeriodStart, prevPeriodEnd],
+    );
+
+    previousPeriod = {
+      logsTotal: Number(prevLogsTotalRow[0]?.count || 0),
+      logsErrors: Number(prevLogsErrorsRow[0]?.count || 0),
+      tracesTotal: Number(prevTracesTotalRow[0]?.count || 0),
+      tracesErrors: Number(prevTracesErrorsRow[0]?.count || 0),
+    };
   } catch {
     // Ignore — previous period comparison is best-effort
   }
@@ -697,7 +718,11 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
   };
 
   const lines: string[] = [];
-  lines.push(`Telemetry statistics for the last ${periodHours} hours.\n`);
+  lines.push(`Telemetry statistics for the last ${periodHours} hours.`);
+  lines.push(
+    `Period: ${new Date(stats.periodStart / 1_000_000).toISOString()} to ${new Date(stats.periodEnd / 1_000_000).toISOString()}`,
+  );
+  lines.push("");
 
   lines.push("--- Services ---");
   lines.push(stats.services.join(", "));
@@ -793,10 +818,19 @@ function BuildPrompt(stats: RecommendationStats, periodHours: number): string {
   if (stats.previousPeriod) {
     lines.push("--- Comparison with previous period ---");
     lines.push(
+      `The previous period is the adjacent ${periodHours}-hour window immediately before the current one (no overlap).`,
+    );
+    lines.push(
       `Logs: ${stats.previousPeriod.logsTotal} → ${stats.logs.total} total, ${stats.previousPeriod.logsErrors} → ${stats.logs.errors} errors`,
     );
     lines.push(
       `Traces: ${stats.previousPeriod.tracesTotal} → ${stats.traces.total} total, ${stats.previousPeriod.tracesErrors} → ${stats.traces.errorCount} errors`,
+    );
+    lines.push("");
+  } else {
+    lines.push("--- Comparison with previous period ---");
+    lines.push(
+      "No previous period data is available. Do not speculate about trends or changes from a prior period; analyze only the current period's data.",
     );
     lines.push("");
   }
