@@ -63,4 +63,28 @@ export class UserService {
       await AuthService.getAuthHeader(),
     );
   }
+
+  // ==================== API Tokens (self-service) ====================
+
+  public static async listApiTokens(): Promise<any> {
+    return axios.get(
+      `${SERVER_URL}/users/tokens`,
+      await AuthService.getAuthHeader(),
+    );
+  }
+
+  public static async createApiToken(name: string): Promise<any> {
+    return axios.post(
+      `${SERVER_URL}/users/tokens`,
+      { name },
+      await AuthService.getAuthHeader(),
+    );
+  }
+
+  public static async deleteApiToken(id: string): Promise<any> {
+    return axios.delete(
+      `${SERVER_URL}/users/tokens/${id}`,
+      await AuthService.getAuthHeader(),
+    );
+  }
 }

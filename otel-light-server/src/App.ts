@@ -30,6 +30,7 @@ import { SettingsRoutes } from "./settings/SettingsRoutes";
 import {
   AuthInit,
   AuthSetOTel,
+  UsersApiTokensDataSetOTel,
   UsersDataSetOTel,
   UsersRoutes,
 } from "@devopsplaybook.io/common-utils";
@@ -71,6 +72,7 @@ Promise.resolve().then(async () => {
   );
   AuthSetOTel(OTelTracer());
   UsersDataSetOTel(OTelTracer());
+  UsersApiTokensDataSetOTel(OTelTracer());
   await AuthInit(span, config, ["traces", "metrics", "logs"]);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);

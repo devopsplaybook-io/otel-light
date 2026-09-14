@@ -110,6 +110,77 @@
         </div>
       </article>
 
+      <!-- API Tokens -->
+      <article>
+        <h3>
+          <i class="bi bi-shield-lock"></i>
+          API Tokens
+        </h3>
+        <p>
+          Tokens authenticate API calls with your own permissions
+          (<code>Authorization: Bearer &lt;token&gt;</code>). A token is shown
+          only once, right after its creation, and stays valid until revoked.
+        </p>
+        <div v-if="createdApiToken">
+          <p><strong>Copy your new token now, it will not be shown again:</strong></p>
+          <div class="api-token-reveal">
+            <code class="api-token-value">{{ createdApiToken }}</code>
+            <button class="secondary" @click="copyApiToken()">
+              <i
+                class="bi"
+                :class="copiedApiToken ? 'bi-clipboard-check' : 'bi-clipboard'"
+              ></i>
+              {{ copiedApiToken ? "Copied" : "Copy" }}
+            </button>
+          </div>
+        </div>
+        <div v-if="!isApiTokenCreationStarted">
+          <button @click="createApiTokenStart(true)">
+            <i class="bi bi-plus-lg"></i> Create Token
+          </button>
+        </div>
+        <div v-else>
+          <label>
+            Token Name
+            <input
+              type="text"
+              v-model="newApiToken.name"
+              placeholder="e.g. CI pipeline"
+              @keyup.enter="createApiToken()"
+            />
+          </label>
+          <div class="article-actions">
+            <button class="secondary" @click="createApiTokenStart(false)">
+              Cancel
+            </button>
+            <button :disabled="savingApiToken" @click="createApiToken()">
+              <i class="bi bi-check-lg"></i>
+              {{ savingApiToken ? "Creating…" : "Create" }}
+            </button>
+          </div>
+        </div>
+        <table v-if="apiTokens.length > 0" class="api-token-list">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Created</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="apiToken in apiTokens" :key="apiToken.id">
+              <td>{{ apiToken.name }}</td>
+              <td>{{ new Date(apiToken.dateCreated).toLocaleString() }}</td>
+              <td>
+                <button class="secondary" @click="revokeApiToken(apiToken.id)">
+                  <i class="bi bi-trash"></i> Revoke
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </article>
+
       <!-- Preferences -->
       <article>
         <h3>
@@ -221,6 +292,12 @@ export default {
       isChangePasswordStarted: false,
       loggingIn: false,
       savingPassword: false,
+      apiTokens: [],
+      isApiTokenCreationStarted: false,
+      newApiToken: {},
+      savingApiToken: false,
+      createdApiToken: null,
+      copiedApiToken: false,
       isDark,
       refreshInterval: RefreshIntervalService.get(),
       defaultTimeWindow: {
@@ -236,6 +313,7 @@ export default {
     AuthenticationStore().isAuthenticated = await AuthService.isAuthenticated();
     if (AuthenticationStore().isAuthenticated) {
       await AuthenticationStore().refreshFromToken();
+      this.listApiTokens();
     }
     this.refreshInterval = RefreshIntervalService.get();
     this.defaultTimeWindow.traces = getDefaultTimeWindow("traces");
@@ -331,6 +409,63 @@ export default {
     changePasswordStart(enable) {
       this.isChangePasswordStarted = enable;
       this.user = {};
+    },
+    async listApiTokens() {
+      try {
+        this.apiTokens = (await UserService.listApiTokens()).data;
+      } catch (err) {
+        handleError(err);
+      }
+    },
+    createApiTokenStart(enable) {
+      this.isApiTokenCreationStarted = enable;
+      this.newApiToken = {};
+      if (!enable) {
+        this.createdApiToken = null;
+        this.copiedApiToken = false;
+      }
+    },
+    async createApiToken() {
+      if (this.newApiToken.name) {
+        this.savingApiToken = true;
+        try {
+          const res = await UserService.createApiToken(this.newApiToken.name);
+          this.createdApiToken = res.data.token;
+          this.copiedApiToken = false;
+          this.newApiToken = {};
+          this.isApiTokenCreationStarted = false;
+          await this.listApiTokens();
+        } catch (err) {
+          handleError(err);
+        } finally {
+          this.savingApiToken = false;
+        }
+      } else {
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "error",
+          text: "Token name missing",
+        });
+      }
+    },
+    async copyApiToken() {
+      try {
+        await navigator.clipboard.writeText(this.createdApiToken);
+        this.copiedApiToken = true;
+      } catch (err) {
+        handleError(err);
+      }
+    },
+    async revokeApiToken(id) {
+      try {
+        await UserService.deleteApiToken(id);
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "info",
+          text: "API Token Revoked",
+        });
+        await this.listApiTokens();
+      } catch (err) {
+        handleError(err);
+      }
     },
     saveRefreshInterval() {
       RefreshIntervalService.set(this.refreshInterval);
@@ -433,5 +568,25 @@ article h4:first-child {
   margin-top: 1rem;
   display: flex;
   gap: 0.5rem;
+}
+
+.api-token-reveal {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.api-token-value {
+  word-break: break-all;
+}
+
+.api-token-list {
+  margin-top: 1rem;
+}
+
+.api-token-list td:last-child,
+.api-token-list th:last-child {
+  text-align: right;
 }
 </style>
