@@ -10,6 +10,7 @@
 - Dynamic paging with infinite scroll for Traces and Logs
 - Administration interface for login and maintenance rule management
 - Maintenance rules support optional service-name filtering
+- User API tokens: create personal tokens (on the profile page) to call the authenticated `GET/POST /api/*` endpoints with your own permissions; valid until revoked
 - All-in-one container deployment
 - Low memory footprint (<100MB)
 - Supports up to 1 million signals (Traces, Logs, Metrics)
@@ -126,6 +127,20 @@ When `LLM_API_KEY` is configured, OTel Light automatically generates a daily tel
 ### Frontend
 
 The recommendation is displayed as a card on the home page, with markdown-rendered analysis and recommendations sections, and the generation timestamp.
+
+## API Tokens
+
+Users can create their own API tokens from the profile page (`/users`), in the "API Tokens" section. A token has the same permissions as the user who created it (role and scopes are read live on every request, so permission changes and revocation apply immediately).
+
+- **Create**: profile page → "Create Token" → give it a name. The plaintext token is displayed only once — copy it immediately.
+- **List / Revoke**: the profile page lists your tokens; revoking a token immediately invalidates it.
+- **Use**: call any authenticated endpoint with the HTTP header below (e.g. `GET /api/analytics`, `GET /api/reports`, `GET /api/recommendation`):
+
+```
+Authorization: Bearer <your API token>
+```
+
+> **Note:** Ingestion endpoints (`POST /v1/traces`, `POST /v1/metrics`, `POST /v1/logs`) are not affected: they keep using the static `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` value.
 
 ## Client Application
 
