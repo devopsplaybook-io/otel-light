@@ -86,3 +86,30 @@ export function UtilsMetricSampleDataPoints(
     (_, i) => data[Math.floor(i * step)]
   );
 }
+
+// Probe metrics get a short series name: just the sanitized probe name.
+// The charset mirrors StandardTracer.SPAN_NAME_SANITIZE_RE in @devopsplaybook.io/otel-utils.
+export function UtilsMetricSeriesName(attributes: any[]): string {
+  const probeNameAttribute = attributes?.find(
+    (item) => item.key === "probe.name"
+  );
+  if (probeNameAttribute) {
+    const probeName = String(
+      probeNameAttribute.value?.stringValue ?? ""
+    ).replace(/[^a-zA-Z0-9-_/]/g, "_");
+    return probeName || "default";
+  }
+  if (!attributes || attributes.length === 0) {
+    return "default";
+  }
+  return attributes
+    .map(
+      (item) =>
+        `${item.key}:${
+          item.value.stringValue ||
+          item.value.intValue ||
+          item.value.doubleValue
+        }`
+    )
+    .join("-");
+}
