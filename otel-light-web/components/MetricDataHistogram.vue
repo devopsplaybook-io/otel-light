@@ -7,7 +7,10 @@
 
 <script>
 import VueApexCharts from "vue3-apexcharts";
-import { UtilsMetricSampleDataPoints } from "~/services/Utils";
+import {
+  UtilsMetricSampleDataPoints,
+  UtilsMetricSeriesName,
+} from "~/services/Utils";
 import { MetricsServiceFetchMetricData } from "~~/services/MetricsService";
 import { handleError } from "~~/services/EventBus";
 
@@ -116,7 +119,7 @@ export default {
 
       this.metrics.forEach((data) => {
         data.data.histogram.dataPoints.forEach((point) => {
-          const seriesName = this.attributesToString(point.attributes);
+          const seriesName = UtilsMetricSeriesName(point.attributes);
           const timestamp = new Date(
             point.timeUnixNano / 1_000_000,
           ).toISOString();
@@ -177,21 +180,6 @@ export default {
           data: data,
         });
       });
-    },
-    attributesToString(attributes) {
-      if (!attributes || attributes.length === 0) {
-        return "default";
-      }
-      return attributes
-        .map(
-          (item) =>
-            `${item.key}:${
-              item.value.stringValue ||
-              item.value.intValue ||
-              item.value.doubleValue
-            }`,
-        )
-        .join("-");
     },
   },
 };
