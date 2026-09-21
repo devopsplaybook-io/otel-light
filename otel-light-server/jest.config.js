@@ -2,12 +2,15 @@ module.exports = {
   moduleFileExtensions: ["ts", "js"],
   transform: {
     "^.+\\.(ts|tsx)$": [
-      "ts-jest",
+      "@swc/jest",
       {
-        tsconfig: "tsconfig.spec.json",
+        jsc: {
+          target: "es2020",
+        },
       },
     ],
   },
+  coverageProvider: "v8",
   moduleNameMapper: {
     "^uuid$": "<rootDir>/src/__mocks__/uuid.ts",
   },

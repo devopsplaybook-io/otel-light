@@ -1,17 +1,16 @@
 {
   "name": "otel-light-server",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "author": "",
   "license": "MIT",
   "scripts": {
     "//": "-------------------------------------------------------------------",
-    "build": "tsc",
-    "lint": "eslint src",
+    "build": "tsc && tsc -p tsconfig.spec.json --noEmit",
+    "lint": "oxlint src",
     "test": "jest --coverage",
     "////": "-----------------------------------------------------------------",
-    "dev": "ts-node-dev ./src/App.ts",
-    "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'",
-    "migrate": "ts-node ./src/migrate-database.ts"
+    "dev": "tsx watch ./src/App.ts",
+    "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'"
   },
   "dependencies": {
     "@devopsplaybook.io/common-utils": "^1.9.2",
@@ -28,11 +27,11 @@
     "node-cron": "^4.6.0",
     "node-schedule": "^2.1.1",
     "pg": "^8.23.0",
-    "ts-node-dev": "^2.0.0",
     "uuid": "^14.0.2"
   },
   "devDependencies": {
-    "@eslint/js": "~10.0.1",
+    "@swc/core": "^1.16.2",
+    "@swc/jest": "^0.2.39",
     "@types/better-sqlite3": "^9.6.0",
     "@types/fs-extra": "^11.0.4",
     "@types/jest": "^30.0.0",
@@ -40,12 +39,10 @@
     "@types/node": "^26.6.2",
     "@types/node-schedule": "^2.1.8",
     "@types/pg": "^8.23.1",
-    "eslint": "^10.11.0",
     "jest": "^30.5.2",
+    "oxlint": "^1.83.0",
     "sinon": "^22.1.0",
-    "ts-jest": "^29.4.12",
-    "ts-node": "^10.9.2",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.70.0"
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }

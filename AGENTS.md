@@ -30,8 +30,7 @@ otel-light/
 │   ├── config.json                     # Default config (CORS, DATABASE_TYPE=sqlite, JWT_KEY=dev)
 │   ├── tsconfig.json                   # ES2020, CommonJS, strict:false
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
-│   ├── jest.config.js                  # ts-jest, uuid mock, src/**/*.spec.ts
-│   ├── eslint.config.mjs               # typescript-eslint strict + stylistic
+│   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
 │   │   ├── sqlite/init-0000..0008.sql  # 9 migration files (CREATE tables, indexes, ALTER columns)
 │   │   └── postgres/init-0000..0008.sql # Parallel migrations for PostgreSQL
@@ -130,8 +129,8 @@ Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0008). The `metada
 
 ## Key Conventions
 
-- **TypeScript**: Target ES2020, CommonJS output, `strict: false`, `noImplicitAny: false`. Spec files excluded from compilation.
-- **ESLint**: `typescript-eslint` with `strict` and `stylistic` rule sets. `eslint-disable-next-line @typescript-eslint/no-explicit-any` is used frequently due to relaxed strict mode.
+- **TypeScript**: Target ES2020, CommonJS output, `strict: false`, `noImplicitAny: false`. Spec files are excluded from the emitted build but type-checked by `npm run build` (`tsc -p tsconfig.spec.json --noEmit`). Compiled with the TypeScript 7 native compiler (`typescript ^7.0.2`).
+- **Linting**: `oxlint` with the recommended preset (`npm run lint` → `oxlint src`). `eslint-disable-next-line @typescript-eslint/no-explicit-any` comments remain in the source but are inert under the oxlint preset.
 - **No default exports**: All modules use named exports only.
 - **Route classes**: Each route module exports a class with a `getRoutes(fastify: FastifyInstance)` method, registered in `App.ts` with a prefix.
 - **Module-level singletons**: Config, OTel tracer/meter/logger, and DB connection are stored as module-level variables, initialized once in `App.ts`.
@@ -149,9 +148,9 @@ Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0008). The `metada
 ```bash
 cd otel-light-server
 npm install          # installs common-utils from local file:../_libs/common-utils
-npm run build        # tsc → dist/
-npm run lint         # eslint src
-npm run test         # jest --coverage (9 suites, 76 tests)
+npm run build        # tsc → dist/ + type-check of spec files (tsconfig.spec.json --noEmit)
+npm run lint         # oxlint src (recommended preset)
+npm run test         # jest --coverage (@swc/jest transform, v8 coverage provider)
 ```
 
 ### Web (otel-light-web)
