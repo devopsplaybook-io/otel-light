@@ -51,8 +51,39 @@ export default {
         },
         xaxis: {
           type: "category",
-          title: { text: "Buckets" },
           categories: [],
+          labels: {
+            rotate: 0,
+            hideOverlappingLabels: true,
+            trim: false,
+            formatter(value, _timestamp, options) {
+              const labels = options.w.globals.labels;
+              const minimumLabelSpacing = 55;
+              const maxLabels = Math.max(
+                2,
+                Math.floor(
+                  options.w.globals.gridWidth / minimumLabelSpacing,
+                ),
+              );
+              const interval = Math.ceil(labels.length / maxLabels);
+              const lastIndex = labels.length - 1;
+              const index = options.i;
+              const isRegularTick =
+                index % interval === 0 && lastIndex - index >= interval;
+              return index === 0 || index === lastIndex || isRegularTick
+                ? value
+                : "";
+            },
+            style: { fontSize: "12px" },
+          },
+        },
+        yaxis: {
+          tickAmount: 3,
+          forceNiceScale: true,
+          decimalsInFloat: 0,
+          labels: {
+            style: { fontSize: "12px" },
+          },
         },
         plotOptions: {
           bar: {
@@ -71,7 +102,10 @@ export default {
           },
         },
         legend: {
-          height: 80,
+          position: "bottom",
+          fontSize: "12px",
+          itemMargin: { horizontal: 6, vertical: 2 },
+          markers: { width: 10, height: 10 },
         },
       },
       chartSeries: [],
