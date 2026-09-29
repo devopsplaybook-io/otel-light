@@ -12,7 +12,10 @@
 
 <script>
 import VueApexCharts from "vue3-apexcharts";
-import { UtilsMetricSampleDataPoints } from "~/services/Utils";
+import {
+  UtilsMetricSampleDataPoints,
+  UtilsMetricSeriesName,
+} from "~/services/Utils";
 import { MetricsServiceFetchMetricData } from "~~/services/MetricsService";
 import { handleError } from "~~/services/EventBus";
 
@@ -98,7 +101,7 @@ export default {
       const chartSeriesContainer = {};
       this.metrics.forEach((data) => {
         data.data.gauge.dataPoints.forEach((point) => {
-          const seriesName = this.attributesToString(point.attributes);
+          const seriesName = UtilsMetricSeriesName(point.attributes);
           const timestamp = new Date(point.timestamp).getTime();
           if (!chartSeriesContainer[seriesName]) {
             chartSeriesContainer[seriesName] = [];
@@ -115,14 +118,6 @@ export default {
           data: chartSeriesContainer[name],
         });
       });
-    },
-    attributesToString(attributes) {
-      if (!attributes || attributes.length === 0) {
-        return "default";
-      }
-      return attributes
-        .map((item) => `${item.key}:${item.value.stringValue}`)
-        .join("-");
     },
   },
 };
