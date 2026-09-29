@@ -1,5 +1,5 @@
 <template>
-  <div class="metric-chart">
+  <div class="metric-chart metric-chart-histogram">
     <div v-if="loading" class="loading-indicator"></div>
     <apexchart v-else :options="chartOptions" :series="chartSeries" />
   </div>
