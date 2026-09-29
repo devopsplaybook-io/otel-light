@@ -1,7 +1,12 @@
 <template>
   <div class="metric-chart metric-chart-histogram">
     <div v-if="loading" class="loading-indicator"></div>
-    <apexchart v-else :options="chartOptions" :series="chartSeries" />
+    <apexchart
+      v-else
+      :options="chartOptions"
+      :series="chartSeries"
+      height="100%"
+    />
   </div>
 </template>
 
