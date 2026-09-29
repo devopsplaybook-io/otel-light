@@ -252,6 +252,10 @@ article .metric-chart {
   height: 20rem;
 }
 
+article .metric-chart-histogram {
+  height: 14rem;
+}
+
 /* Dialogs */
 
 dialog article {
