@@ -38,6 +38,7 @@ export default {
         chart: {
           id: "histogram",
           type: "bar",
+          height: "100%",
           animations: { enabled: false },
           toolbar: {
             autoSelected: "selection",
