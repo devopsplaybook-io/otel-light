@@ -314,11 +314,75 @@ describe("SQL-level integration (sqlite)", () => {
           metricBase + offset,
         );
       }
+      // Two old traces carrying the scoped-pattern keyword; only the one
+      // belonging to the rule's service may be deleted.
+      await insertTrace(
+        "sco-tr-old",
+        "s-old-2",
+        null,
+        "scoped-op",
+        oldTraceStart,
+        oldTraceStart + 1_000_000_000,
+        0,
+        "scoped-svc",
+        "1.0",
+        "scoped-svc:1.0 sco-tr-old cleanme-scoped",
+      );
+      await insertTrace(
+        "sco-tr-keep",
+        "s-keep-1",
+        null,
+        "keep-op",
+        oldTraceStart,
+        oldTraceStart + 1_000_000_000,
+        0,
+        "sco-keep-svc",
+        "1.0",
+        "sco-keep-svc:1.0 sco-tr-keep cleanme-scoped",
+      );
+      await insertLog(
+        "scoped-log-svc",
+        "1.0",
+        "info",
+        oldTraceStart,
+        "sl1",
+        "scoped-log-svc:1.0 cleanme-log",
+        "rec-scoped-1",
+      );
+      await insertLog(
+        "sco-keep-log-svc",
+        "1.0",
+        "info",
+        oldTraceStart,
+        "sl2",
+        "sco-keep-log-svc:1.0 cleanme-log",
+        "rec-scoped-2",
+      );
       await runSql("INSERT INTO settings (category, content) VALUES (?, ?)", [
         "signal-cleanup-rules",
         JSON.stringify({
           deleteRules: [
             { signalType: "traces", pattern: "maintcleanup", periodHours: 24 },
+            {
+              signalType: "traces",
+              pattern: "cleanme-scoped",
+              periodHours: 24,
+              serviceName: "scoped-svc",
+            },
+            // No matching service: exercises the metrics delta builder with a
+            // serviceName without deleting anything.
+            {
+              signalType: "metrics",
+              pattern: "cleanme-metric",
+              periodHours: 24,
+              serviceName: "no-such-service",
+            },
+            {
+              signalType: "logs",
+              pattern: "cleanme-log",
+              periodHours: 24,
+              serviceName: "scoped-log-svc",
+            },
           ],
         }),
       ]);
@@ -339,11 +403,12 @@ describe("SQL-level integration (sqlite)", () => {
       });
       expect(done).toBe(true);
 
-      // Retention: the 48h-old trace was deleted, the fresh one kept.
+      // Retention: the 48h-old unscoped trace was deleted, the fresh one kept;
+      // the scoped rule deleted only its service's trace (sco-tr-keep stays).
       const traceIds = (
         await query("SELECT traceId FROM traces ORDER BY traceId", [])
       ).map((row) => row.traceId);
-      expect(traceIds).toEqual(["maint-tr-fresh"]);
+      expect(traceIds).toEqual(["maint-tr-fresh", "sco-tr-keep"]);
 
       // Compression: one row per (name, service, minute bucket) kept.
       const metricCount = await query("SELECT COUNT(*) AS c FROM metrics", []);
@@ -366,6 +431,41 @@ describe("SQL-level integration (sqlite)", () => {
         ["maint-svc", "dup-metric"],
       );
       expect(Number(nameRows[0].count)).toBe(1);
+
+      // Scoped rules: the serviceName filter must be applied to both the
+      // delta query and the delete, and a scoped rule must not abort the
+      // remaining ones (regression: a params/placeholders mismatch threw on
+      // the first serviceName rule and skipped every rule after it).
+      const scopedLogCount = await query(
+        "SELECT COUNT(*) AS c FROM logs WHERE serviceName = ?",
+        ["scoped-log-svc"],
+      );
+      expect(Number(scopedLogCount[0].c)).toBe(0);
+      const keepLogCount = await query(
+        "SELECT COUNT(*) AS c FROM logs WHERE serviceName = ?",
+        ["sco-keep-log-svc"],
+      );
+      expect(Number(keepLogCount[0].c)).toBe(1);
+
+      const scopedRollups = await SignalRollupsGetAllCounts();
+      expect(
+        scopedRollups.find(
+          (row) =>
+            row.signalType === "traces" && row.serviceName === "scoped-svc",
+        ),
+      ).toBeUndefined();
+      expect(
+        scopedRollups.find(
+          (row) =>
+            row.signalType === "logs" && row.serviceName === "scoped-log-svc",
+        ),
+      ).toBeUndefined();
+      expect(
+        scopedRollups.find(
+          (row) =>
+            row.signalType === "traces" && row.serviceName === "sco-keep-svc",
+        )?.count,
+      ).toBe(1);
     });
   });
 
@@ -417,9 +517,10 @@ describe("SQL-level integration (sqlite)", () => {
     });
 
     it("returns logs ordered by time DESC, recordId DESC", async () => {
+      // serviceName-scoped so other describe blocks' seed data stays invisible
       const res = await fastify.inject({
         method: "GET",
-        url: `/api/analytics/logs?from=0&to=${to}`,
+        url: `/api/analytics/logs?from=0&to=${to}&serviceName=log-svc`,
       });
       expect(res.statusCode).toBe(200);
       const body = res.json();
@@ -438,7 +539,7 @@ describe("SQL-level integration (sqlite)", () => {
     it("uses the composite before cursor without skipping equal timestamps", async () => {
       const res = await fastify.inject({
         method: "GET",
-        url: `/api/analytics/logs?from=0&to=${to}&before=${T}&beforeRecordId=rec-c`,
+        url: `/api/analytics/logs?from=0&to=${to}&serviceName=log-svc&before=${T}&beforeRecordId=rec-c`,
       });
       expect(res.statusCode).toBe(200);
       const logs = await decodeB64Json(res.json().logs);
@@ -451,7 +552,7 @@ describe("SQL-level integration (sqlite)", () => {
     it("uses the composite after cursor for refresh including equal timestamps", async () => {
       const res = await fastify.inject({
         method: "GET",
-        url: `/api/analytics/logs?from=0&to=${to}&afterTime=${T}&afterRecordId=rec-a`,
+        url: `/api/analytics/logs?from=0&to=${to}&serviceName=log-svc&afterTime=${T}&afterRecordId=rec-a`,
       });
       expect(res.statusCode).toBe(200);
       const logs = await decodeB64Json(res.json().logs);
