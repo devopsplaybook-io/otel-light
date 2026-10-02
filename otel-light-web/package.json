@@ -6,12 +6,16 @@
     "generate": "nuxt generate",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
-    "lint": "echo TODO",
-    "test": "echo TODO"
+    "lint": "eslint .",
+    "test": "vitest run"
   },
   "devDependencies": {
+    "@nuxt/eslint": "^1.17.0",
     "@vite-pwa/nuxt": "^1.1.1",
-    "nuxt": "4.5.2"
+    "eslint": "^10.11.0",
+    "happy-dom": "^20.14.5",
+    "nuxt": "4.5.2",
+    "vitest": "^5.0.3"
   },
   "dependencies": {
     "@picocss/pico": "^2.1.1",
@@ -20,6 +24,7 @@
     "apexcharts": "^7.4.0",
     "axios": "^1.20.0",
     "bootstrap-icons": "^1.13.1",
+    "dompurify": "^3.4.16",
     "jwt-decode": "^4.0.0",
     "marked": "^18.0.13",
     "mitt": "^3.0.1",

@@ -38,17 +38,27 @@ export async function RecommendationInit(
         ),
       );
     });
-    // Generate on startup if no cached recommendation exists
+    // Generate on startup if no cached recommendation exists, after a short
+    // delay so recommendation and report generations do not all fire
+    // concurrently right after a restart.
     const cached = await RecommendationGetCached();
     if (!cached) {
+      const delayMinutes = Math.max(
+        Number(configIn.LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES) || 0,
+        0,
+      );
       logger.info(
-        "No valid cached recommendation found, triggering initial generation",
+        `No valid cached recommendation found, scheduling initial generation in ${delayMinutes} minute(s)`,
       );
-      RecommendationGenerate().catch((err) =>
-        logger.error(
-          `Failed to generate initial recommendation: ${err.message}`,
-        ),
-      );
+      setTimeout(
+        () =>
+          RecommendationGenerate().catch((err) =>
+            logger.error(
+              `Failed to generate initial recommendation: ${err.message}`,
+            ),
+          ),
+        delayMinutes * 60 * 1000,
+      ).unref();
     }
   } else {
     logger.info("LLM not configured; recommendation feature disabled");
@@ -186,8 +196,17 @@ async function callLLMWithRetry(
 ): Promise<string> {
   let lastError: Error | undefined;
 
-  const thinkingEnabled =
-    String(config.LLM_ENABLE_THINKING).toLowerCase() === "true";
+  // "disabled"/"enabled" send the DeepSeek-specific `thinking` field;
+  // "omit" leaves it out entirely for strict OpenAI-compatible providers
+  // that reject unknown fields.
+  const thinkingMode = String(config.LLM_THINKING_MODE || "disabled")
+    .toLowerCase()
+    .trim();
+  const thinkingEnabled = thinkingMode === "enabled";
+  const thinkingPayload =
+    thinkingMode === "omit"
+      ? {}
+      : { thinking: { type: thinkingEnabled ? "enabled" : "disabled" } };
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
@@ -200,7 +219,7 @@ async function callLLMWithRetry(
           // Thinking/reasoning models consume max_tokens with their internal
           // chain-of-thought, which can leave content empty. Thinking is not
           // needed for this report, so disable it by default.
-          thinking: { type: thinkingEnabled ? "enabled" : "disabled" },
+          ...thinkingPayload,
           messages: [
             {
               role: "system",
@@ -457,70 +476,65 @@ async function CollectStats(
       ? Math.round((tracesTotal / (periodHours * 60)) * 10) / 10
       : 0;
 
-  // Top trace names — fetch all root spans once, aggregate in memory for 4 ranking dimensions
-  // Dynamic limits based on actual number of services (computed later)
-  // We'll compute limits after we know how many services exist
-
-  // Single efficient query: all root spans with their name, serviceName, duration, and status
-  const rootSpansRaw = await DbUtilsNoTelemetryQuerySQL(
-    SQL_QUERIES.TRACES_ROOT_SPANS_AGGREGATED[DbUtilsGetType()],
+  // Top trace names — exact per-(serviceName, name) aggregates computed in
+  // SQL (count, total duration, error count), plus one bounded random sample
+  // of root spans for the duration percentiles. The sample cap keeps memory
+  // bounded regardless of how many root spans the period contains.
+  const traceGroupAggRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.TRACES_ROOT_AGG_BY_GROUP[DbUtilsGetType()],
     [periodStart, periodEnd],
   );
 
-  // In-memory aggregation: group by (serviceName, name) to avoid merging
-  // traces from different services that happen to share the same root span name
-  const traceAgg: Record<
-    string,
-    {
-      durations: number[];
-      serviceName: string;
-      name: string;
-      errorCount: number;
-    }
-  > = {};
-  for (const row of rootSpansRaw) {
-    const svcName = row.serviceName || "unknown";
-    const traceName = row.name;
-    const key = `${svcName}::${traceName}`;
-    const durationMs = Number(row.duration) / 1_000_000; // ns → ms
-    const isError = Number(row.statusCode) === 2;
-    if (!traceAgg[key]) {
-      traceAgg[key] = {
-        durations: [],
-        serviceName: svcName,
-        name: traceName,
-        errorCount: 0,
-      };
-    }
-    traceAgg[key].durations.push(durationMs);
-    if (isError) traceAgg[key].errorCount++;
+  const sampleCap = Math.max(
+    Number(config.LLM_RECOMMENDATION_SAMPLE_CAP) || 0,
+    1,
+  );
+  const rootSpansSampleRaw = await DbUtilsNoTelemetryQuerySQL(
+    SQL_QUERIES.TRACES_ROOT_SAMPLE[DbUtilsGetType()],
+    [periodStart, periodEnd, sampleCap],
+  );
+
+  // Percentile samples grouped by (serviceName, name) so traces from
+  // different services that share a root span name stay separate.
+  const sampleDurations: Record<string, number[]> = {};
+  for (const row of rootSpansSampleRaw) {
+    const key = `${row.serviceName || "unknown"}::${row.name}`;
+    if (!sampleDurations[key]) sampleDurations[key] = [];
+    sampleDurations[key].push(Number(row.duration) / 1_000_000); // ns → ms
   }
 
-  // Sort durations and compute percentiles per (serviceName, name) group
-  const buildTraceTypeStats = (
-    agg: (typeof traceAgg)[string],
-  ): TraceTypeStats => {
-    const d = [...agg.durations].sort((a, b) => a - b);
+  // Sort sample durations and compute percentiles per (serviceName, name)
+  const buildTraceTypeStats = (row: {
+    serviceName: string;
+    name: string;
+    count: number | string;
+    totalDuration: number | string;
+    errorCount: number | string;
+  }): TraceTypeStats => {
+    const count = Number(row.count);
+    const totalDurationMs = Math.round(Number(row.totalDuration) / 1_000_000);
+    const avgDurationMs = count > 0 ? Math.round(totalDurationMs / count) : 0;
+    const key = `${row.serviceName || "unknown"}::${row.name}`;
+    const d = [...(sampleDurations[key] || [])].sort((a, b) => a - b);
     const p = (pct: number): number => {
-      if (d.length === 0) return 0;
+      if (d.length === 0) return avgDurationMs;
       const idx = Math.ceil((pct / 100) * d.length) - 1;
       return Math.round(d[Math.max(0, Math.min(idx, d.length - 1))]);
     };
-    const sum = d.reduce((s, v) => s + v, 0);
     return {
-      name: agg.name,
-      count: d.length,
-      totalDurationMs: Math.round(sum),
-      avgDurationMs: d.length > 0 ? Math.round(sum / d.length) : 0,
+      name: row.name,
+      count,
+      totalDurationMs,
+      avgDurationMs,
       p50DurationMs: p(50),
       p95DurationMs: p(95),
       p99DurationMs: p(99),
-      errorCount: agg.errorCount,
+      errorCount: Number(row.errorCount),
     };
   };
 
-  const allTraceStats: TraceTypeStats[] = Object.values(traceAgg).map((agg) =>
-    buildTraceTypeStats(agg),
+  const allTraceStats: TraceTypeStats[] = traceGroupAggRaw.map((row) =>
+    buildTraceTypeStats(row),
   );
 
   // Dynamic limits based on actual number of services
@@ -549,7 +563,8 @@ async function CollectStats(
     .sort((a, b) => b.errorCount - a.errorCount)
     .slice(0, topTraceLimitByErrors);
 
-  // HTTP status code breakdown
+  // HTTP status code breakdown — exact SQL-side counts on root spans
+  // (previously a LIMIT 2000 heuristic that biased the percentages).
   const httpStatusRaw = await DbUtilsNoTelemetryQuerySQL(
     SQL_QUERIES.TRACES_HTTP_STATUS[DbUtilsGetType()],
     [periodStart, periodEnd],
@@ -557,16 +572,12 @@ async function CollectStats(
   const httpStatusBreakdown: TracesStats["httpStatusBreakdown"] = [];
   const statusMap: Record<string, Record<string, number>> = {};
   for (const row of httpStatusRaw) {
+    const code = Number(row.code);
+    if (!Number.isFinite(code) || code <= 0) continue;
     const svc = row.serviceName || "unknown";
-    const attr = String(row.attributes || "");
-    const statusMatch = attr.match(
-      /"key"\s*:\s*"http\.status_code"[^}]*"(?:int|string)Value"\s*:\s*(?:"?(\d+)"?)/,
-    );
-    if (!statusMatch) continue;
-    const code = parseInt(statusMatch[1], 10);
     const range = `${Math.floor(code / 100)}xx`;
     if (!statusMap[svc]) statusMap[svc] = {};
-    statusMap[svc][range] = (statusMap[svc][range] || 0) + 1;
+    statusMap[svc][range] = (statusMap[svc][range] || 0) + Number(row.count);
   }
   for (const [svc, ranges] of Object.entries(statusMap)) {
     for (const [range, count] of Object.entries(ranges)) {
@@ -912,70 +923,42 @@ const SQL_QUERIES = {
     sqlite:
       "SELECT serviceName, COUNT(DISTINCT traceId) AS count FROM traces WHERE startTime >= ? AND startTime < ? AND statusCode = 2 GROUP BY serviceName ORDER BY count DESC",
   },
-  TRACES_ROOT_DURATIONS: {
-    postgres:
-      'SELECT ("endTime" - "startTime") AS duration FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL',
-    sqlite:
-      "SELECT (endTime - startTime) AS duration FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL",
-  },
-  TRACES_DURATIONS_BY_NAME: {
-    postgres:
-      'SELECT ("endTime" - "startTime") AS duration FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL AND "name" = $3',
-    sqlite:
-      "SELECT (endTime - startTime) AS duration FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL AND name = ?",
-  },
-  TRACES_TOP_BY_DURATION: {
-    postgres: `
-      SELECT "name",
-             COUNT(DISTINCT "traceId") AS count,
-             SUM("endTime" - "startTime") AS "totalDuration",
-             COUNT(CASE WHEN "statusCode" = 2 THEN 1 END) AS "errorCount"
-      FROM traces
-      WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL
-      GROUP BY "name"
-      ORDER BY "totalDuration" DESC
-      LIMIT $3`,
-    sqlite: `
-      SELECT name,
-             COUNT(DISTINCT traceId) AS count,
-             SUM(endTime - startTime) AS totalDuration,
-             COUNT(CASE WHEN statusCode = 2 THEN 1 END) AS errorCount
-      FROM traces
-      WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL
-      GROUP BY name
-      ORDER BY totalDuration DESC
-      LIMIT ?`,
-  },
-  TRACES_BREAKDOWN_BY_NAME: {
-    postgres: `
-      SELECT "serviceName",
-             COUNT(DISTINCT "traceId") AS count,
-             SUM("endTime" - "startTime") AS "totalDuration",
-             COUNT(CASE WHEN "statusCode" = 2 THEN 1 END) AS "errorCount"
-      FROM traces
-      WHERE "startTime" >= $1 AND "startTime" < $2 AND "name" = $3
-      GROUP BY "serviceName"
-      ORDER BY "totalDuration" DESC`,
-    sqlite: `
-      SELECT serviceName,
-             COUNT(DISTINCT traceId) AS count,
-             SUM(endTime - startTime) AS totalDuration,
-             COUNT(CASE WHEN statusCode = 2 THEN 1 END) AS errorCount
-      FROM traces
-      WHERE startTime >= ? AND startTime < ? AND name = ?
-      GROUP BY serviceName
-      ORDER BY totalDuration DESC`,
-  },
   TRACES_HTTP_STATUS: {
-    postgres:
-      'SELECT "serviceName", "attributes" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "attributes" LIKE \'%http.status_code%\' AND "parentSpanId" IS NULL LIMIT 2000',
-    sqlite:
-      "SELECT serviceName, attributes FROM traces WHERE startTime >= ? AND startTime < ? AND attributes LIKE '%http.status_code%' AND parentSpanId IS NULL LIMIT 2000",
+    postgres: `
+      SELECT t."serviceName",
+             COALESCE(CAST(a.value->'value'->>'intValue' AS INTEGER),
+                      CAST(a.value->'value'->>'stringValue' AS INTEGER)) AS code,
+             COUNT(*) AS count
+      FROM traces t
+        CROSS JOIN LATERAL jsonb_array_elements(t."attributes"::jsonb) AS a(value)
+      WHERE t."startTime" >= $1 AND t."startTime" < $2
+        AND t."parentSpanId" IS NULL
+        AND a.value->>'key' = 'http.status_code'
+      GROUP BY t."serviceName", code`,
+    sqlite: `
+      SELECT t.serviceName,
+             CAST(COALESCE(json_extract(a.value, '$.value.intValue'),
+                           json_extract(a.value, '$.value.stringValue')) AS INTEGER) AS code,
+             COUNT(*) AS count
+      FROM traces t
+        JOIN json_each(t.attributes) AS a
+      WHERE t.startTime >= ? AND t.startTime < ?
+        AND t.parentSpanId IS NULL
+        AND json_extract(a.value, '$.key') = 'http.status_code'
+      GROUP BY t.serviceName, code`,
   },
-  TRACES_ROOT_SPANS_AGGREGATED: {
+  TRACES_ROOT_AGG_BY_GROUP: {
     postgres:
-      'SELECT "name", "serviceName", ("endTime" - "startTime") AS duration, "statusCode" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL',
+      'SELECT "serviceName", "name", COUNT(*) AS count, SUM("endTime" - "startTime") AS "totalDuration", COUNT(CASE WHEN "statusCode" = 2 THEN 1 END) AS "errorCount" FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL GROUP BY "serviceName", "name"',
     sqlite:
-      "SELECT name, serviceName, (endTime - startTime) AS duration, statusCode FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL",
+      "SELECT serviceName, name, COUNT(*) AS count, SUM(endTime - startTime) AS totalDuration, COUNT(CASE WHEN statusCode = 2 THEN 1 END) AS errorCount FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL GROUP BY serviceName, name",
+  },
+  // Bounded random sample of root spans used only for duration percentiles;
+  // exact counts come from TRACES_ROOT_AGG_BY_GROUP.
+  TRACES_ROOT_SAMPLE: {
+    postgres:
+      'SELECT "name", "serviceName", ("endTime" - "startTime") AS duration FROM traces WHERE "startTime" >= $1 AND "startTime" < $2 AND "parentSpanId" IS NULL ORDER BY RANDOM() LIMIT $3',
+    sqlite:
+      "SELECT name, serviceName, (endTime - startTime) AS duration FROM traces WHERE startTime >= ? AND startTime < ? AND parentSpanId IS NULL ORDER BY RANDOM() LIMIT ?",
   },
 };

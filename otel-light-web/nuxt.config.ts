@@ -6,7 +6,7 @@ export default defineNuxtConfig({
   },
   app: {
     head: {
-      charset: "utf-16",
+      charset: "utf-8",
       viewport:
         "width=device-width, initial-scale=1, height=device-height, initial-scale=1.0, maximum-scale=1.0, user-scalable=no",
       title: "OTel Light",
@@ -25,7 +25,7 @@ export default defineNuxtConfig({
     "~/assets/css/tab-navigation.css",
     "~/assets/css/apexcharts.css",
   ],
-  modules: ["@pinia/nuxt", "@vite-pwa/nuxt"],
+  modules: ["@pinia/nuxt", "@vite-pwa/nuxt", "@nuxt/eslint"],
   imports: {
     dirs: ["./stores"],
   },

@@ -45,14 +45,22 @@ export async function LongestTracesReportInit(
 
   const cached = await LongestTracesReportGetCached();
   if (!cached) {
+    const delayMinutes = Math.max(
+      Number(configIn.LONGEST_TRACES_STARTUP_DELAY_MINUTES) || 0,
+      0,
+    );
     logger.info(
-      "No cached longest traces report found, triggering initial generation",
+      `No cached longest traces report found, scheduling initial generation in ${delayMinutes} minute(s)`,
     );
-    LongestTracesReportGenerate().catch((err) =>
-      logger.error(
-        `Failed to generate initial longest traces report: ${err.message}`,
-      ),
-    );
+    setTimeout(
+      () =>
+        LongestTracesReportGenerate().catch((err) =>
+          logger.error(
+            `Failed to generate initial longest traces report: ${err.message}`,
+          ),
+        ),
+      delayMinutes * 60 * 1000,
+    ).unref();
   }
   span.end();
 }
@@ -104,15 +112,16 @@ export async function LongestTracesReportGenerate(): Promise<void> {
     }
 
     // Step 2: get daily time series for each top group using a CTE
-    const groupFilters = buildGroupFilterCTE(topGroups, q, dbType);
+    const groupFilters = buildGroupFilterCTE(topGroups);
     const rawTimeSeries = await DbUtilsNoTelemetryQuerySQL(
       SQL_QUERIES.GROUP_TIME_SERIES_DURATION(
         q,
         bucketNs,
         periodDays,
-        groupFilters,
+        groupFilters.cte,
         dbType,
       ),
+      groupFilters.params,
     );
 
     // Step 3: assemble the report
@@ -167,22 +176,26 @@ export async function LongestTracesReportGenerate(): Promise<void> {
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
-function buildGroupFilterCTE(
-  topGroups: { serviceName: string; name: string }[],
-  q: (ident: string) => string,
-  dbType: string,
-): string {
-  if (topGroups.length === 0) return "SELECT NULL AS svc, NULL AS nm WHERE 1=0";
+// Group filters are passed as bound parameters (values originate from
+// telemetry and must never be interpolated into the SQL text).
+function buildGroupFilterCTE(topGroups: { serviceName: string; name: string }[]): {
+  cte: string;
+  params: string[];
+} {
+  if (topGroups.length === 0) {
+    return { cte: "SELECT NULL AS svc, NULL AS nm WHERE 1=0", params: [] };
+  }
 
-  const rows = topGroups.map((g) => {
-    const svc = g.serviceName.replace(/'/g, "''");
-    const nm = g.name.replace(/'/g, "''");
+  const dbType = DbUtilsGetType();
+  const params: string[] = [];
+  const rows = topGroups.map((g, i) => {
+    params.push(g.serviceName, g.name);
     if (dbType === "postgres") {
-      return `SELECT '${svc}' AS ${q("svc")}, '${nm}' AS ${q("nm")}`;
+      return `SELECT $${i * 2 + 1} AS svc, $${i * 2 + 2} AS nm`;
     }
-    return `SELECT '${svc}' AS svc, '${nm}' AS nm`;
+    return "SELECT ? AS svc, ? AS nm";
   });
-  return rows.join(" UNION ALL ");
+  return { cte: rows.join(" UNION ALL "), params };
 }
 
 // ── SQL ────────────────────────────────────────────────────────────────────────
@@ -246,8 +259,8 @@ const SQL_QUERIES = {
              MAX(t.${q("endTime")} - t.${q("startTime")}) / 1000000000 AS value
       FROM traces t
         JOIN target_groups g
-          ON g.${q("svc")} = t.${q("serviceName")}
-          AND g.${q("nm")} = t.${q("name")}
+          ON g.svc = t.${q("serviceName")}
+          AND g.nm = t.${q("name")}
       WHERE t.${q("parentSpanId")} IS NULL
         AND t.${q("startTime")} >= ${fromPostgres}
       GROUP BY t.${q("serviceName")}, t.${q("name")}, bucket

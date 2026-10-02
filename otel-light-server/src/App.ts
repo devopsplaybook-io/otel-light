@@ -40,6 +40,7 @@ import { LogsRoutes } from "./v1/logs/LogsRoutes";
 import { MetricsRoutes } from "./v1/metrics/MetricsRoutes";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
+import { SignalRollupsInit } from "./SignalRollups";
 import fastifyCompress from "@fastify/compress";
 
 const logger = OTelLogger().createModuleLogger("app");
@@ -74,6 +75,10 @@ Promise.resolve().then(async () => {
   UsersDataSetOTel(OTelTracer());
   UsersApiTokensDataSetOTel(OTelTracer());
   await AuthInit(span, config, ["traces", "metrics", "logs"]);
+  config.warnIfDefaultJWTKey();
+  // Populate the incremental rollups (one-time recount when empty) before
+  // maintenance can emit delete deltas and before caches read them.
+  await SignalRollupsInit(span);
   await MaintenanceInit(span, config);
   await SelfMetricsInit(span, config);
   await AnalyticsCacheInit(span, config);

@@ -3,8 +3,10 @@ import * as path from "path";
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
-import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import {
+  SignalRollupsGetMetricNames,
+  SignalRollupsGetServicesAndVersions,
+} from "../SignalRollups";
 
 const logger = OTelLogger().createModuleLogger("AnalyticsCache");
 const CACHE_FILE_NAME = "analyticsCache.json";
@@ -211,52 +213,12 @@ async function AnalyticsCacheRefresh(): Promise<void> {
   scheduleNextRefresh();
 }
 
+// Rollup reads (maintained incrementally on ingestion and maintenance deletes)
+// replace the previous full-table GROUP BY scans over logs/traces/metrics (M4).
 async function refreshServices(): Promise<ServicesCacheContent | null> {
   try {
-    const [rawLogsServices, rawTracesServices, rawMetricsServices] =
-      await Promise.all([
-        DbUtilsNoTelemetryQuerySQL(
-          SQL_QUERIES.GET_SERVICES_FROM_LOGS[DbUtilsGetType()],
-          [],
-        ),
-        DbUtilsNoTelemetryQuerySQL(
-          SQL_QUERIES.GET_SERVICES_FROM_TRACES[DbUtilsGetType()],
-          [],
-        ),
-        DbUtilsNoTelemetryQuerySQL(
-          SQL_QUERIES.GET_SERVICES_FROM_METRICS[DbUtilsGetType()],
-          [],
-        ),
-      ]);
-
-    // Deduplicate service names across all signal types
-    const serviceSet = new Set<string>();
-    for (const row of rawLogsServices) {
-      if (row.serviceName) serviceSet.add(row.serviceName);
-    }
-    for (const row of rawTracesServices) {
-      if (row.serviceName) serviceSet.add(row.serviceName);
-    }
-    for (const row of rawMetricsServices) {
-      if (row.serviceName) serviceSet.add(row.serviceName);
-    }
-    const services = Array.from(serviceSet).sort();
-
-    // Build serviceName/serviceVersion pairs from logs and traces (not metrics).
-    // The SQL already orders by MAX(time) DESC so the most recent version comes first.
-    const seen = new Set<string>();
-    const serviceVersions: ServiceVersionEntry[] = [];
-    for (const row of [...rawLogsServices, ...rawTracesServices]) {
-      if (!row.serviceName) continue;
-      const key = `${row.serviceName}::${row.serviceVersion ?? ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      serviceVersions.push({
-        serviceName: row.serviceName,
-        serviceVersion: row.serviceVersion ?? null,
-      });
-    }
-
+    const { services, serviceVersions } =
+      await SignalRollupsGetServicesAndVersions();
     return { services, serviceVersions };
   } catch (err) {
     logger.error("Error refreshing services data", err);
@@ -266,74 +228,10 @@ async function refreshServices(): Promise<ServicesCacheContent | null> {
 
 async function refreshMetricsNames(): Promise<MetricsNamesCacheContent | null> {
   try {
-    const rawNames = await DbUtilsNoTelemetryQuerySQL(
-      SQL_QUERIES.GET_METRICS_NAMES[DbUtilsGetType()],
-      [],
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const names: MetricsNamesEntry[] = rawNames.map((row: any) => ({
-      serviceName: row.serviceName,
-      name: row.name,
-      type: row.type,
-      firstSeen: row.firstSeen,
-      lastSeen: row.lastSeen,
-    }));
-
+    const names: MetricsNamesEntry[] = await SignalRollupsGetMetricNames();
     return { names };
   } catch (err) {
     logger.error("Error refreshing metrics names data", err);
     return null;
   }
 }
-
-// ========================================================================
-// SQL
-// ========================================================================
-
-const SQL_QUERIES = {
-  GET_SERVICES_FROM_LOGS: {
-    postgres: `
-      SELECT "serviceName", "serviceVersion", MAX("time") AS lastSeen
-      FROM logs
-      WHERE "serviceName" IS NOT NULL
-      GROUP BY "serviceName", "serviceVersion"
-      ORDER BY "serviceName", lastSeen DESC`,
-    sqlite: `
-      SELECT serviceName, serviceVersion, MAX(time) AS lastSeen
-      FROM logs
-      WHERE serviceName IS NOT NULL
-      GROUP BY serviceName, serviceVersion
-      ORDER BY serviceName, lastSeen DESC`,
-  },
-  GET_SERVICES_FROM_TRACES: {
-    postgres: `
-      SELECT "serviceName", "serviceVersion", MAX("startTime") AS lastSeen
-      FROM traces
-      WHERE "serviceName" IS NOT NULL
-      GROUP BY "serviceName", "serviceVersion"
-      ORDER BY "serviceName", lastSeen DESC`,
-    sqlite: `
-      SELECT serviceName, serviceVersion, MAX(startTime) AS lastSeen
-      FROM traces
-      WHERE serviceName IS NOT NULL
-      GROUP BY serviceName, serviceVersion
-      ORDER BY serviceName, lastSeen DESC`,
-  },
-  GET_SERVICES_FROM_METRICS: {
-    postgres: `
-      SELECT DISTINCT "serviceName"
-      FROM metrics
-      WHERE "serviceName" IS NOT NULL
-      ORDER BY "serviceName"`,
-    sqlite: `
-      SELECT DISTINCT serviceName
-      FROM metrics
-      WHERE serviceName IS NOT NULL
-      ORDER BY serviceName`,
-  },
-  GET_METRICS_NAMES: {
-    postgres: `SELECT "name", "serviceName", "type", MIN("time") AS "firstSeen", MAX("time") AS "lastSeen" FROM metrics GROUP BY "name", "serviceName", "type" ORDER BY "serviceName", "name", "type"`,
-    sqlite: `SELECT name, serviceName, type, MIN(time) AS firstSeen, MAX(time) AS lastSeen FROM metrics GROUP BY name, serviceName, type ORDER BY serviceName, name, type`,
-  },
-};

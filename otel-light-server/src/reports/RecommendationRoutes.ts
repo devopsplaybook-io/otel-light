@@ -1,10 +1,15 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession, AuthMustBeAdmin } from "@devopsplaybook.io/common-utils";
+import {
+  AuthGetUserSession,
+  AuthHasScope,
+  AuthMustBeAdmin,
+} from "@devopsplaybook.io/common-utils";
 import {
   RecommendationGenerate,
   RecommendationGetCached,
 } from "./Recommendation";
 
+// The recommendation is derived from traces: the `traces` scope grants access.
 export class RecommendationRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -13,6 +18,11 @@ export class RecommendationRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
       }
       const cached = await RecommendationGetCached();
       if (!cached) {
@@ -28,7 +38,11 @@ export class RecommendationRoutes {
     });
 
     fastify.post("/regenerate", async (req, res) => {
-      await AuthMustBeAdmin(req, res);
+      try {
+        await AuthMustBeAdmin(req, res);
+      } catch {
+        return;
+      }
       await RecommendationGenerate();
       const cached = await RecommendationGetCached();
       return res.status(200).send(cached);

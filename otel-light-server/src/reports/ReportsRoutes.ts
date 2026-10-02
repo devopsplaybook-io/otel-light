@@ -1,5 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession, AuthMustBeAdmin } from "@devopsplaybook.io/common-utils";
+import {
+  AuthGetUserSession,
+  AuthHasScope,
+  AuthMustBeAdmin,
+} from "@devopsplaybook.io/common-utils";
 import {
   LongestTracesReportGetCached,
   LongestTracesReportGenerate,
@@ -9,6 +13,7 @@ import {
   MostCalledTracesReportGenerate,
 } from "./MostCalledTracesReport";
 
+// Reports are derived from traces: the `traces` scope grants access.
 export class ReportsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -17,6 +22,11 @@ export class ReportsRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
       }
       const cached = await LongestTracesReportGetCached();
       if (!cached) {
@@ -32,7 +42,11 @@ export class ReportsRoutes {
     });
 
     fastify.post("/reports/longest-traces/regenerate", async (req, res) => {
-      await AuthMustBeAdmin(req, res);
+      try {
+        await AuthMustBeAdmin(req, res);
+      } catch {
+        return;
+      }
       await LongestTracesReportGenerate();
       const cached = await LongestTracesReportGetCached();
       return res.status(200).send(cached);
@@ -42,6 +56,11 @@ export class ReportsRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
       }
       const cached = await MostCalledTracesReportGetCached();
       if (!cached) {
@@ -57,7 +76,11 @@ export class ReportsRoutes {
     });
 
     fastify.post("/reports/most-called-traces/regenerate", async (req, res) => {
-      await AuthMustBeAdmin(req, res);
+      try {
+        await AuthMustBeAdmin(req, res);
+      } catch {
+        return;
+      }
       await MostCalledTracesReportGenerate();
       const cached = await MostCalledTracesReportGetCached();
       return res.status(200).send(cached);

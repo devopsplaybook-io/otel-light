@@ -16,6 +16,17 @@ export class AnalyticsServicesRoutes {
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
       }
+      // Service list is derived from traces, metrics and logs: any signal
+      // scope grants access (admins always allowed).
+      if (userSession.role !== "admin") {
+        const scopes = userSession.scopes || [];
+        const hasSignalScope = ["traces", "metrics", "logs"].some((scope) =>
+          scopes.includes(scope),
+        );
+        if (!hasSignalScope) {
+          return res.status(403).send({ error: "Access Denied" });
+        }
+      }
 
       const cached = AnalyticsCacheGetServices();
       if (!cached) {

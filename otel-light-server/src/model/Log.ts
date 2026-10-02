@@ -1,4 +1,5 @@
 export class Log {
+  recordId: string;
   serviceName: string;
   serviceVersion: string;
   severity: string;

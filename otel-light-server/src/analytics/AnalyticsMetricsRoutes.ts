@@ -7,6 +7,7 @@ import {
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsGetSQLVariable,
+  AnalyticsUtilsGetTimeParam,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
@@ -43,19 +44,19 @@ export class AnalyticsMetricsRoutes {
       let sqlWhere =
         " WHERE time >= " +
         AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-      sqlParams.push(fromTime);
+      sqlParams.push(AnalyticsUtilsGetTimeParam(fromTime));
 
       if (req.query.to) {
         sqlWhere +=
           " AND time <= " +
           AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-        sqlParams.push(req.query.to);
+        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.to));
       }
       if (isRefresh) {
         sqlWhere +=
           " AND time > " +
           AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-        sqlParams.push(req.query.afterTime);
+        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.afterTime));
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
@@ -75,7 +76,7 @@ export class AnalyticsMetricsRoutes {
         sqlWhere +=
           " AND time < " +
           AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-        sqlParams.push(req.query.beforeTime);
+        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.beforeTime));
       }
 
       const resultLimit =
@@ -146,8 +147,8 @@ export class AnalyticsMetricsRoutes {
       const names = AnalyticsCacheFilterMetricsNames(
         req.query.serviceName,
         req.query.keywords,
-        req.query.from,
-        req.query.to,
+        AnalyticsUtilsGetTimeParam(req.query.from) as number | undefined,
+        AnalyticsUtilsGetTimeParam(req.query.to) as number | undefined,
       );
 
       const response = {
