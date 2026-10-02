@@ -14,7 +14,7 @@ jobs:
   pr-verify:
     uses: devopsplaybook-io/common-utils/.github/workflows/reusable-pr-verify.yml@main
     with:
-      node_app_directories: '["otel-light-server"]'
+      node_app_directories: '["otel-light-server", "otel-light-web"]'
     secrets:
       DOCKER_HUB_USERNAME: ${{ secrets.DOCKER_HUB_USERNAME }}
       DOCKER_HUB_ACCESS_TOKEN: ${{ secrets.DOCKER_HUB_ACCESS_TOKEN }}

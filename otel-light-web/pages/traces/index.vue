@@ -60,10 +60,13 @@ import { TracesTabs } from "~~/services/TracesTabs";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
-
-const PAGE_SIZE = 200;
+import {
+  SignalCursorMax,
+  SignalDedupeById,
+  SignalQueryAdd,
+} from "~~/services/SignalCursors";
 
 export default {
   components: { SearchOptions, Loading },
@@ -73,8 +76,8 @@ export default {
       traces: [],
       hasMore: true,
       isLoadingMore: false,
-      newestStartTime: null,
-      oldestStartTime: null,
+      newestCursor: null,
+      oldestCursor: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
@@ -156,8 +159,8 @@ export default {
       this.filter.queryString = filter.queryString;
       this.traces = [];
       this.hasMore = true;
-      this.newestStartTime = null;
-      this.oldestStartTime = null;
+      this.newestCursor = null;
+      this.oldestCursor = null;
       this.isLoadingMore = false;
       this.fetchTraces();
     },
@@ -193,13 +196,12 @@ export default {
       this.isLoadingMore = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      // Keyset pagination: use `before` cursor (startTime of last seen trace)
-      // instead of OFFSET. The first page has no `before`.
+      // Keyset pagination: send the composite cursor of the oldest trace shown
+      // instead of OFFSET. The first page has no cursor.
       let qs = this.filter.queryString || "";
-      if (this.oldestStartTime) {
-        qs = qs
-          ? `${qs}&before=${this.oldestStartTime}`
-          : `before=${this.oldestStartTime}`;
+      if (this.oldestCursor) {
+        qs = SignalQueryAdd(qs, "before", this.oldestCursor.time);
+        qs = SignalQueryAdd(qs, "beforeTraceId", this.oldestCursor.id);
       }
       const url = `${SERVER_URL}/analytics/traces?${qs}`;
       analyticsGet(url, await AuthService.getAuthHeader())
@@ -212,12 +214,18 @@ export default {
             for (const trace of newTraces) {
               trace.duration = trace.endTime - trace.startTime;
             }
-            this.traces = [...this.traces, ...newTraces];
-            if (this.newestStartTime === null) {
-              this.newestStartTime = newTraces[0].startTime;
+            const seenIds = new Set(this.traces.map((trace) => trace.traceId));
+            const dedupedTraces = SignalDedupeById(
+              newTraces,
+              (trace) => trace.traceId,
+              seenIds,
+            );
+            this.traces = [...this.traces, ...dedupedTraces];
+            if (this.newestCursor === null) {
+              this.newestCursor = this.cursorOf(newTraces[0]);
             }
-            // Update cursor to the oldest trace on this page for next fetch
-            this.oldestStartTime = newTraces[newTraces.length - 1].startTime;
+            // Update the cursor to the oldest trace on this page for next fetch
+            this.oldestCursor = this.cursorOf(newTraces[newTraces.length - 1]);
           }
           this.hasMore = response.data.hasMore === true;
         })
@@ -226,24 +234,59 @@ export default {
           this.isLoadingMore = false;
         });
     },
+    cursorOf(trace) {
+      return { time: trace.startTime, id: trace.traceId };
+    },
     async fetchTracesRefresh() {
-      if (!this.newestStartTime) return;
-      const qs = this.filter.queryString
-        ? `${this.filter.queryString}&afterTime=${this.newestStartTime}`
-        : `afterTime=${this.newestStartTime}`;
-      const url = `${SERVER_URL}/analytics/traces?${qs}`;
-      analyticsGet(url, await AuthService.getAuthHeader())
-        .then(async (response) => {
-          const newTraces = await UtilsDecompressJson(response.data.traces);
-          if (newTraces && newTraces.length > 0) {
-            for (const trace of newTraces) {
-              trace.duration = trace.endTime - trace.startTime;
-            }
-            this.traces = [...newTraces, ...this.traces];
-            this.newestStartTime = newTraces[0].startTime;
+      if (!this.newestCursor) return;
+      try {
+        // Refresh from the newest trace shown. The API returns up to PAGE_SIZE
+        // records; while `hasMore` is true there are more recent records, so
+        // keep fetching with an upper bound of the oldest record of the batch
+        // just fetched until a partial page is returned.
+        const refreshCursor = this.newestCursor;
+        let upperBound = null;
+        let newestCursor = refreshCursor;
+        const batches = [];
+        let hasMoreBatches = true;
+        while (hasMoreBatches) {
+          let qs = this.filter.queryString || "";
+          qs = SignalQueryAdd(qs, "afterTime", refreshCursor.time);
+          qs = SignalQueryAdd(qs, "afterTraceId", refreshCursor.id);
+          if (upperBound) {
+            qs = SignalQueryAdd(qs, "before", upperBound.time);
+            qs = SignalQueryAdd(qs, "beforeTraceId", upperBound.id);
           }
-        })
-        .catch(handleError);
+          const url = `${SERVER_URL}/analytics/traces?${qs}`;
+          const response = await analyticsGet(
+            url,
+            await AuthService.getAuthHeader(),
+          );
+          const batch = await UtilsDecompressJson(response.data.traces);
+          if (!batch || batch.length === 0) {
+            break;
+          }
+          for (const trace of batch) {
+            trace.duration = trace.endTime - trace.startTime;
+          }
+          batches.push(batch);
+          newestCursor = SignalCursorMax(newestCursor, this.cursorOf(batch[0]));
+          upperBound = this.cursorOf(batch[batch.length - 1]);
+          hasMoreBatches = response.data.hasMore === true;
+        }
+        if (batches.length > 0) {
+          const seenIds = new Set(this.traces.map((trace) => trace.traceId));
+          const newTraces = SignalDedupeById(
+            batches.flat(),
+            (trace) => trace.traceId,
+            seenIds,
+          );
+          this.traces = [...newTraces, ...this.traces];
+          this.newestCursor = newestCursor;
+        }
+      } catch (err) {
+        handleError(err);
+      }
     },
     sortBy(key) {
       if (this.sortKey === key) {

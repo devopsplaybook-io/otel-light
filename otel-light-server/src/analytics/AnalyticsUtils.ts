@@ -23,6 +23,10 @@ export function AnalyticsUtilsGetDefaultFromTime(): number {
   return (Date.now() - 10 * 60 * 1000) * 1_000_000;
 }
 
+export function AnalyticsUtilsGetDefaultFromTime24h(): number {
+  return (Date.now() - 24 * 60 * 60 * 1000) * 1_000_000;
+}
+
 export async function AnalyticsUtilsCompressJson(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   jsonData: any,
@@ -52,6 +56,19 @@ export function AnalyticsUtilsGetSQLVariable(
     return `$${index}`;
   }
   return "?";
+}
+
+// Nanosecond timestamps exceed Number.MAX_SAFE_INTEGER, so the digits sent by
+// clients are the shortest round-trip form of a JS number (double), while the
+// DB stored that same double. Binding the raw digits as text makes SQLite
+// parse them as an exact 64-bit integer, which no longer equals the stored
+// value - silently breaking equality and composite-cursor predicates. Coerce
+// back to the double before binding.
+export function AnalyticsUtilsGetTimeParam(
+  value: string | number | undefined,
+): string | number | undefined {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : value;
 }
 
 export let AnalyticsUtilsResultLimitMetrics = 10000;

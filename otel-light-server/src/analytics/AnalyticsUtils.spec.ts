@@ -1,6 +1,7 @@
 import {
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsGetSQLVariable,
+  AnalyticsUtilsGetTimeParam,
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
@@ -30,6 +31,30 @@ describe("AnalyticsUtilsGetSQLVariable", () => {
   it("should return ? for sqlite", () => {
     expect(AnalyticsUtilsGetSQLVariable("sqlite", 1)).toBe("?");
     expect(AnalyticsUtilsGetSQLVariable("sqlite", 99)).toBe("?");
+  });
+});
+
+describe("AnalyticsUtilsGetTimeParam", () => {
+  it("should coerce query-string timestamps to numbers", () => {
+    expect(AnalyticsUtilsGetTimeParam("1750000000000000000")).toBe(
+      1750000000000000000,
+    );
+    expect(AnalyticsUtilsGetTimeParam("0")).toBe(0);
+  });
+
+  it("should round nanosecond digits to the double the DB stored", () => {
+    // "1790946325746000000" is the shortest round-trip form of a double whose
+    // exact value is 1790946325745999872; binding the raw text would compare
+    // against the former. Coercion restores the stored value.
+    expect(AnalyticsUtilsGetTimeParam("1790946325746000000")).toBe(
+      Number("1790946325746000000"),
+    );
+  });
+
+  it("should pass through numbers, undefined and non-numeric values", () => {
+    expect(AnalyticsUtilsGetTimeParam(123)).toBe(123);
+    expect(AnalyticsUtilsGetTimeParam(undefined)).toBeUndefined();
+    expect(AnalyticsUtilsGetTimeParam("abc")).toBe("abc");
   });
 });
 

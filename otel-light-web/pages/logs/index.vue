@@ -12,7 +12,7 @@
         <b>Severity</b>
         <b>Log</b>
       </div>
-      <div v-for="log of logs" :key="log.serviceName + log.time">
+      <div v-for="log of logs" :key="log.recordId">
         <LazyLog :log="log" hydrate-on-visible />
       </div>
       <div id="logs-sentinel" ref="sentinel"></div>
@@ -36,10 +36,13 @@ import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
-
-const PAGE_SIZE = 200;
+import {
+  SignalCursorMax,
+  SignalDedupeById,
+  SignalQueryAdd,
+} from "~~/services/SignalCursors";
 
 export default {
   components: { SearchOptions, Loading },
@@ -48,8 +51,8 @@ export default {
       logs: [],
       hasMore: true,
       isLoadingMore: false,
-      newestTime: null,
-      oldestTime: null,
+      newestCursor: null,
+      oldestCursor: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       logSpans: {},
@@ -99,23 +102,25 @@ export default {
       this.filter.queryString = filter.queryString;
       this.logs = [];
       this.hasMore = true;
-      this.newestTime = null;
-      this.oldestTime = null;
+      this.newestCursor = null;
+      this.oldestCursor = null;
       this.isLoadingMore = false;
       this.fetchLogs();
+    },
+    cursorOf(log) {
+      return { time: log.time, id: log.recordId };
     },
     async fetchLogs() {
       if (this.isLoadingMore || !this.hasMore) return;
       this.isLoadingMore = true;
       const fetchTime = new Date();
       this.fetchTime = fetchTime;
-      // Keyset pagination: use `before` cursor (time of last seen item) instead
-      // of OFFSET. The first page has no `before`.
+      // Keyset pagination: send the composite cursor of the oldest log shown
+      // instead of OFFSET. The first page has no cursor.
       let qs = this.filter.queryString || "";
-      if (this.oldestTime) {
-        qs = qs
-          ? `${qs}&before=${this.oldestTime}`
-          : `before=${this.oldestTime}`;
+      if (this.oldestCursor) {
+        qs = SignalQueryAdd(qs, "before", this.oldestCursor.time);
+        qs = SignalQueryAdd(qs, "beforeRecordId", this.oldestCursor.id);
       }
       const url = `${SERVER_URL}/analytics/logs?${qs}`;
       analyticsGet(url, await AuthService.getAuthHeader())
@@ -125,12 +130,18 @@ export default {
           }
           const newLogs = await UtilsDecompressJson(response.data.logs);
           if (newLogs && newLogs.length > 0) {
-            this.logs = [...this.logs, ...newLogs];
-            if (this.newestTime === null) {
-              this.newestTime = newLogs[0].time;
+            const seenIds = new Set(this.logs.map((log) => log.recordId));
+            const dedupedLogs = SignalDedupeById(
+              newLogs,
+              (log) => log.recordId,
+              seenIds,
+            );
+            this.logs = [...this.logs, ...dedupedLogs];
+            if (this.newestCursor === null) {
+              this.newestCursor = this.cursorOf(newLogs[0]);
             }
-            // Update cursor to the oldest item on this page for next fetch
-            this.oldestTime = newLogs[newLogs.length - 1].time;
+            // Update the cursor to the oldest log on this page for next fetch
+            this.oldestCursor = this.cursorOf(newLogs[newLogs.length - 1]);
           }
           this.hasMore = response.data.hasMore === true;
         })
@@ -143,20 +154,52 @@ export default {
       this.$router.push({ path: "/logs/stats", query: this.$route.query });
     },
     async fetchLogsRefresh() {
-      if (!this.newestTime) return;
-      const qs = this.filter.queryString
-        ? `${this.filter.queryString}&afterTime=${this.newestTime}`
-        : `afterTime=${this.newestTime}`;
-      const url = `${SERVER_URL}/analytics/logs?${qs}`;
-      analyticsGet(url, await AuthService.getAuthHeader())
-        .then(async (response) => {
-          const newLogs = await UtilsDecompressJson(response.data.logs);
-          if (newLogs && newLogs.length > 0) {
-            this.logs = [...newLogs, ...this.logs];
-            this.newestTime = newLogs[0].time;
+      if (!this.newestCursor) return;
+      try {
+        // Refresh from the newest log shown. The API returns up to PAGE_SIZE
+        // records; while `hasMore` is true there are more recent records, so
+        // keep fetching with an upper bound of the oldest record of the batch
+        // just fetched until a partial page is returned.
+        const refreshCursor = this.newestCursor;
+        let upperBound = null;
+        let newestCursor = refreshCursor;
+        const batches = [];
+        let hasMoreBatches = true;
+        while (hasMoreBatches) {
+          let qs = this.filter.queryString || "";
+          qs = SignalQueryAdd(qs, "afterTime", refreshCursor.time);
+          qs = SignalQueryAdd(qs, "afterRecordId", refreshCursor.id);
+          if (upperBound) {
+            qs = SignalQueryAdd(qs, "before", upperBound.time);
+            qs = SignalQueryAdd(qs, "beforeRecordId", upperBound.id);
           }
-        })
-        .catch(handleError);
+          const url = `${SERVER_URL}/analytics/logs?${qs}`;
+          const response = await analyticsGet(
+            url,
+            await AuthService.getAuthHeader(),
+          );
+          const batch = await UtilsDecompressJson(response.data.logs);
+          if (!batch || batch.length === 0) {
+            break;
+          }
+          batches.push(batch);
+          newestCursor = SignalCursorMax(newestCursor, this.cursorOf(batch[0]));
+          upperBound = this.cursorOf(batch[batch.length - 1]);
+          hasMoreBatches = response.data.hasMore === true;
+        }
+        if (batches.length > 0) {
+          const seenIds = new Set(this.logs.map((log) => log.recordId));
+          const newLogs = SignalDedupeById(
+            batches.flat(),
+            (log) => log.recordId,
+            seenIds,
+          );
+          this.logs = [...newLogs, ...this.logs];
+          this.newestCursor = newestCursor;
+        }
+      } catch (err) {
+        handleError(err);
+      }
     },
   },
 };

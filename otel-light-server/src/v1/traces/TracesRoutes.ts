@@ -2,6 +2,10 @@ import { FastifyInstance } from "fastify";
 import { OTelLogger } from "../../OTelContext";
 import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
+  SignalInsertEntry,
+  SignalRollupsRecordSignalInsert,
+} from "../../SignalRollups";
+import {
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
@@ -9,37 +13,79 @@ import {
 
 const logger = OTelLogger().createModuleLogger("v1/traces");
 
+const BODY_SCHEMA = {
+  type: "object",
+  required: ["resourceSpans"],
+  properties: {
+    resourceSpans: {
+      type: "array",
+      items: {
+        type: "object",
+        required: ["scopeSpans"],
+        properties: {
+          scopeSpans: {
+            type: "array",
+            items: {
+              type: "object",
+              required: ["spans"],
+              properties: {
+                spans: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: { attributes: { type: "array" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+};
+
 export class TracesRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
-    fastify.post("/", async (req, res) => {
+    fastify.post("/", { schema: { body: BODY_SCHEMA } }, async (req, res) => {
       try {
         if (!SignalUtilsCheckAuthHeader(req)) {
           return res.status(401).send({});
         }
+        const rollupEntries: SignalInsertEntry[] = [];
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         for (const resourceSpan of (req.body as any).resourceSpans) {
-          let serviceName = SignalUtilsGetServiceName(resourceSpan.resource);
-          let serviceVersion = SignalUtilsGetServiceVersion(
+          const resourceServiceName = SignalUtilsGetServiceName(
+            resourceSpan.resource,
+          );
+          const resourceServiceVersion = SignalUtilsGetServiceVersion(
             resourceSpan.resource,
           );
           for (const scopeSpan of resourceSpan.scopeSpans) {
             const rows = [];
             for (const span of scopeSpan.spans) {
               const attrs = span.attributes || [];
-              serviceName =
+              // Per-span override with resource-level fallback: must not
+              // leak into subsequent spans of the same resource group.
+              const serviceName =
                 attrs.find((a) => a?.key === "service.name")?.value
-                  ?.stringValue || serviceName;
-              serviceVersion =
+                  ?.stringValue || resourceServiceName;
+              const serviceVersion =
                 attrs.find((a) => a?.key === "service.version")?.value
-                  ?.stringValue || serviceVersion;
+                  ?.stringValue || resourceServiceVersion;
 
               const keywords =
-                `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`.substring(
+                `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${span.name} ${span.status?.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`.substring(
                   0,
                   4000,
                 );
+              rollupEntries.push({
+                serviceName,
+                serviceVersion,
+                time: Number(span.startTimeUnixNano),
+              });
               rows.push([
                 span.traceId,
                 span.spanId,
@@ -51,7 +97,7 @@ export class TracesRoutes {
                   : serviceVersion,
                 span.startTimeUnixNano,
                 span.endTimeUnixNano,
-                span.status.code,
+                span.status?.code ?? 0,
                 JSON.stringify(span.attributes),
                 JSON.stringify(span),
                 keywords.toLowerCase(),
@@ -63,6 +109,14 @@ export class TracesRoutes {
               rows,
             );
           }
+        }
+
+        try {
+          await SignalRollupsRecordSignalInsert("traces", rollupEntries);
+        } catch (rollupErr) {
+          // Signals are stored: do not fail the request (client would retry
+          // and duplicate spans). A recount can rebuild the rollup later.
+          logger.error("Failed to update trace rollups", rollupErr);
         }
 
         return res.status(201).send({});

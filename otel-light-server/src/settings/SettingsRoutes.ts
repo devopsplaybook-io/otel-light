@@ -40,20 +40,26 @@ export class SettingsRoutes {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fastify.put<{ Params: { category: string }; Body: { content: any } }>(
       "/:category",
+      {
+        schema: {
+          body: {
+            type: "object",
+            required: ["content"],
+            properties: { content: { type: "object" } },
+          },
+        },
+      },
       async (req, res) => {
         try {
           await AuthMustBeAdmin(req, res);
         } catch {
           return;
         }
+        // Single-statement upsert: a failed write leaves the previous
+        // category content intact (no delete+insert window).
         await DbUtilsExecSQL(
           OTelRequestSpan(req),
-          SQL_QUERIES.DELETE_SETTINGS[DbUtilsGetType()],
-          [req.params.category],
-        );
-        await DbUtilsQuerySQL(
-          OTelRequestSpan(req),
-          SQL_QUERIES.INSERT_SETTINGS[DbUtilsGetType()],
+          SQL_QUERIES.UPSERT_SETTINGS[DbUtilsGetType()],
           [req.params.category, JSON.stringify(req.body.content)],
         );
         return res.status(201).send({});
@@ -69,12 +75,12 @@ const SQL_QUERIES = {
     postgres: 'SELECT * FROM settings WHERE "category" = $1',
     sqlite: "SELECT * FROM settings WHERE category = ?",
   },
-  DELETE_SETTINGS: {
-    postgres: 'DELETE FROM settings WHERE "category" = $1',
-    sqlite: "DELETE FROM settings WHERE category = ?",
-  },
-  INSERT_SETTINGS: {
-    postgres: 'INSERT INTO settings ("category", "content") VALUES ($1, $2)',
-    sqlite: "INSERT INTO settings (category, content) VALUES (?, ?)",
+  UPSERT_SETTINGS: {
+    postgres:
+      'INSERT INTO settings ("category", "content") VALUES ($1, $2)' +
+      ' ON CONFLICT ("category") DO UPDATE SET "content" = EXCLUDED."content"',
+    sqlite:
+      "INSERT INTO settings (category, content) VALUES (?, ?)" +
+      " ON CONFLICT(category) DO UPDATE SET content = excluded.content",
   },
 };

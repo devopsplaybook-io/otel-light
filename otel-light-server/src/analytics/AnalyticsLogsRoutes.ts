@@ -1,11 +1,15 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession, AuthHasScope } from "@devopsplaybook.io/common-utils";
+import {
+  AuthGetUserSession,
+  AuthHasScope,
+} from "@devopsplaybook.io/common-utils";
 import { Log } from "../model/Log";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetSQLVariable,
+  AnalyticsUtilsGetTimeParam,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
@@ -25,7 +29,9 @@ export class AnalyticsLogsRoutes {
         serviceVersion?: string;
         offset?: number;
         afterTime?: number;
+        afterRecordId?: string;
         before?: number;
+        beforeRecordId?: string;
       };
     }>("/", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -39,6 +45,8 @@ export class AnalyticsLogsRoutes {
       }
       const dbType = DbUtilsGetType();
       const sqlParams = [];
+      const varAt = (index: number) =>
+        AnalyticsUtilsGetSQLVariable(dbType, index);
       const isRefresh = req.query.afterTime !== undefined;
       const hasBefore = req.query.before !== undefined;
       // Keyset pagination: when `before` is provided, use cursor instead of OFFSET.
@@ -47,50 +55,68 @@ export class AnalyticsLogsRoutes {
 
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
-        " WHERE time >= " +
-        AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-      sqlParams.push(fromTime);
+        " WHERE time >= " + varAt(sqlParams.length + 1);
+      sqlParams.push(AnalyticsUtilsGetTimeParam(fromTime));
 
       if (req.query.to) {
         sqlWhere +=
-          " AND time <= " +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-        sqlParams.push(req.query.to);
+          " AND time <= " + varAt(sqlParams.length + 1);
+        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.to));
       }
+      // Composite cursors (time, recordId): equal timestamps are common with
+      // batched ingestion, so a timestamp-only cursor would skip records.
       if (isRefresh) {
-        sqlWhere +=
-          " AND time > " +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-        sqlParams.push(req.query.afterTime);
+        if (req.query.afterRecordId) {
+          const idx = sqlParams.length + 1;
+          sqlWhere +=
+            ` AND (time > ${varAt(idx)}` +
+            ` OR (time = ${varAt(idx + 1)} AND recordId > ${varAt(idx + 2)}))`;
+          sqlParams.push(
+            AnalyticsUtilsGetTimeParam(req.query.afterTime),
+            AnalyticsUtilsGetTimeParam(req.query.afterTime),
+            req.query.afterRecordId,
+          );
+        } else {
+          sqlWhere +=
+            " AND time > " + varAt(sqlParams.length + 1);
+          sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.afterTime));
+        }
       }
       if (hasBefore) {
-        sqlWhere +=
-          " AND time < " +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
-        sqlParams.push(req.query.before);
+        if (req.query.beforeRecordId) {
+          const idx = sqlParams.length + 1;
+          sqlWhere +=
+            ` AND (time < ${varAt(idx)}` +
+            ` OR (time = ${varAt(idx + 1)} AND recordId < ${varAt(idx + 2)}))`;
+          sqlParams.push(
+            AnalyticsUtilsGetTimeParam(req.query.before),
+            AnalyticsUtilsGetTimeParam(req.query.before),
+            req.query.beforeRecordId,
+          );
+        } else {
+          sqlWhere +=
+            " AND time < " + varAt(sqlParams.length + 1);
+          sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.before));
+        }
       }
       if (req.query.keywords?.trim()) {
         sqlWhere +=
-          " AND keywords LIKE " +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
+          " AND keywords LIKE " + varAt(sqlParams.length + 1);
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
       if (req.query.severity?.trim()) {
         sqlWhere +=
-          " AND severity = " +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
+          " AND severity = " + varAt(sqlParams.length + 1);
         sqlParams.push(req.query.severity.toLowerCase().trim());
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=
-          ' AND "serviceName" = ' +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
+          ' AND "serviceName" = ' + varAt(sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceName).trim());
       }
       if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
         sqlWhere +=
-          ' AND "serviceVersion" = ' +
-          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1);
+          ' AND "serviceVersion" = ' + varAt(sqlParams.length + 1);
         sqlParams.push(String(req.query.serviceVersion).trim());
       }
 
@@ -117,7 +143,7 @@ export class AnalyticsLogsRoutes {
 
 const SQL_QUERIES = {
   GET_LOGS: (sqlWhere: string, limit: number, offset: number) => ({
-    postgres: `SELECT "time", "severity", "serviceName", "serviceVersion", "traceId", "spanId", "logText", "attributes" FROM logs ${sqlWhere} ORDER BY "time" DESC LIMIT ${limit} OFFSET ${offset}`,
-    sqlite: `SELECT time, severity, serviceName, serviceVersion, traceId, spanId, logText, attributes FROM logs ${sqlWhere} ORDER BY time DESC LIMIT ${limit} OFFSET ${offset}`,
+    postgres: `SELECT "time", "severity", "serviceName", "serviceVersion", "traceId", "spanId", "logText", "attributes", "recordId" FROM logs ${sqlWhere} ORDER BY "time" DESC, "recordId" DESC LIMIT ${limit} OFFSET ${offset}`,
+    sqlite: `SELECT time, severity, serviceName, serviceVersion, traceId, spanId, logText, attributes, recordId FROM logs ${sqlWhere} ORDER BY time DESC, recordId DESC LIMIT ${limit} OFFSET ${offset}`,
   }),
 };

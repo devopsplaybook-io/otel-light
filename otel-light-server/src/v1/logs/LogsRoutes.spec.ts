@@ -1,21 +1,25 @@
 import Fastify from "fastify";
 
 // ---------------------------------------------------------------------------
-// Mocks
+// Mocks – must be defined before imports so jest.mock is hoisted
 // ---------------------------------------------------------------------------
 jest.mock("../../utils-std-ts/DbUtilsNoTelemetry", () => ({
   DbUtilsNoTelemetryBatchInsert: jest.fn(),
 }));
 
-jest.mock("../../OTelContext", () => ({
-  OTelLogger: () => ({
-    createModuleLogger: () => ({
-      error: jest.fn(),
-      info: jest.fn(),
-      warn: jest.fn(),
-    }),
-  }),
-}));
+// The logger instance lives inside the factory so every createModuleLogger()
+// call (including the route module's import-time call) returns the same object.
+jest.mock("../../OTelContext", () => {
+  const moduleLogger = {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  };
+  return {
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    __moduleLogger: moduleLogger,
+  };
+});
 
 jest.mock("../SignalUtils", () => ({
   SignalUtilsCheckAuthHeader: jest.fn(),
@@ -23,12 +27,25 @@ jest.mock("../SignalUtils", () => ({
   SignalUtilsGetServiceVersion: jest.fn(),
 }));
 
+jest.mock("../../SignalRollups", () => ({
+  SignalRollupsRecordSignalInsert: jest.fn(),
+}));
+
 // ---------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------
 import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
-import { SignalUtilsCheckAuthHeader } from "../SignalUtils";
+import {
+  SignalUtilsCheckAuthHeader,
+  SignalUtilsGetServiceName,
+  SignalUtilsGetServiceVersion,
+} from "../SignalUtils";
+import { SignalRollupsRecordSignalInsert } from "../../SignalRollups";
 import { LogsRoutes } from "./LogsRoutes";
+
+const mockModuleLogger = jest.requireMock<{
+  __moduleLogger: { error: jest.Mock; info: jest.Mock; warn: jest.Mock };
+}>("../../OTelContext").__moduleLogger;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -76,7 +93,12 @@ describe("LogsRoutes POST /v1/logs", () => {
   beforeEach(() => {
     jest.clearAllMocks();
     (SignalUtilsCheckAuthHeader as jest.Mock).mockReturnValue(true);
+    (SignalUtilsGetServiceName as jest.Mock).mockReturnValue("my-svc");
+    (SignalUtilsGetServiceVersion as jest.Mock).mockReturnValue("1.0.0");
     (DbUtilsNoTelemetryBatchInsert as jest.Mock).mockResolvedValue(1);
+    (SignalRollupsRecordSignalInsert as jest.Mock).mockResolvedValue(
+      undefined,
+    );
   });
 
   // --- Auth ---
@@ -91,6 +113,7 @@ describe("LogsRoutes POST /v1/logs", () => {
 
     expect(res.statusCode).toBe(401);
     expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+    expect(SignalRollupsRecordSignalInsert).not.toHaveBeenCalled();
   });
 
   // --- Success ---
@@ -115,7 +138,42 @@ describe("LogsRoutes POST /v1/logs", () => {
     const [tableCols, numCols] = (DbUtilsNoTelemetryBatchInsert as jest.Mock)
       .mock.calls[0];
     expect(tableCols).toContain("INTO logs");
-    expect(numCols).toBe(9);
+    expect(tableCols).toContain("recordId");
+    expect(numCols).toBe(10);
+  });
+
+  it("records rollup entries with the log record time", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([mockLogRecord({ timeUnixNano: 1700000000000000 })]),
+    });
+
+    expect(SignalRollupsRecordSignalInsert).toHaveBeenCalledTimes(1);
+    const [signalType, entries] = (SignalRollupsRecordSignalInsert as jest.Mock)
+      .mock.calls[0];
+    expect(signalType).toBe("logs");
+    expect(entries).toEqual([
+      { serviceName: "my-svc", serviceVersion: "1.0.0", time: 1700000000000000 },
+    ]);
+  });
+
+  it("still returns 201 when rollup recording fails", async () => {
+    (SignalRollupsRecordSignalInsert as jest.Mock).mockRejectedValue(
+      new Error("rollup unavailable"),
+    );
+
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody(),
+    });
+
+    expect(res.statusCode).toBe(201);
+    expect(mockModuleLogger.error).toHaveBeenCalledWith(
+      "Failed to update log rollups",
+      expect.any(Error),
+    );
   });
 
   // --- Error handling ---
@@ -131,6 +189,23 @@ describe("LogsRoutes POST /v1/logs", () => {
     });
 
     expect(res.statusCode).toBe(500);
+  });
+
+  // --- Schema validation ---
+  it.each([
+    ["missing resourceLogs", {}],
+    ["resourceLogs not an array", { resourceLogs: "nope" }],
+    ["missing scopeLogs", { resourceLogs: [{}] }],
+    ["logRecords not an array", { resourceLogs: [{ scopeLogs: [{ logRecords: "x" }] }] }],
+  ])("returns 400 for malformed payload (%s)", async (_label, payload) => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload,
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
   });
 
   // --- Empty payload ---
@@ -179,8 +254,6 @@ describe("LogsRoutes POST /v1/logs", () => {
   });
 
   it("handles unknown log body", async () => {
-    const consoleSpy = jest.spyOn(console, "log").mockImplementation();
-
     await fastify.inject({
       method: "POST",
       url: "/v1/logs",
@@ -189,11 +262,9 @@ describe("LogsRoutes POST /v1/logs", () => {
 
     const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
     expect(rows[0][6]).toContain("Log Object:");
-    expect(consoleSpy).toHaveBeenCalledWith(
+    expect(mockModuleLogger.info).toHaveBeenCalledWith(
       expect.stringContaining("Unknown Log Body"),
     );
-
-    consoleSpy.mockRestore();
   });
 
   // --- traceId/spanId extraction ---
@@ -227,5 +298,29 @@ describe("LogsRoutes POST /v1/logs", () => {
     const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
     expect(rows[0][2]).toBeNull();
     expect(rows[0][3]).toBeNull();
+  });
+
+  // --- Per-record service name/version override (L3) ---
+  it("does not leak a record-level service name override into later records", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({
+          attributes: [
+            { key: "service.name", value: { stringValue: "override-svc" } },
+            { key: "service.version", value: { stringValue: "9.9.9" } },
+          ],
+        }),
+        mockLogRecord({ attributes: [] }),
+      ]),
+    });
+
+    const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+    expect(rows).toHaveLength(2);
+    expect(rows[0][0]).toBe("override-svc");
+    expect(rows[0][1]).toBe("9.9.9");
+    expect(rows[1][0]).toBe("my-svc");
+    expect(rows[1][1]).toBe("1.0.0");
   });
 });

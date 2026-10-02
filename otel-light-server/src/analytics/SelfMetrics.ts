@@ -1,9 +1,12 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
-import { OTelMeter, OTelTracer } from "../OTelContext";
-import { DbUtilsQuerySQL, DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import { OTelLogger, OTelMeter, OTelTracer } from "../OTelContext";
+import { SignalRollupsGetAllCounts } from "../SignalRollups";
 
-const signalData = {
+const logger = OTelLogger().createModuleLogger("SelfMetrics");
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const signalData: { traces: any[]; metrics: any[]; logs: any[] } = {
   traces: [],
   metrics: [],
   logs: [],
@@ -84,71 +87,31 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
 
 async function SelfMetricsRefreshMetrics(): Promise<void> {
   const span = OTelTracer().startSpan("SelfMetricsRefreshMetrics");
-  // Traces
-  const tracesRowCount = await DbUtilsQuerySQL(
-    span,
-    SQL_QUERIES.COUNT_TRACES[DbUtilsGetType()],
-  );
-  const servicesTraces = [];
-  tracesRowCount.forEach((row) => {
-    servicesTraces.push({
-      name: row.serviceName,
-      version: row.serviceVersion,
-      traces: parseInt(row.nbtraces),
-    });
-  });
-  signalData.traces = servicesTraces;
-  // Metrics
-  const metricsRowCount = await DbUtilsQuerySQL(
-    span,
-    SQL_QUERIES.COUNT_METRICS[DbUtilsGetType()],
-  );
-  const servicesMetrics = [];
-  metricsRowCount.forEach((row) => {
-    servicesMetrics.push({
-      name: row.serviceName,
-      version: row.serviceVersion,
-      metrics: parseInt(row.nbmetrics),
-    });
-  });
-  signalData.metrics = servicesMetrics;
-  // Logs
-  const logsRowCount = await DbUtilsQuerySQL(
-    span,
-    SQL_QUERIES.COUNT_LOGS[DbUtilsGetType()],
-  );
-  const servicesLogs = [];
-  logsRowCount.forEach((row) => {
-    servicesLogs.push({
-      name: row.serviceName,
-      version: row.serviceVersion,
-      logs: parseInt(row.nblogs),
-    });
-  });
-  signalData.logs = servicesLogs;
-  //
+  try {
+    // Rollup read instead of three full-table COUNT GROUP BY scans (M4)
+    const rows = await SignalRollupsGetAllCounts();
+    const traces = [];
+    const metrics = [];
+    const logs = [];
+    for (const row of rows) {
+      const entry = {
+        name: row.serviceName,
+        version: row.serviceVersion,
+      };
+      if (row.signalType === "traces") {
+        traces.push({ ...entry, traces: row.count });
+      } else if (row.signalType === "metrics") {
+        metrics.push({ ...entry, metrics: row.count });
+      } else if (row.signalType === "logs") {
+        logs.push({ ...entry, logs: row.count });
+      }
+    }
+    signalData.traces = traces;
+    signalData.metrics = metrics;
+    signalData.logs = logs;
+  } catch (err) {
+    // Keep the previous values on failure rather than resetting to empty
+    logger.error("Failed to refresh self metrics from signal rollups", err, span);
+  }
   span.end();
 }
-
-// SQL
-
-const SQL_QUERIES = {
-  COUNT_TRACES: {
-    postgres:
-      'SELECT "serviceName", "serviceVersion", COUNT(*) as nbtraces FROM traces GROUP BY "serviceName", "serviceVersion"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) as nbtraces FROM traces GROUP BY serviceName, serviceVersion",
-  },
-  COUNT_METRICS: {
-    postgres:
-      'SELECT "serviceName", "serviceVersion", COUNT(*) as nbmetrics FROM metrics GROUP BY "serviceName", "serviceVersion"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) as nbmetrics FROM metrics GROUP BY serviceName, serviceVersion",
-  },
-  COUNT_LOGS: {
-    postgres:
-      'SELECT "serviceName", "serviceVersion", COUNT(*) as nblogs FROM logs GROUP BY "serviceName", "serviceVersion"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) as nblogs FROM logs GROUP BY serviceName, serviceVersion",
-  },
-};

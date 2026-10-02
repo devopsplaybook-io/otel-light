@@ -11,6 +11,7 @@ module.exports = {
     ],
   },
   coverageProvider: "v8",
+  modulePathIgnorePatterns: ["<rootDir>/dist/"],
   moduleNameMapper: {
     "^uuid$": "<rootDir>/src/__mocks__/uuid.ts",
   },

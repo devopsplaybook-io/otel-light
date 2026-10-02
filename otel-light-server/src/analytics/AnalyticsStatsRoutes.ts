@@ -1,12 +1,19 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession } from "@devopsplaybook.io/common-utils";
+import {
+  AuthGetUserSession,
+  AuthHasScope,
+} from "@devopsplaybook.io/common-utils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsGetDefaultFromTime24h,
   AnalyticsUtilsGetSQLVariable,
+  AnalyticsUtilsGetTimeParam,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+
+const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
 
 export class AnalyticsStatsRoutes {
   //
@@ -18,6 +25,8 @@ export class AnalyticsStatsRoutes {
       Querystring: {
         from?: number;
         to?: number;
+        keywords?: string;
+        severity?: string;
         serviceName?: string;
         serviceVersion?: string;
         bucketNs?: number;
@@ -26,6 +35,11 @@ export class AnalyticsStatsRoutes {
       const userSession = await AuthGetUserSession(req);
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
+      }
+      try {
+        await AuthHasScope(req, res, "logs");
+      } catch {
+        return;
       }
 
       const dbType = DbUtilsGetType();
@@ -42,14 +56,28 @@ export class AnalyticsStatsRoutes {
           "time >= " +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(req.query.from);
+        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.from));
       }
       if (req.query.to) {
         appendWhere(
           "time <= " +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(req.query.to);
+        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.to));
+      }
+      if (req.query.keywords?.trim()) {
+        appendWhere(
+          "keywords LIKE " +
+            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
+        );
+        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+      }
+      if (req.query.severity?.trim()) {
+        appendWhere(
+          "severity = " +
+            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
+        );
+        sqlParams.push(req.query.severity.toLowerCase().trim());
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         appendWhere(
@@ -67,17 +95,26 @@ export class AnalyticsStatsRoutes {
       }
 
       // Default bucket width: 1 hour in nanoseconds if not specified
-      const bucketNs = req.query.bucketNs || 3600 * 1_000_000_000;
+      const bucketNsRaw = Number(req.query.bucketNs);
+      const bucketNs =
+        Number.isFinite(bucketNsRaw) && bucketNsRaw > 0
+          ? bucketNsRaw
+          : DEFAULT_LOGS_STATS_BUCKET_NS;
 
-      // Add bucketNs twice (once for the bucket expression, once for ordering)
-      // We push it once more for the SQL query parameterization.
-      // Actually, the SQL uses it only once; no need for the second.
+      // The bucket size parameter is referenced exactly once (the query
+      // returns the bucket *index*; the NS timestamp is computed below).
+      // SQLite binds `?` by textual position: the bucket placeholder sits in
+      // the SELECT list, before the WHERE placeholders, so it must be bound
+      // first. Postgres uses an explicit `$N` index and appends instead.
       const bucketParamIdx = sqlParams.length + 1;
-      sqlParams.push(bucketNs);
+      const statsParams =
+        dbType === "sqlite"
+          ? [bucketNs, ...sqlParams]
+          : [...sqlParams, bucketNs];
 
       const rawRows = await DbUtilsNoTelemetryQuerySQL(
         SQL_QUERIES.LOGS_STATS(sqlWhere, bucketParamIdx)[dbType],
-        sqlParams,
+        statsParams,
       );
 
       // Build response: buckets array + severity counts
@@ -87,7 +124,7 @@ export class AnalyticsStatsRoutes {
 
       for (const row of rawRows) {
         const sev = (row.severity || "UNKNOWN").toUpperCase();
-        const bucket = Number(row.bucket);
+        const bucket = Number(row.bucketIdx) * bucketNs;
         const cnt = Number(row.cnt);
         if (!bucketMap[bucket]) bucketMap[bucket] = {};
         bucketMap[bucket][sev] = (bucketMap[bucket][sev] || 0) + cnt;
@@ -123,6 +160,11 @@ export class AnalyticsStatsRoutes {
       if (!userSession.isAuthenticated) {
         return res.status(403).send({ error: "Access Denied" });
       }
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
+      }
 
       const dbType = DbUtilsGetType();
       // Quote an identifier for the target DB: PostgreSQL needs double-quotes
@@ -133,17 +175,19 @@ export class AnalyticsStatsRoutes {
       const rootsParams: any[] = [];
       let rootsWhere = `${q("parentSpanId")} IS NULL`;
 
-      if (req.query.from) {
-        rootsWhere +=
-          ` AND ${q("startTime")} >= ` +
-          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(req.query.from);
-      }
+      // Default window: bound the aggregation scan unless the caller asked
+      // for an explicit range (the web UI always sends `from`).
+      const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime24h();
+      rootsWhere +=
+        ` AND ${q("startTime")} >= ` +
+        AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+      rootsParams.push(AnalyticsUtilsGetTimeParam(fromTime));
+
       if (req.query.to) {
         rootsWhere +=
           ` AND ${q("startTime")} <= ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(req.query.to);
+        rootsParams.push(AnalyticsUtilsGetTimeParam(req.query.to));
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         rootsWhere +=
@@ -191,18 +235,18 @@ const SQL_QUERIES = {
   LOGS_STATS: (sqlWhere: string, bucketParamIdx: number) => ({
     postgres: `
       SELECT "severity",
-             (FLOOR("time"::decimal / $${bucketParamIdx}) * $${bucketParamIdx})::bigint AS bucket,
+             FLOOR("time"::decimal / $${bucketParamIdx})::bigint AS "bucketIdx",
              COUNT(*)::int AS cnt
       FROM logs${sqlWhere}
-      GROUP BY "severity", bucket
-      ORDER BY bucket`,
+      GROUP BY "severity", "bucketIdx"
+      ORDER BY "bucketIdx"`,
     sqlite: `
       SELECT severity,
-             (CAST(time / ? AS INTEGER) * ?) AS bucket,
+             CAST(time / ? AS INTEGER) AS bucketIdx,
              COUNT(*) AS cnt
       FROM logs${sqlWhere}
-      GROUP BY severity, bucket
-      ORDER BY bucket`,
+      GROUP BY severity, bucketIdx
+      ORDER BY bucketIdx`,
   }),
   TRACES_STATS: (rootsWhere: string, statusCodeVarIdx: number) => ({
     postgres: `

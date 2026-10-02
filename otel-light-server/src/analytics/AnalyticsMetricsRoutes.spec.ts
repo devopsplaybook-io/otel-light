@@ -91,7 +91,9 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
     ).mock.calls[0];
 
     expect(sql).toContain("AND time <");
-    expect(params).toContain("5000000");
+    // Time params are coerced to numbers before binding (see
+    // AnalyticsUtilsGetTimeParam) so SQLite compares against the stored value.
+    expect(params).toContain(5000000);
   });
 
   it("omits AND time < when beforeTime param is absent", async () => {
@@ -117,9 +119,9 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
     ).mock.calls[0];
 
     expect(sql).toContain("AND time <");
-    expect(params).toContain("5000000");
-    expect(params).toContain("1000000");
-    expect(params).toContain("9999999");
+    expect(params).toContain(5000000);
+    expect(params).toContain(1000000);
+    expect(params).toContain(9999999);
   });
 
   // --- Pagination: limit ---
@@ -163,7 +165,7 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
 
     expect(sql).toContain("AND time <");
     expect(sql).toContain("LIMIT 200");
-    expect(params).toContain("9999999");
+    expect(params).toContain(9999999);
   });
 
   // --- Server-side sampling: maxPoints ---

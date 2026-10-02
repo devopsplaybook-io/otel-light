@@ -27,7 +27,7 @@ otel-light/
 ├── package.json                        # Root package (for Docker build context)
 ├── otel-light-server/                  # --- API SERVER ---
 │   ├── package.json
-│   ├── config.json                     # Default config (CORS, DATABASE_TYPE=sqlite, JWT_KEY=dev)
+│   ├── config.json                     # Default config (DATABASE_TYPE=sqlite, processor names)
 │   ├── tsconfig.json                   # ES2020, CommonJS, strict:false
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
@@ -233,18 +233,23 @@ Key config fields (in addition to those inherited from ConfigBase):
 | -------------------------------------------- | ------------------------------------------- | ---------------------------------------------- |
 | `DATABASE_TYPE`                              | `sqlite`                                    | `sqlite` or `postgres`                         |
 | `API_PORT`                                   | `8080`                                      | Server listen port (inherited from ConfigBase) |
-| `CORS_POLICY_ORIGIN`                         | `*`                                         | CORS origin (empty = disabled)                 |
+| `CORS_POLICY_ORIGIN`                         | (empty)                                     | CORS allowed origin; empty = CORS disabled     |
 | `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` | (empty)                                     | Bearer token required for ingestion            |
 | `OPENTELEMETRY_COLLECTOR_HTTP_*`             | `http://localhost:8080/v1/*`                | OTel collector endpoints (overridden in dev)   |
 | `MAINTENANCE_FREQUENCY_HOURS`                | `6`                                         | How often maintenance runs                     |
+| `MAINTENANCE_ORPHAN_LOOKBACK_HOURS`          | `24`                                        | Lookback window for orphan-span cleanup scans  |
 | `METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS`    | `12`                                        | Hours before minute-level compression          |
 | `METRICS_COMPRESS_HOUR_THRESHOLD_DAYS`       | `7`                                         | Days before hour-level compression             |
 | `CACHE_REFRESH_MINUTES`                      | `10`                                        | Analytics cache refresh interval               |
 | `LLM_API_KEY`                                | (empty)                                     | API key for LLM (empty = disabled)             |
 | `LLM_API_URL`                                | `https://api.deepseek.com/chat/completions` | OpenAI-compatible endpoint                     |
 | `LLM_MODEL`                                  | `deepseek-chat`                             | Model name                                     |
-| `LLM_ENABLE_THINKING`                        | `false`                                     | Thinking mode for reasoning LLM models         |
+| `LLM_THINKING_MODE`                          | `disabled`                                  | `disabled`/`enabled`/`omit` (see gotcha below) |
 | `LLM_RECOMMENDATION_SCHEDULE_CRON`           | `0 0 * * *`                                 | Daily at midnight                              |
+| `LLM_RECOMMENDATION_SAMPLE_CAP`              | `20000`                                     | Max root spans sampled for percentiles         |
+| `LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES`   | `2`                                         | Delay before initial recommendation generation |
+| `LONGEST_TRACES_STARTUP_DELAY_MINUTES`       | `15`                                        | Delay before initial longest-traces report     |
+| `MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES`   | `25`                                        | Delay before initial most-called-traces report |
 | `STATIC_REPORT_TOP_N`                        | `30`                                        | Top N traces for static reports                |
 | `STATIC_REPORT_PERIOD_DAYS`                  | `30`                                        | Lookback period for static reports             |
 
@@ -258,7 +263,8 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **Keywords column**: All signal tables have a `keywords` column (lowercased, space-separated) used for LIKE pattern matching in maintenance cleanup rules. Wildcards (`*`) are converted to `%` SQL wildcards at query time.
 - **Raw JSON storage**: `rawSpan`, `rawMetric` columns store the full OTLP JSON for each signal. These are returned by analytics endpoints for client-side rendering.
 - **Nanoseosecond timestamps**: OTel uses nanosecond timestamps. Maintenance calculations multiply JavaScript milliseconds by `1_000_000` to convert. Time-based queries use nanosecond ranges.
+- **Timestamp precision in queries**: Nanosecond timestamps exceed `Number.MAX_SAFE_INTEGER`, so stored values are JS doubles. Analytics routes run query-string times through `AnalyticsUtilsGetTimeParam` before binding: binding the raw digits as text makes SQLite parse them as exact 64-bit integers that no longer equal the stored value, silently breaking equality and composite-cursor predicates.
 - **AnalyticsCache adaptive refresh**: The cache refreshes every 10 minutes when recently accessed (within 1 hour), otherwise every hour. This minimizes DB load during idle periods.
 - **Single-container production**: In production, the server serves pre-built web assets via `@fastify/static`. The Traefik proxy is NOT used. Only `dist/`, `node_modules/`, `sql/`, `config.json`, and `web/` are copied into the Docker image.
 - **Test mocks intercept re-exports**: Tests mock `../../utils-std-ts/DbUtils` etc., which are now re-export files. Jest intercepts the import at the re-export file path, so mocks work without changes. Do not mock `@devopsplaybook.io/common-utils` directly.
-- **LLM thinking mode**: Reasoning/thinking models (e.g. DeepSeek `-flash`/`-pro` variants) spend `max_tokens` on their internal chain-of-thought, which can leave `content` empty and trigger "LLM returned an empty response." `Recommendation.ts` sends `thinking.type=disabled` by default; set `LLM_ENABLE_THINKING=true` only when chain-of-thought is wanted (also raises the request timeout).
+- **LLM thinking mode**: Reasoning/thinking models (e.g. DeepSeek `-flash`/`-pro` variants) spend `max_tokens` on their internal chain-of-thought, which can leave `content` empty and trigger "LLM returned an empty response." `Recommendation.ts` sends `thinking.type=disabled` by default; set `LLM_THINKING_MODE=enabled` only when chain-of-thought is wanted (also raises the request timeout). `LLM_THINKING_MODE=omit` leaves the DeepSeek-specific `thinking` field out entirely for strict OpenAI-compatible providers.

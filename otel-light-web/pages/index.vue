@@ -93,7 +93,7 @@
 import axios from "axios";
 import { SERVER_URL } from "~~/services/Config";
 import { AuthService } from "~~/services/AuthService";
-import { marked } from "marked";
+import { renderMarkdown } from "~~/services/Markdown";
 
 export default {
   data() {
@@ -131,10 +131,7 @@ export default {
         this.recommendation = null;
       }
     },
-    renderMarkdown(text) {
-      if (!text) return "";
-      return marked.parse(text, { breaks: true });
-    },
+    renderMarkdown,
     formatDate(isoString) {
       const d = new Date(isoString);
       return d.toLocaleString();
