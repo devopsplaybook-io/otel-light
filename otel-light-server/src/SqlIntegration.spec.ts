@@ -870,4 +870,30 @@ describe("SQL-level integration (sqlite)", () => {
       ).toBeUndefined();
     });
   });
+
+  // =========================================================================
+  // Restart: migrations re-run on an up-to-date database
+  // =========================================================================
+  describe("Restart with an up-to-date database", () => {
+    it("re-runs the migrations (second boot) without throwing and keeps the data", async () => {
+      const logsBefore = await query("SELECT COUNT(*) AS c FROM logs", []);
+      expect(Number(logsBefore[0].c)).toBeGreaterThan(0);
+
+      await DbUtilsInit(
+        testSpan(),
+        { DATA_DIR: dataDir, DATABASE_TYPE: "sqlite" } as unknown as Parameters<
+          typeof DbUtilsInit
+        >[1],
+        path.join(__dirname, "../sql/sqlite"),
+      );
+
+      const logsAfter = await query("SELECT COUNT(*) AS c FROM logs", []);
+      expect(Number(logsAfter[0].c)).toBe(Number(logsBefore[0].c));
+      const versionRows = await query(
+        "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
+        [],
+      );
+      expect(Number(versionRows[0].maxVersion)).toBe(11);
+    });
+  });
 });
