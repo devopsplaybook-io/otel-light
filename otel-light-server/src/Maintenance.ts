@@ -121,103 +121,127 @@ async function MaintenanceApplyRetentionRules(span: Span): Promise<void> {
 
   const settings = new Settings(rawSettings[0]);
   for (const deleteRule of settings.content.deleteRules || []) {
-    if (
-      deleteRule.signalType !== "traces" &&
-      deleteRule.signalType !== "metrics" &&
-      deleteRule.signalType !== "logs"
-    ) {
-      continue;
-    }
-    if (!deleteRule.pattern) continue;
-    const periodHours = Number(deleteRule.periodHours);
-    if (!Number.isFinite(periodHours) || periodHours <= 0) {
-      logger.warn(
-        `Rule (signal=${deleteRule.signalType} ; periodHours=${deleteRule.periodHours}) skipped: periodHours must be a positive number`,
+    try {
+      await ApplyCleanupRule(span, dbType, deleteRule);
+    } catch (err) {
+      // One failing rule must not stop the remaining ones.
+      logger.error(
+        `Error applying cleanup rule (signal=${deleteRule.signalType} ; pattern=${deleteRule.pattern} ; serviceName=${deleteRule.serviceName ?? "*"})`,
+        err,
         span,
       );
-      continue;
     }
-    const retentionMs = periodHours * 60 * 60 * 1000;
-    const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
-    const serviceName = deleteRule.serviceName?.trim() || null;
-    let nbRows = 0;
-    const formatPattern = (patternIn) => {
-      return ("%" + patternIn + "%")
-        .toLowerCase()
-        .replace(/\*/g, "%")
-        .replace(/%+/g, "%");
-    };
-    const params = serviceName
-      ? [deleteTimestamp, formatPattern(deleteRule.pattern), serviceName]
-      : [deleteTimestamp, formatPattern(deleteRule.pattern)];
+  }
+}
 
-    if (deleteRule.signalType === "traces") {
-      const deltas = await DbUtilsQuerySQL(
-        span,
-        SQL_QUERIES.GET_TRACES_DELETE_DELTAS[dbType],
-        params,
-      );
-      if (deltas.length > 0) {
-        nbRows += await DbUtilsExecSQL(
-          span,
-          SQL_QUERIES.DELETE_TRACES(serviceName)[dbType],
-          params,
-        );
-        await SignalRollupsRecordSignalDeletion(
-          "traces",
-          toServiceCountDeltas(deltas),
-        );
-      }
-    } else if (deleteRule.signalType === "metrics") {
-      const deltas = await DbUtilsQuerySQL(
-        span,
-        SQL_QUERIES.GET_METRICS_DELETE_DELTAS[dbType],
-        params,
-      );
-      if (deltas.length > 0) {
-        nbRows += await DbUtilsExecSQL(
-          span,
-          SQL_QUERIES.DELETE_SIGNALS("metrics", serviceName)[dbType],
-          params,
-        );
-        await SignalRollupsRecordSignalDeletion(
-          "metrics",
-          toServiceCountDeltas(deltas),
-        );
-        await SignalRollupsRecordMetricNameDeletion(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          deltas.map((row: any) => ({
-            serviceName: row.serviceName,
-            name: row.name,
-            type: row.type,
-            count: Number(row.cnt),
-          })),
-        );
-      }
-    } else {
-      // logs
-      const deltas = await DbUtilsQuerySQL(
-        span,
-        SQL_QUERIES.GET_LOGS_DELETE_DELTAS[dbType],
-        params,
-      );
-      if (deltas.length > 0) {
-        nbRows += await DbUtilsExecSQL(
-          span,
-          SQL_QUERIES.DELETE_SIGNALS("logs", serviceName)[dbType],
-          params,
-        );
-        await SignalRollupsRecordSignalDeletion(
-          "logs",
-          toServiceCountDeltas(deltas),
-        );
-      }
-    }
-    logger.info(
-      `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern} ; serviceName=${serviceName ?? "*"}) deleted ${nbRows} rows`,
+interface CleanupRule {
+  signalType?: string;
+  pattern?: string;
+  periodHours?: unknown;
+  serviceName?: string;
+}
+
+async function ApplyCleanupRule(
+  span: Span,
+  dbType: "sqlite" | "postgres",
+  deleteRule: CleanupRule,
+): Promise<void> {
+  if (
+    deleteRule.signalType !== "traces" &&
+    deleteRule.signalType !== "metrics" &&
+    deleteRule.signalType !== "logs"
+  ) {
+    return;
+  }
+  if (!deleteRule.pattern) return;
+  const periodHours = Number(deleteRule.periodHours);
+  if (!Number.isFinite(periodHours) || periodHours <= 0) {
+    logger.warn(
+      `Rule (signal=${deleteRule.signalType} ; periodHours=${deleteRule.periodHours}) skipped: periodHours must be a positive number`,
       span,
     );
+    return;
   }
+  const retentionMs = periodHours * 60 * 60 * 1000;
+  const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
+  const serviceName = deleteRule.serviceName?.trim() || null;
+  let nbRows = 0;
+  const formatPattern = (patternIn) => {
+    return ("%" + patternIn + "%")
+      .toLowerCase()
+      .replace(/\*/g, "%")
+      .replace(/%+/g, "%");
+  };
+  const params = serviceName
+    ? [deleteTimestamp, formatPattern(deleteRule.pattern), serviceName]
+    : [deleteTimestamp, formatPattern(deleteRule.pattern)];
+
+  if (deleteRule.signalType === "traces") {
+    const deltas = await DbUtilsQuerySQL(
+      span,
+      SQL_QUERIES.GET_TRACES_DELETE_DELTAS(serviceName)[dbType],
+      params,
+    );
+    if (deltas.length > 0) {
+      nbRows += await DbUtilsExecSQL(
+        span,
+        SQL_QUERIES.DELETE_TRACES(serviceName)[dbType],
+        params,
+      );
+      await SignalRollupsRecordSignalDeletion(
+        "traces",
+        toServiceCountDeltas(deltas),
+      );
+    }
+  } else if (deleteRule.signalType === "metrics") {
+    const deltas = await DbUtilsQuerySQL(
+      span,
+      SQL_QUERIES.GET_METRICS_DELETE_DELTAS(serviceName)[dbType],
+      params,
+    );
+    if (deltas.length > 0) {
+      nbRows += await DbUtilsExecSQL(
+        span,
+        SQL_QUERIES.DELETE_SIGNALS("metrics", serviceName)[dbType],
+        params,
+      );
+      await SignalRollupsRecordSignalDeletion(
+        "metrics",
+        toServiceCountDeltas(deltas),
+      );
+      await SignalRollupsRecordMetricNameDeletion(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        deltas.map((row: any) => ({
+          serviceName: row.serviceName,
+          name: row.name,
+          type: row.type,
+          count: Number(row.cnt),
+        })),
+      );
+    }
+  } else {
+    // logs
+    const deltas = await DbUtilsQuerySQL(
+      span,
+      SQL_QUERIES.GET_LOGS_DELETE_DELTAS(serviceName)[dbType],
+      params,
+    );
+    if (deltas.length > 0) {
+      nbRows += await DbUtilsExecSQL(
+        span,
+        SQL_QUERIES.DELETE_SIGNALS("logs", serviceName)[dbType],
+        params,
+      );
+      await SignalRollupsRecordSignalDeletion(
+        "logs",
+        toServiceCountDeltas(deltas),
+      );
+    }
+  }
+  logger.info(
+    `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern} ; serviceName=${serviceName ?? "*"}) deleted ${nbRows} rows`,
+    span,
+  );
 }
 
 // Orphan traces (no root span ever seen). The scan is bounded to the recent
@@ -409,14 +433,16 @@ const SQL_QUERIES = {
       "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?" +
       (serviceName ? " AND serviceName = ?" : ""),
   }),
-  GET_TRACES_DELETE_DELTAS: {
+  GET_TRACES_DELETE_DELTAS: (serviceName: string | null) => ({
     postgres:
       'SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2' +
+      (serviceName ? ' AND "serviceName" = $3' : "") +
       ' GROUP BY "serviceName", "serviceVersion"',
     sqlite:
       "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE startTime < ? AND keywords LIKE ?" +
+      (serviceName ? " AND serviceName = ?" : "") +
       " GROUP BY serviceName, serviceVersion",
-  },
+  }),
   DELETE_SIGNALS: (tableName: string, serviceName: string | null) => ({
     postgres:
       `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2` +
@@ -425,22 +451,26 @@ const SQL_QUERIES = {
       `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?` +
       (serviceName ? " AND serviceName = ?" : ""),
   }),
-  GET_METRICS_DELETE_DELTAS: {
+  GET_METRICS_DELETE_DELTAS: (serviceName: string | null) => ({
     postgres:
       'SELECT "serviceName", "serviceVersion", "name", "type", COUNT(*) AS cnt FROM metrics WHERE "time" < $1 AND "keywords" LIKE $2' +
+      (serviceName ? ' AND "serviceName" = $3' : "") +
       ' GROUP BY "serviceName", "serviceVersion", "name", "type"',
     sqlite:
       "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics WHERE time < ? AND keywords LIKE ?" +
+      (serviceName ? " AND serviceName = ?" : "") +
       " GROUP BY serviceName, serviceVersion, name, type",
-  },
-  GET_LOGS_DELETE_DELTAS: {
+  }),
+  GET_LOGS_DELETE_DELTAS: (serviceName: string | null) => ({
     postgres:
       'SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM logs WHERE "time" < $1 AND "keywords" LIKE $2' +
+      (serviceName ? ' AND "serviceName" = $3' : "") +
       ' GROUP BY "serviceName", "serviceVersion"',
     sqlite:
       "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM logs WHERE time < ? AND keywords LIKE ?" +
+      (serviceName ? " AND serviceName = ?" : "") +
       " GROUP BY serviceName, serviceVersion",
-  },
+  }),
   DELETE_ORPHAN_TRACES: {
     postgres:
       'DELETE FROM traces WHERE "traceId" IN (' +

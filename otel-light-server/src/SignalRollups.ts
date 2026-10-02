@@ -423,14 +423,17 @@ function buildValuesRows(numRows: number): string {
   return Array.from({ length: numRows }, () => "(?, ?, ?, ?, ?, ?)").join(",");
 }
 
+// Postgres: bare column references in DO UPDATE SET expressions are ambiguous
+// between the target row and EXCLUDED (error 42702) - the target columns must
+// be table-qualified. SQLite has no such ambiguity.
 const UPSERT_SERVICE_COUNTS: Record<string, (numRows: number) => string> = {
   postgres: (numRows) =>
     `INSERT INTO signal_service_counts ("signalType", "serviceName", "serviceVersion", "count", "firstSeen", "lastSeen") ` +
     `VALUES ${buildValuesRows(numRows)} ` +
     `ON CONFLICT ("signalType", "serviceName", "serviceVersion") DO UPDATE SET ` +
-    `"count" = "count" + EXCLUDED."count", ` +
-    `"firstSeen" = LEAST("firstSeen", EXCLUDED."firstSeen"), ` +
-    `"lastSeen" = GREATEST("lastSeen", EXCLUDED."lastSeen")`,
+    `"count" = signal_service_counts."count" + EXCLUDED."count", ` +
+    `"firstSeen" = LEAST(signal_service_counts."firstSeen", EXCLUDED."firstSeen"), ` +
+    `"lastSeen" = GREATEST(signal_service_counts."lastSeen", EXCLUDED."lastSeen")`,
   sqlite: (numRows) =>
     `INSERT INTO signal_service_counts (signalType, serviceName, serviceVersion, count, firstSeen, lastSeen) ` +
     `VALUES ${buildValuesRows(numRows)} ` +
@@ -445,9 +448,9 @@ const UPSERT_METRIC_NAMES: Record<string, (numRows: number) => string> = {
     `INSERT INTO signal_metric_names ("serviceName", "name", "type", "count", "firstSeen", "lastSeen") ` +
     `VALUES ${buildValuesRows(numRows)} ` +
     `ON CONFLICT ("serviceName", "name", "type") DO UPDATE SET ` +
-    `"count" = "count" + EXCLUDED."count", ` +
-    `"firstSeen" = LEAST("firstSeen", EXCLUDED."firstSeen"), ` +
-    `"lastSeen" = GREATEST("lastSeen", EXCLUDED."lastSeen")`,
+    `"count" = signal_metric_names."count" + EXCLUDED."count", ` +
+    `"firstSeen" = LEAST(signal_metric_names."firstSeen", EXCLUDED."firstSeen"), ` +
+    `"lastSeen" = GREATEST(signal_metric_names."lastSeen", EXCLUDED."lastSeen")`,
   sqlite: (numRows) =>
     `INSERT INTO signal_metric_names (serviceName, name, type, count, firstSeen, lastSeen) ` +
     `VALUES ${buildValuesRows(numRows)} ` +
