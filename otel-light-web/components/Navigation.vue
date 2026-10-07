@@ -9,6 +9,14 @@
       </li>
     </ul>
     <ul class="menu-links">
+      <li>
+        <NuxtLink
+          to="/"
+          :class="activeRoute == '/' ? 'active' : 'inactive'"
+          ><i class="bi bi-speedometer2"></i>
+          <span class="nav-label">Dashboard</span></NuxtLink
+        >
+      </li>
       <li
         v-if="
           authenticationStore.isAuthenticated &&
@@ -48,24 +56,12 @@
           <span class="nav-label">Logs</span></NuxtLink
         >
       </li>
-      <li
-        v-if="
-          authenticationStore.isAuthenticated && authenticationStore.isAdmin
-        "
-      >
+      <li>
         <NuxtLink
           to="/settings"
           :class="activeRoute == '/settings' ? 'active' : 'inactive'"
           ><i class="bi bi-gear"></i>
           <span class="nav-label">Settings</span></NuxtLink
-        >
-      </li>
-      <li>
-        <NuxtLink
-          to="/users"
-          :class="activeRoute == '/users' ? 'active' : 'inactive'"
-          ><i class="bi bi-person-circle"></i>
-          <span class="nav-label">Profile</span></NuxtLink
         >
       </li>
     </ul>

@@ -212,23 +212,12 @@
 import { AuthService } from "~~/services/AuthService";
 import { UserService } from "~~/services/UserService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { SettingsTabs } from "~~/services/SettingsTabs";
 
 export default {
   data() {
     return {
-      settingsTabs: [
-        {
-          id: "maintenance",
-          label: "Maintenance",
-          to: "/settings/maintenance",
-        },
-        {
-          id: "users",
-          label: "Users",
-          to: "/settings/users",
-          show: () => AuthenticationStore().isAdmin,
-        },
-      ],
+      settingsTabs: SettingsTabs,
       users: [],
       currentUserId: null,
       showUserModal: false,
@@ -250,7 +239,7 @@ export default {
     const auth = AuthenticationStore();
     await auth.ensureAuthenticated();
     if (!auth.isAdmin) {
-      useRouter().push({ path: "/settings/maintenance" });
+      useRouter().push({ path: "/settings/profile" });
       return;
     }
     this.currentUserId = auth.userId;

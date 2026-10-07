@@ -101,7 +101,7 @@ export default {
   },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
-      useRouter().push({ path: "/users" });
+      useRouter().push({ path: "/settings/profile" });
     }
   },
   beforeUnmount() {

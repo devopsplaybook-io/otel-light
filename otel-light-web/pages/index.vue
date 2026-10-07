@@ -111,7 +111,7 @@ export default {
     if (await AuthenticationStore().ensureAuthenticated()) {
       this.fetchRecommendation();
     } else {
-      useRouter().push({ path: "/users" });
+      useRouter().push({ path: "/settings/profile" });
     }
   },
   methods: {

@@ -59,24 +59,13 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { EventBus, EventTypes, handleError } from "~~/services/EventBus";
+import { SettingsTabs } from "~~/services/SettingsTabs";
 
 export default {
   components: { SearchOptions },
   data() {
     return {
-      settingsTabs: [
-        {
-          id: "maintenance",
-          label: "Maintenance",
-          to: "/settings/maintenance",
-        },
-        {
-          id: "users",
-          label: "Users",
-          to: "/settings/users",
-          show: () => AuthenticationStore().isAdmin,
-        },
-      ],
+      settingsTabs: SettingsTabs,
       services: [],
       settings: {
         deleteRules: [],
@@ -85,10 +74,10 @@ export default {
   },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
-      useRouter().push({ path: "/users" });
+      useRouter().push({ path: "/settings/profile" });
     }
     if (!AuthenticationStore().isAdmin) {
-      useRouter().push({ path: "/" });
+      useRouter().push({ path: "/settings/profile" });
       return;
     }
     this.fetchSettings();
