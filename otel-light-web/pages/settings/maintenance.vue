@@ -1,55 +1,52 @@
 <template>
-  <div id="settings-page">
-    <TabNavigation :tabs="settingsTabs" />
-    <h3>Signal Deletion Settings</h3>
-    <form id="settings">
-      <div
-        v-for="(rule, idx) in settings.deleteRules"
-        :key="idx"
-        class="delete-rule-row"
+  <h3>Signal Deletion Settings</h3>
+  <form id="settings">
+    <div
+      v-for="(rule, idx) in settings.deleteRules"
+      :key="idx"
+      class="delete-rule-row"
+    >
+      <select class="delete-rule-type" v-model="rule.signalType">
+        <option disabled value="">Type</option>
+        <option value="traces">Trace</option>
+        <option value="metrics">Metric</option>
+        <option value="logs">Log</option>
+      </select>
+      <input
+        class="delete-rule-amount"
+        type="number"
+        min="1"
+        v-model.number="rule.periodValue"
+        placeholder="Value"
+      />
+      <select class="delete-rule-unit" v-model="rule.periodUnit">
+        <option value="days">Days</option>
+        <option value="hours">Hours</option>
+      </select>
+      <input
+        class="delete-rule-pattern"
+        type="text"
+        v-model="rule.pattern"
+        placeholder="Pattern"
+      />
+      <select class="delete-rule-service" v-model="rule.serviceName">
+        <option value="">All services</option>
+        <option v-for="svc in services" :key="svc" :value="svc">
+          {{ svc }}
+        </option>
+      </select>
+      <button
+        class="delete-rule-button"
+        type="button"
+        @click="removeRule(idx)"
+        title="Remove"
       >
-        <select class="delete-rule-type" v-model="rule.signalType">
-          <option disabled value="">Type</option>
-          <option value="traces">Trace</option>
-          <option value="metrics">Metric</option>
-          <option value="logs">Log</option>
-        </select>
-        <input
-          class="delete-rule-amount"
-          type="number"
-          min="1"
-          v-model.number="rule.periodValue"
-          placeholder="Value"
-        />
-        <select class="delete-rule-unit" v-model="rule.periodUnit">
-          <option value="days">Days</option>
-          <option value="hours">Hours</option>
-        </select>
-        <input
-          class="delete-rule-pattern"
-          type="text"
-          v-model="rule.pattern"
-          placeholder="Pattern"
-        />
-        <select class="delete-rule-service" v-model="rule.serviceName">
-          <option value="">All services</option>
-          <option v-for="svc in services" :key="svc" :value="svc">
-            {{ svc }}
-          </option>
-        </select>
-        <button
-          class="delete-rule-button"
-          type="button"
-          @click="removeRule(idx)"
-          title="Remove"
-        >
-          <i class="bi bi-trash" />
-        </button>
-      </div>
-      <button type="button" @click="addRule">Add Rule</button>
-      <button type="button" @click="saveSettings">Save</button>
-    </form>
-  </div>
+        <i class="bi bi-trash" />
+      </button>
+    </div>
+    <button type="button" @click="addRule">Add Rule</button>
+    <button type="button" @click="saveSettings">Save</button>
+  </form>
 </template>
 
 <script>
@@ -59,13 +56,11 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { EventBus, EventTypes, handleError } from "~~/services/EventBus";
-import { SettingsTabs } from "~~/services/SettingsTabs";
 
 export default {
   components: { SearchOptions },
   data() {
     return {
-      settingsTabs: SettingsTabs,
       services: [],
       settings: {
         deleteRules: [],
@@ -73,11 +68,11 @@ export default {
     };
   },
   async created() {
-    if (!(await AuthenticationStore().ensureAuthenticated())) {
-      useRouter().push({ path: "/settings/profile" });
-    }
-    if (!AuthenticationStore().isAdmin) {
-      useRouter().push({ path: "/settings/profile" });
+    if (
+      !(await AuthenticationStore().ensureAuthenticated()) ||
+      !AuthenticationStore().isAdmin
+    ) {
+      // The settings layout page owns the redirect to the first allowed tab.
       return;
     }
     this.fetchSettings();
@@ -212,12 +207,6 @@ export default {
     grid-column: 2;
     grid-row: 2;
   }
-}
-
-#settings-page {
-  display: grid;
-  grid-template-rows: auto auto 1fr;
-  height: 100%;
 }
 
 #settings {

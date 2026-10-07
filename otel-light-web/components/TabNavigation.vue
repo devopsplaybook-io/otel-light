@@ -1,7 +1,7 @@
 <template>
   <div class="tab-navigation">
     <NuxtLink
-      v-for="tab in visibleTabs"
+      v-for="tab in tabs"
       :key="tab.id"
       :to="{ path: tab.to, query: route.query }"
       :class="['tab', { active: isActive(tab) }]"
@@ -12,10 +12,9 @@
 </template>
 
 <script setup>
-import { computed } from "vue";
 import { useRoute } from "vue-router";
 
-const props = defineProps({
+defineProps({
   tabs: {
     type: Array,
     required: true,
@@ -23,14 +22,6 @@ const props = defineProps({
 });
 
 const route = useRoute();
-
-const visibleTabs = computed(() => {
-  if (!props.tabs) return [];
-  return props.tabs.filter((tab) => {
-    if (typeof tab.show === "function") return tab.show();
-    return tab.show !== false;
-  });
-});
 
 function normalizePath(path) {
   return String(path || "").replace(/\/+$/, "") || "/";
