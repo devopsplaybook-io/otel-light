@@ -12,6 +12,7 @@
   "devDependencies": {
     "@nuxt/eslint": "^1.17.0",
     "@vite-pwa/nuxt": "^1.1.1",
+    "@vitejs/plugin-vue": "^6.0.8",
     "eslint": "^10.11.0",
     "happy-dom": "^20.14.5",
     "nuxt": "4.5.2",
