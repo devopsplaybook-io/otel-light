@@ -116,11 +116,6 @@
           <i class="bi bi-shield-lock"></i>
           API Tokens
         </h3>
-        <p>
-          Tokens authenticate API calls with your own permissions
-          (<code>Authorization: Bearer &lt;token&gt;</code>). A token is shown
-          only once, right after its creation, and stays valid until revoked.
-        </p>
         <div v-if="createdApiToken">
           <p><strong>Copy your new token now, it will not be shown again:</strong></p>
           <div class="api-token-reveal">
