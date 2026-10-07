@@ -1,59 +1,16 @@
-<template></template>
-
-<script>
-export default {
-  data() {
-    return {};
-  },
-  async created() {
-    useRouter().push({ path: "/settings/profile" });
-  },
-  methods: {},
-};
+<script setup>
+/**
+ * /settings has no content of its own: it immediately lands on the first
+ * settings tab (Profile). The redirect runs as a route middleware so it
+ * happens before the route renders, with no flash of an empty shell.
+ */
+definePageMeta({
+  middleware: [
+    () => navigateTo("/settings/profile"),
+  ],
+});
 </script>
 
-<style>
-.delete-rule-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto 2fr auto;
-  gap: 0.5rem;
-  margin-bottom: 0.5rem;
-}
-</style>
-
-<style scoped>
-#settings-page {
-  display: grid;
-  grid-template-rows: auto 1fr;
-  height: 100%;
-}
-
-#settings {
-  max-width: 100%;
-  overflow-x: auto;
-}
-
-#settings button {
-  margin-right: 0.5rem;
-}
-
-#settings input,
-#settings select,
-#settings select,
-#settings option {
-  font-size: 0.8rem;
-}
-#settings input {
-  padding: 0.5rem 0.5rem;
-}
-#settings select {
-  padding: 0.5rem 1.3rem 0.5rem 0.5rem;
-}
-
-.log-expanded {
-  background-color: #dfe3eb22;
-}
-.log-span-expanded {
-  background-color: #dfe3eb11;
-}
-</style>
+<template>
+  <div></div>
+</template>

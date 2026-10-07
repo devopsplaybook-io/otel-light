@@ -4,7 +4,12 @@
   gap: 0.25rem;
   margin-bottom: 1rem;
   border-bottom: 1px solid #ffffff22;
-  padding: 0;
+  /* The tabs pull themselves 1px over the border (margin-bottom: -1px plus a
+     2px border-bottom), so the content box must absorb that 1px: without this
+     padding it is a vertical overflow, and because overflow-x: auto makes
+     overflow-y default to auto, browsers with classic (non-overlay) scrollbars
+     render a scrollbar next to the tab bar. */
+  padding: 0 0 1px;
   overflow-x: auto;
   max-width: 100%;
   min-width: 0;

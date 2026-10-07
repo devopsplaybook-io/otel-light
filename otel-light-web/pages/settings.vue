@@ -1,7 +1,9 @@
 <template>
   <div id="settings-page">
     <TabNavigation :tabs="visibleTabs" />
-    <NuxtPage />
+    <div class="settings-page-content">
+      <NuxtPage />
+    </div>
   </div>
 </template>
 
@@ -40,9 +42,20 @@ watch([() => route.path, () => authStore.isAdmin, ready], enforceAccess);
 </script>
 
 <style scoped>
+/* Full-height shell: the tab bar stays pinned while the active settings page
+   scrolls in the row below (same pattern as the signals pages). The content
+   row must be `minmax(0, 1fr)`, not plain `1fr`: a `1fr` row has an implicit
+   min-content minimum, so a page taller than the viewport (e.g. Profile)
+   would expand the grid and crush the tab bar row down to its border,
+   hiding the tabs. */
 #settings-page {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
+}
+
+.settings-page-content {
+  min-height: 0;
+  overflow-y: auto;
 }
 </style>
