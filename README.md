@@ -135,7 +135,7 @@ The recommendation is displayed as a card on the home page, with markdown-render
 
 ## API Tokens
 
-Users can create their own API tokens from the profile page (`/users`), in the "API Tokens" section. A token has the same permissions as the user who created it (role and scopes are read live on every request, so permission changes and revocation apply immediately).
+Users can create their own API tokens from the profile page (`/settings/profile`), in the "API Tokens" section. A token has the same permissions as the user who created it (role and scopes are read live on every request, so permission changes and revocation apply immediately).
 
 - **Create**: profile page → "Create Token" → give it a name. The plaintext token is displayed only once — copy it immediately.
 - **List / Revoke**: the profile page lists your tokens; revoking a token immediately invalidates it.

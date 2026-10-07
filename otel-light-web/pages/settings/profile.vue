@@ -1,258 +1,261 @@
 <template>
-  <div class="user-page">
-    <!-- NOT AUTHENTICATED: Login Section -->
-    <article v-if="!authenticationStore.isAuthenticated" class="profile-card">
-      <h3>
-        <i
-          class="bi"
-          :class="isInitialized ? 'bi-box-arrow-in-right' : 'bi-person-plus'"
-        ></i>
-        {{ isInitialized ? "Sign In" : "Create Admin Account" }}
-      </h3>
-      <p>
-        {{
-          isInitialized
-            ? "Enter your credentials to access the dashboard."
-            : "Set up the initial administrator account."
-        }}
-      </p>
-      <label>
-        Username
-        <input
-          type="text"
-          v-model="user.name"
-          placeholder="Enter username"
-          @keyup.enter="isInitialized ? login() : saveNew()"
-        />
-      </label>
-      <label>
-        Password
-        <input
-          type="password"
-          v-model="user.password"
-          placeholder="Enter password"
-          @keyup.enter="isInitialized ? login() : saveNew()"
-        />
-      </label>
-      <div class="article-actions">
-        <button v-if="isInitialized" :disabled="loggingIn" @click="login()">
-          <i class="bi bi-box-arrow-in-right"></i>
-          {{ loggingIn ? "Signing in…" : "Sign In" }}
-        </button>
-        <button v-else :disabled="loggingIn" @click="saveNew()">
-          <i class="bi bi-person-plus"></i>
-          {{ loggingIn ? "Creating…" : "Create" }}
-        </button>
-      </div>
-    </article>
-
-    <!-- AUTHENTICATED: Profile Section -->
-    <div v-else class="profile-content">
-      <!-- Account Info -->
-      <article>
+  <div id="settings-page">
+    <TabNavigation :tabs="settingsTabs" />
+    <div class="user-page">
+      <!-- NOT AUTHENTICATED: Login Section -->
+      <article v-if="!authenticationStore.isAuthenticated" class="profile-card">
         <h3>
-          <i class="bi bi-person-circle"></i>
-          Account
+          <i
+            class="bi"
+            :class="isInitialized ? 'bi-box-arrow-in-right' : 'bi-person-plus'"
+          ></i>
+          {{ isInitialized ? "Sign In" : "Create Admin Account" }}
         </h3>
         <p>
-          Logged in as <strong>{{ authenticationStore.userName }}</strong>
-          <span v-if="authenticationStore.isAdmin" class="badge badge-admin"
-            >Admin</span
-          >
-          <span v-else class="badge badge-user">User</span>
+          {{
+            isInitialized
+              ? "Enter your credentials to access the dashboard."
+              : "Set up the initial administrator account."
+          }}
         </p>
-        <div class="article-actions">
-          <button class="secondary" @click="logout()">
-            <i class="bi bi-box-arrow-right"></i> Logout
-          </button>
-        </div>
-      </article>
-
-      <!-- Change Password -->
-      <article>
-        <h3>
-          <i class="bi bi-key"></i>
-          Change Password
-        </h3>
-        <p>Update your account password.</p>
-        <div v-if="!isChangePasswordStarted">
-          <button @click="changePasswordStart(true)">
-            <i class="bi bi-pencil"></i> Change Password
-          </button>
-        </div>
-        <div v-else>
-          <label>
-            Current Password
-            <input
-              type="password"
-              v-model="user.passwordOld"
-              placeholder="Enter current password"
-            />
-          </label>
-          <label>
-            New Password
-            <input
-              type="password"
-              v-model="user.password"
-              placeholder="Enter new password"
-              @keyup.enter="changePassword()"
-            />
-          </label>
-          <div class="article-actions">
-            <button class="secondary" @click="changePasswordStart(false)">
-              Cancel
-            </button>
-            <button :disabled="savingPassword" @click="changePassword()">
-              <i class="bi bi-check-lg"></i>
-              {{ savingPassword ? "Saving…" : "Save" }}
-            </button>
-          </div>
-        </div>
-      </article>
-
-      <!-- API Tokens -->
-      <article>
-        <h3>
-          <i class="bi bi-shield-lock"></i>
-          API Tokens
-        </h3>
-        <p>
-          Tokens authenticate API calls with your own permissions
-          (<code>Authorization: Bearer &lt;token&gt;</code>). A token is shown
-          only once, right after its creation, and stays valid until revoked.
-        </p>
-        <div v-if="createdApiToken">
-          <p><strong>Copy your new token now, it will not be shown again:</strong></p>
-          <div class="api-token-reveal">
-            <code class="api-token-value">{{ createdApiToken }}</code>
-            <button class="secondary" @click="copyApiToken()">
-              <i
-                class="bi"
-                :class="copiedApiToken ? 'bi-clipboard-check' : 'bi-clipboard'"
-              ></i>
-              {{ copiedApiToken ? "Copied" : "Copy" }}
-            </button>
-          </div>
-        </div>
-        <div v-if="!isApiTokenCreationStarted">
-          <button @click="createApiTokenStart(true)">
-            <i class="bi bi-plus-lg"></i> Create Token
-          </button>
-        </div>
-        <div v-else>
-          <label>
-            Token Name
-            <input
-              type="text"
-              v-model="newApiToken.name"
-              placeholder="e.g. CI pipeline"
-              @keyup.enter="createApiToken()"
-            />
-          </label>
-          <div class="article-actions">
-            <button class="secondary" @click="createApiTokenStart(false)">
-              Cancel
-            </button>
-            <button :disabled="savingApiToken" @click="createApiToken()">
-              <i class="bi bi-check-lg"></i>
-              {{ savingApiToken ? "Creating…" : "Create" }}
-            </button>
-          </div>
-        </div>
-        <table v-if="apiTokens.length > 0" class="api-token-list">
-          <thead>
-            <tr>
-              <th>Name</th>
-              <th>Created</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="apiToken in apiTokens" :key="apiToken.id">
-              <td>{{ apiToken.name }}</td>
-              <td>{{ new Date(apiToken.dateCreated).toLocaleString() }}</td>
-              <td>
-                <button class="secondary" @click="revokeApiToken(apiToken.id)">
-                  <i class="bi bi-trash"></i> Revoke
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </article>
-
-      <!-- Preferences -->
-      <article>
-        <h3>
-          <i class="bi bi-sliders"></i>
-          Preferences
-        </h3>
-        <h4>Refresh</h4>
-        <label for="refresh-interval">
-          Auto-refresh interval (Traces and Logs):
+        <label>
+          Username
+          <input
+            type="text"
+            v-model="user.name"
+            placeholder="Enter username"
+            @keyup.enter="isInitialized ? login() : saveNew()"
+          />
         </label>
-        <select
-          id="refresh-interval"
-          v-model="refreshInterval"
-          @change="saveRefreshInterval"
-        >
-          <option value="0">No auto-refresh</option>
-          <option value="5000">5 seconds</option>
-          <option value="10000">10 seconds</option>
-          <option value="30000">30 seconds</option>
-          <option value="60000">1 minute</option>
-        </select>
-
-        <h4>Dark Mode</h4>
-        <button class="secondary" @click="toggleTheme">
-          <i class="bi" :class="isDark ? 'bi-sun-fill' : 'bi-moon-fill'"></i>
-          Switch to {{ isDark ? "Light" : "Dark" }} Mode
-        </button>
-
-        <h4>Default Time Window</h4>
-        <label for="default-time-traces">Traces:</label>
-        <select
-          id="default-time-traces"
-          v-model="defaultTimeWindow.traces"
-          @change="saveDefaultTimeWindow('traces')"
-        >
-          <option
-            v-for="option in timeWindowOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-        <label for="default-time-metrics">Metrics:</label>
-        <select
-          id="default-time-metrics"
-          v-model="defaultTimeWindow.metrics"
-          @change="saveDefaultTimeWindow('metrics')"
-        >
-          <option
-            v-for="option in timeWindowOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-        <label for="default-time-logs">Logs:</label>
-        <select
-          id="default-time-logs"
-          v-model="defaultTimeWindow.logs"
-          @change="saveDefaultTimeWindow('logs')"
-        >
-          <option
-            v-for="option in timeWindowOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
+        <label>
+          Password
+          <input
+            type="password"
+            v-model="user.password"
+            placeholder="Enter password"
+            @keyup.enter="isInitialized ? login() : saveNew()"
+          />
+        </label>
+        <div class="article-actions">
+          <button v-if="isInitialized" :disabled="loggingIn" @click="login()">
+            <i class="bi bi-box-arrow-in-right"></i>
+            {{ loggingIn ? "Signing in…" : "Sign In" }}
+          </button>
+          <button v-else :disabled="loggingIn" @click="saveNew()">
+            <i class="bi bi-person-plus"></i>
+            {{ loggingIn ? "Creating…" : "Create" }}
+          </button>
+        </div>
       </article>
+
+      <!-- AUTHENTICATED: Profile Section -->
+      <div v-else class="profile-content">
+        <!-- Account Info -->
+        <article>
+          <h3>
+            <i class="bi bi-person-circle"></i>
+            Account
+          </h3>
+          <p>
+            Logged in as <strong>{{ authenticationStore.userName }}</strong>
+            <span v-if="authenticationStore.isAdmin" class="badge badge-admin"
+              >Admin</span
+            >
+            <span v-else class="badge badge-user">User</span>
+          </p>
+          <div class="article-actions">
+            <button class="secondary" @click="logout()">
+              <i class="bi bi-box-arrow-right"></i> Logout
+            </button>
+          </div>
+        </article>
+
+        <!-- Change Password -->
+        <article>
+          <h3>
+            <i class="bi bi-key"></i>
+            Change Password
+          </h3>
+          <p>Update your account password.</p>
+          <div v-if="!isChangePasswordStarted">
+            <button @click="changePasswordStart(true)">
+              <i class="bi bi-pencil"></i> Change Password
+            </button>
+          </div>
+          <div v-else>
+            <label>
+              Current Password
+              <input
+                type="password"
+                v-model="user.passwordOld"
+                placeholder="Enter current password"
+              />
+            </label>
+            <label>
+              New Password
+              <input
+                type="password"
+                v-model="user.password"
+                placeholder="Enter new password"
+                @keyup.enter="changePassword()"
+              />
+            </label>
+            <div class="article-actions">
+              <button class="secondary" @click="changePasswordStart(false)">
+                Cancel
+              </button>
+              <button :disabled="savingPassword" @click="changePassword()">
+                <i class="bi bi-check-lg"></i>
+                {{ savingPassword ? "Saving…" : "Save" }}
+              </button>
+            </div>
+          </div>
+        </article>
+
+        <!-- API Tokens -->
+        <article>
+          <h3>
+            <i class="bi bi-shield-lock"></i>
+            API Tokens
+          </h3>
+          <p>
+            Tokens authenticate API calls with your own permissions
+            (<code>Authorization: Bearer &lt;token&gt;</code>). A token is shown
+            only once, right after its creation, and stays valid until revoked.
+          </p>
+          <div v-if="createdApiToken">
+            <p><strong>Copy your new token now, it will not be shown again:</strong></p>
+            <div class="api-token-reveal">
+              <code class="api-token-value">{{ createdApiToken }}</code>
+              <button class="secondary" @click="copyApiToken()">
+                <i
+                  class="bi"
+                  :class="copiedApiToken ? 'bi-clipboard-check' : 'bi-clipboard'"
+                ></i>
+                {{ copiedApiToken ? "Copied" : "Copy" }}
+              </button>
+            </div>
+          </div>
+          <div v-if="!isApiTokenCreationStarted">
+            <button @click="createApiTokenStart(true)">
+              <i class="bi bi-plus-lg"></i> Create Token
+            </button>
+          </div>
+          <div v-else>
+            <label>
+              Token Name
+              <input
+                type="text"
+                v-model="newApiToken.name"
+                placeholder="e.g. CI pipeline"
+                @keyup.enter="createApiToken()"
+              />
+            </label>
+            <div class="article-actions">
+              <button class="secondary" @click="createApiTokenStart(false)">
+                Cancel
+              </button>
+              <button :disabled="savingApiToken" @click="createApiToken()">
+                <i class="bi bi-check-lg"></i>
+                {{ savingApiToken ? "Creating…" : "Create" }}
+              </button>
+            </div>
+          </div>
+          <table v-if="apiTokens.length > 0" class="api-token-list">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Created</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="apiToken in apiTokens" :key="apiToken.id">
+                <td>{{ apiToken.name }}</td>
+                <td>{{ new Date(apiToken.dateCreated).toLocaleString() }}</td>
+                <td>
+                  <button class="secondary" @click="revokeApiToken(apiToken.id)">
+                    <i class="bi bi-trash"></i> Revoke
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+        <!-- Preferences -->
+        <article>
+          <h3>
+            <i class="bi bi-sliders"></i>
+            Preferences
+          </h3>
+          <h4>Refresh</h4>
+          <label for="refresh-interval">
+            Auto-refresh interval (Traces and Logs):
+          </label>
+          <select
+            id="refresh-interval"
+            v-model="refreshInterval"
+            @change="saveRefreshInterval"
+          >
+            <option value="0">No auto-refresh</option>
+            <option value="5000">5 seconds</option>
+            <option value="10000">10 seconds</option>
+            <option value="30000">30 seconds</option>
+            <option value="60000">1 minute</option>
+          </select>
+
+          <h4>Dark Mode</h4>
+          <button class="secondary" @click="toggleTheme">
+            <i class="bi" :class="isDark ? 'bi-sun-fill' : 'bi-moon-fill'"></i>
+            Switch to {{ isDark ? "Light" : "Dark" }} Mode
+          </button>
+
+          <h4>Default Time Window</h4>
+          <label for="default-time-traces">Traces:</label>
+          <select
+            id="default-time-traces"
+            v-model="defaultTimeWindow.traces"
+            @change="saveDefaultTimeWindow('traces')"
+          >
+            <option
+              v-for="option in timeWindowOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+          <label for="default-time-metrics">Metrics:</label>
+          <select
+            id="default-time-metrics"
+            v-model="defaultTimeWindow.metrics"
+            @change="saveDefaultTimeWindow('metrics')"
+          >
+            <option
+              v-for="option in timeWindowOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+          <label for="default-time-logs">Logs:</label>
+          <select
+            id="default-time-logs"
+            v-model="defaultTimeWindow.logs"
+            @change="saveDefaultTimeWindow('logs')"
+          >
+            <option
+              v-for="option in timeWindowOptions"
+              :key="option.value"
+              :value="option.value"
+            >
+              {{ option.label }}
+            </option>
+          </select>
+        </article>
+      </div>
     </div>
   </div>
 </template>
@@ -268,6 +271,7 @@ import { AuthService } from "~~/services/AuthService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UserService } from "~~/services/UserService";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
+import { SettingsTabs } from "~~/services/SettingsTabs";
 import {
   PreferencesService,
   TimeWindowOptions,
@@ -287,6 +291,7 @@ export default {
         window.matchMedia("(prefers-color-scheme: dark)").matches;
     }
     return {
+      settingsTabs: SettingsTabs,
       user: {},
       isInitialized: true,
       isChangePasswordStarted: false,
@@ -404,7 +409,7 @@ export default {
       AuthenticationStore().role = null;
       AuthenticationStore().scopes = [];
       AuthenticationStore().userName = null;
-      useRouter().push({ path: "/users" });
+      useRouter().push({ path: "/settings/profile" });
     },
     changePasswordStart(enable) {
       this.isChangePasswordStarted = enable;
@@ -513,6 +518,12 @@ export default {
 </script>
 
 <style scoped>
+#settings-page {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+}
+
 .user-page {
   display: flex;
   flex-direction: column;
