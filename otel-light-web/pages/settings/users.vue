@@ -1,208 +1,210 @@
 <template>
-  <h3>User Management</h3>
-  <div class="settings-users-content">
-    <button @click="openCreateUser()" style="margin-bottom: 1rem">
-      <i class="bi bi-person-plus"></i> Create User
-    </button>
+  <div>
+    <h3>User Management</h3>
+    <div class="settings-users-content">
+      <button @click="openCreateUser()" style="margin-bottom: 1rem">
+        <i class="bi bi-person-plus"></i> Create User
+      </button>
 
-    <figure v-if="users.length > 0">
-      <table>
-        <thead>
-          <tr>
-            <th>Username</th>
-            <th>Role</th>
-            <th>Scopes</th>
-            <th class="col-actions">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-for="u in users" :key="u.id">
-            <td>
-              <span class="user-name">{{ u.name }}</span>
-              <span v-if="u.id === currentUserId" class="badge badge-self"
-                >You</span
-              >
-            </td>
-            <td>
-              <span
-                class="badge"
-                :class="u.role === 'admin' ? 'badge-admin' : 'badge-user'"
-                >{{ u.role }}</span
-              >
-            </td>
-            <td class="scopes-cell">
-              <span v-if="u.role === 'admin'" class="scope-all"
-                >All scopes</span
-              >
-              <span v-else class="scope-list">
-                <i
-                  class="bi"
-                  :class="
-                    u.scopes?.includes('traces')
-                      ? 'bi-check-circle-fill scope-yes'
-                      : 'bi-x-circle-fill scope-no'
-                  "
-                ></i>
-                Traces
-                <i
-                  class="bi"
-                  :class="
-                    u.scopes?.includes('metrics')
-                      ? 'bi-check-circle-fill scope-yes'
-                      : 'bi-x-circle-fill scope-no'
-                  "
-                ></i>
-                Metrics
-                <i
-                  class="bi"
-                  :class="
-                    u.scopes?.includes('logs')
-                      ? 'bi-check-circle-fill scope-yes'
-                      : 'bi-x-circle-fill scope-no'
-                  "
-                ></i>
-                Logs
-              </span>
-            </td>
-            <td class="col-actions">
-              <button class="icon-btn" title="Edit" @click="openEditUser(u)">
-                <i class="bi bi-pencil-fill"></i>
-              </button>
-              <button
-                class="icon-btn icon-btn--danger"
-                title="Delete"
-                :disabled="u.id === currentUserId"
-                @click="confirmDeleteUser(u)"
-              >
-                <i class="bi bi-trash3-fill"></i>
-              </button>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </figure>
-    <div v-else class="empty-state">
-      <i class="bi bi-people"></i>
-      <p>No users found.</p>
+      <figure v-if="users.length > 0">
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Role</th>
+              <th>Scopes</th>
+              <th class="col-actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="u in users" :key="u.id">
+              <td>
+                <span class="user-name">{{ u.name }}</span>
+                <span v-if="u.id === currentUserId" class="badge badge-self"
+                  >You</span
+                >
+              </td>
+              <td>
+                <span
+                  class="badge"
+                  :class="u.role === 'admin' ? 'badge-admin' : 'badge-user'"
+                  >{{ u.role }}</span
+                >
+              </td>
+              <td class="scopes-cell">
+                <span v-if="u.role === 'admin'" class="scope-all"
+                  >All scopes</span
+                >
+                <span v-else class="scope-list">
+                  <i
+                    class="bi"
+                    :class="
+                      u.scopes?.includes('traces')
+                        ? 'bi-check-circle-fill scope-yes'
+                        : 'bi-x-circle-fill scope-no'
+                    "
+                  ></i>
+                  Traces
+                  <i
+                    class="bi"
+                    :class="
+                      u.scopes?.includes('metrics')
+                        ? 'bi-check-circle-fill scope-yes'
+                        : 'bi-x-circle-fill scope-no'
+                    "
+                  ></i>
+                  Metrics
+                  <i
+                    class="bi"
+                    :class="
+                      u.scopes?.includes('logs')
+                        ? 'bi-check-circle-fill scope-yes'
+                        : 'bi-x-circle-fill scope-no'
+                    "
+                  ></i>
+                  Logs
+                </span>
+              </td>
+              <td class="col-actions">
+                <button class="icon-btn" title="Edit" @click="openEditUser(u)">
+                  <i class="bi bi-pencil-fill"></i>
+                </button>
+                <button
+                  class="icon-btn icon-btn--danger"
+                  title="Delete"
+                  :disabled="u.id === currentUserId"
+                  @click="confirmDeleteUser(u)"
+                >
+                  <i class="bi bi-trash3-fill"></i>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </figure>
+      <div v-else class="empty-state">
+        <i class="bi bi-people"></i>
+        <p>No users found.</p>
+      </div>
     </div>
-  </div>
 
-  <!-- CREATE/EDIT USER MODAL -->
-  <dialog
-    v-if="showUserModal"
-    :open="showUserModal"
-    @click.self="closeUserModal"
-  >
-    <article>
-      <header>
-        <button aria-label="Close" rel="prev" @click="closeUserModal"></button>
-        <h3>
-          <i
-            :class="editingUser ? 'bi bi-pencil-fill' : 'bi bi-person-plus'"
-          ></i>
-          {{ editingUser ? "Edit User" : "Create User" }}
-        </h3>
-      </header>
-      <label>
-        Username
-        <input
-          type="text"
-          v-model="userForm.name"
-          placeholder="Enter username"
-          :disabled="!!editingUser"
-        />
-      </label>
-      <label>
-        {{
-          editingUser
-            ? "New Password (leave blank to keep current)"
-            : "Password"
-        }}
-        <input
-          type="password"
-          v-model="userForm.password"
-          :placeholder="editingUser ? 'Leave blank to keep' : 'Enter password'"
-        />
-      </label>
-      <fieldset>
-        <legend>Role</legend>
-        <label
-          ><input type="radio" v-model="userForm.role" value="user" />
-          User</label
-        >
-        <label
-          ><input type="radio" v-model="userForm.role" value="admin" />
-          Admin</label
-        >
-      </fieldset>
-      <div v-if="userForm.role !== 'admin'">
+    <!-- CREATE/EDIT USER MODAL -->
+    <dialog
+      v-if="showUserModal"
+      :open="showUserModal"
+      @click.self="closeUserModal"
+    >
+      <article>
+        <header>
+          <button aria-label="Close" rel="prev" @click="closeUserModal"></button>
+          <h3>
+            <i
+              :class="editingUser ? 'bi bi-pencil-fill' : 'bi bi-person-plus'"
+            ></i>
+            {{ editingUser ? "Edit User" : "Create User" }}
+          </h3>
+        </header>
+        <label>
+          Username
+          <input
+            type="text"
+            v-model="userForm.name"
+            placeholder="Enter username"
+            :disabled="!!editingUser"
+          />
+        </label>
+        <label>
+          {{
+            editingUser
+              ? "New Password (leave blank to keep current)"
+              : "Password"
+          }}
+          <input
+            type="password"
+            v-model="userForm.password"
+            :placeholder="editingUser ? 'Leave blank to keep' : 'Enter password'"
+          />
+        </label>
         <fieldset>
-          <legend>Scopes</legend>
+          <legend>Role</legend>
           <label
-            ><input type="checkbox" v-model="userForm.scopes" value="traces" />
-            Traces</label
+            ><input type="radio" v-model="userForm.role" value="user" />
+            User</label
           >
           <label
-            ><input type="checkbox" v-model="userForm.scopes" value="metrics" />
-            Metrics</label
-          >
-          <label
-            ><input type="checkbox" v-model="userForm.scopes" value="logs" />
-            Logs</label
+            ><input type="radio" v-model="userForm.role" value="admin" />
+            Admin</label
           >
         </fieldset>
-      </div>
-      <div v-else>
-        <small
-          ><i class="bi bi-info-circle-fill"></i> Admins have all scopes by
-          default.</small
-        >
-      </div>
-      <footer>
-        <button class="secondary" @click="closeUserModal">Cancel</button>
-        <button :disabled="savingUser" @click="saveUser">
-          <i class="bi bi-check-lg"></i> {{ savingUser ? "Saving…" : "Save" }}
-        </button>
-      </footer>
-    </article>
-  </dialog>
+        <div v-if="userForm.role !== 'admin'">
+          <fieldset>
+            <legend>Scopes</legend>
+            <label
+              ><input type="checkbox" v-model="userForm.scopes" value="traces" />
+              Traces</label
+            >
+            <label
+              ><input type="checkbox" v-model="userForm.scopes" value="metrics" />
+              Metrics</label
+            >
+            <label
+              ><input type="checkbox" v-model="userForm.scopes" value="logs" />
+              Logs</label
+            >
+          </fieldset>
+        </div>
+        <div v-else>
+          <small
+            ><i class="bi bi-info-circle-fill"></i> Admins have all scopes by
+            default.</small
+          >
+        </div>
+        <footer>
+          <button class="secondary" @click="closeUserModal">Cancel</button>
+          <button :disabled="savingUser" @click="saveUser">
+            <i class="bi bi-check-lg"></i> {{ savingUser ? "Saving…" : "Save" }}
+          </button>
+        </footer>
+      </article>
+    </dialog>
 
-  <!-- DELETE CONFIRM MODAL -->
-  <dialog
-    v-if="showDeleteConfirm"
-    :open="showDeleteConfirm"
-    @click.self="showDeleteConfirm = false"
-  >
-    <article>
-      <header>
-        <button
-          aria-label="Close"
-          rel="prev"
-          @click="showDeleteConfirm = false"
-        ></button>
-        <h3><i class="bi bi-exclamation-triangle-fill"></i> Delete User</h3>
-      </header>
-      <p>
-        Are you sure you want to delete user
-        <strong>{{ deleteTarget?.name }}</strong
-        >?
-      </p>
-      <p>This action cannot be undone.</p>
-      <footer>
-        <button class="secondary" @click="showDeleteConfirm = false">
-          Cancel
-        </button>
-        <button
-          class="contrast"
-          :disabled="deletingUser"
-          @click="executeDelete"
-        >
-          <i class="bi bi-trash3-fill"></i>
-          {{ deletingUser ? "Deleting…" : "Delete" }}
-        </button>
-      </footer>
-    </article>
-  </dialog>
+    <!-- DELETE CONFIRM MODAL -->
+    <dialog
+      v-if="showDeleteConfirm"
+      :open="showDeleteConfirm"
+      @click.self="showDeleteConfirm = false"
+    >
+      <article>
+        <header>
+          <button
+            aria-label="Close"
+            rel="prev"
+            @click="showDeleteConfirm = false"
+          ></button>
+          <h3><i class="bi bi-exclamation-triangle-fill"></i> Delete User</h3>
+        </header>
+        <p>
+          Are you sure you want to delete user
+          <strong>{{ deleteTarget?.name }}</strong
+          >?
+        </p>
+        <p>This action cannot be undone.</p>
+        <footer>
+          <button class="secondary" @click="showDeleteConfirm = false">
+            Cancel
+          </button>
+          <button
+            class="contrast"
+            :disabled="deletingUser"
+            @click="executeDelete"
+          >
+            <i class="bi bi-trash3-fill"></i>
+            {{ deletingUser ? "Deleting…" : "Delete" }}
+          </button>
+        </footer>
+      </article>
+    </dialog>
+  </div>
 </template>
 
 <script>

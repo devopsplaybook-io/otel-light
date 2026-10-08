@@ -1,52 +1,54 @@
 <template>
-  <h3>Signal Deletion Settings</h3>
-  <form id="settings">
-    <div
-      v-for="(rule, idx) in settings.deleteRules"
-      :key="idx"
-      class="delete-rule-row"
-    >
-      <select class="delete-rule-type" v-model="rule.signalType">
-        <option disabled value="">Type</option>
-        <option value="traces">Trace</option>
-        <option value="metrics">Metric</option>
-        <option value="logs">Log</option>
-      </select>
-      <input
-        class="delete-rule-amount"
-        type="number"
-        min="1"
-        v-model.number="rule.periodValue"
-        placeholder="Value"
-      />
-      <select class="delete-rule-unit" v-model="rule.periodUnit">
-        <option value="days">Days</option>
-        <option value="hours">Hours</option>
-      </select>
-      <input
-        class="delete-rule-pattern"
-        type="text"
-        v-model="rule.pattern"
-        placeholder="Pattern"
-      />
-      <select class="delete-rule-service" v-model="rule.serviceName">
-        <option value="">All services</option>
-        <option v-for="svc in services" :key="svc" :value="svc">
-          {{ svc }}
-        </option>
-      </select>
-      <button
-        class="delete-rule-button"
-        type="button"
-        @click="removeRule(idx)"
-        title="Remove"
+  <div>
+    <h3>Signal Deletion Settings</h3>
+    <form id="settings">
+      <div
+        v-for="(rule, idx) in settings.deleteRules"
+        :key="idx"
+        class="delete-rule-row"
       >
-        <i class="bi bi-trash" />
-      </button>
-    </div>
-    <button type="button" @click="addRule">Add Rule</button>
-    <button type="button" @click="saveSettings">Save</button>
-  </form>
+        <select class="delete-rule-type" v-model="rule.signalType">
+          <option disabled value="">Type</option>
+          <option value="traces">Trace</option>
+          <option value="metrics">Metric</option>
+          <option value="logs">Log</option>
+        </select>
+        <input
+          class="delete-rule-amount"
+          type="number"
+          min="1"
+          v-model.number="rule.periodValue"
+          placeholder="Value"
+        />
+        <select class="delete-rule-unit" v-model="rule.periodUnit">
+          <option value="days">Days</option>
+          <option value="hours">Hours</option>
+        </select>
+        <input
+          class="delete-rule-pattern"
+          type="text"
+          v-model="rule.pattern"
+          placeholder="Pattern"
+        />
+        <select class="delete-rule-service" v-model="rule.serviceName">
+          <option value="">All services</option>
+          <option v-for="svc in services" :key="svc" :value="svc">
+            {{ svc }}
+          </option>
+        </select>
+        <button
+          class="delete-rule-button"
+          type="button"
+          @click="removeRule(idx)"
+          title="Remove"
+        >
+          <i class="bi bi-trash" />
+        </button>
+      </div>
+      <button type="button" @click="addRule">Add Rule</button>
+      <button type="button" @click="saveSettings">Save</button>
+    </form>
+  </div>
 </template>
 
 <script>
@@ -195,7 +197,7 @@ export default {
     grid-column: 3;
     grid-row: 1;
   }
-  .delete-rule-row .delete-rule-buttom {
+  .delete-rule-row .delete-rule-button {
     grid-column: 4;
     grid-row: 1;
   }
@@ -228,12 +230,5 @@ export default {
 }
 #settings select {
   padding: 0.5rem 1.3rem 0.5rem 0.5rem;
-}
-
-.log-expanded {
-  background-color: #dfe3eb22;
-}
-.log-span-expanded {
-  background-color: #dfe3eb11;
 }
 </style>
