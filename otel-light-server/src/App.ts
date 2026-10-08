@@ -162,10 +162,26 @@ Promise.resolve().then(async () => {
     return { started: true };
   });
 
+  // index.html is the pointer to the content-hashed assets, so the browser must
+  // revalidate it on every navigation (the etag then answers 304): caching it as
+  // immutable makes browsers ask for asset filenames that no longer exist after
+  // a deploy, which shows up as 404s on /_nuxt chunks for up to a day.
   fastify.register(fastifyStatic, {
     root: path.join(__dirname, "../web"),
     prefix: "/",
-    maxAge: "1d",
+    maxAge: 0,
+    etag: true,
+    lastModified: true,
+    cacheControl: true,
+  });
+
+  // Everything under /_nuxt is content-hashed by Vite, so those files can be
+  // cached for as long as their URL stays valid.
+  fastify.register(fastifyStatic, {
+    root: path.join(__dirname, "../web/_nuxt"),
+    prefix: "/_nuxt/",
+    decorateReply: false,
+    maxAge: "365d",
     etag: true,
     lastModified: true,
     immutable: true,
