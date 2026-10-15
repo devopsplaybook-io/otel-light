@@ -1,7 +1,7 @@
 module.exports = {
   moduleFileExtensions: ["ts", "js"],
   transform: {
-    "^.+\\.(ts|tsx)$": [
+    "^.+\\.(ts|tsx|js)$": [
       "@swc/jest",
       {
         jsc: {
@@ -10,6 +10,8 @@ module.exports = {
       },
     ],
   },
+  // cookie@2 (via light-my-request) ships ESM only and must be transpiled to CJS for jest.
+  transformIgnorePatterns: ["/node_modules/(?!(.pnpm/)?cookie/)"],
   coverageProvider: "v8",
   modulePathIgnorePatterns: ["<rootDir>/dist/"],
   moduleNameMapper: {
