@@ -31,6 +31,7 @@ jest.mock("./OTelContext", () => {
     setStatus: jest.fn(),
     addEvent: jest.fn(),
     setAttribute: jest.fn(),
+    setAttributes: jest.fn(),
   };
   const moduleLogger = {
     info: jest.fn(),

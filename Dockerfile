@@ -1,5 +1,5 @@
 # BUILD
-FROM node:24-alpine as builder
+FROM node:26-alpine as builder
 
 WORKDIR /opt/src
 
@@ -18,7 +18,7 @@ RUN cd otel-light-web && \
     npm run generate
 
 # RUN
-FROM node:24-alpine
+FROM node:26-alpine
 
 RUN apk add --no-cache kubectl gzip
 
