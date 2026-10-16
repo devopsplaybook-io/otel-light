@@ -151,9 +151,19 @@ async function ApplyCleanupRule(
     deleteRule.signalType !== "metrics" &&
     deleteRule.signalType !== "logs"
   ) {
+    logger.warn(
+      `Rule (signal=${deleteRule.signalType} ; pattern=${deleteRule.pattern}) skipped: signalType must be traces, metrics or logs`,
+      span,
+    );
     return;
   }
-  if (!deleteRule.pattern) return;
+  if (!deleteRule.pattern) {
+    logger.warn(
+      `Rule (signal=${deleteRule.signalType}) skipped: pattern must be a non-empty string`,
+      span,
+    );
+    return;
+  }
   const periodHours = Number(deleteRule.periodHours);
   if (!Number.isFinite(periodHours) || periodHours <= 0) {
     logger.warn(

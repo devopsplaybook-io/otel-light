@@ -61,6 +61,13 @@
           </div>
         </div>
       </div>
+      <div v-if="loadedOnce && groupedTraces.length === 0" class="empty-state">
+        No results for this search
+        <div class="empty-state-hint">
+          No data matched the current filters — try widening the time window or
+          clearing filters.
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -92,6 +99,7 @@ export default {
       fetchTime: null,
       expandedGroup: null,
       loadingExpanded: false,
+      loadedOnce: false,
     };
   },
   async created() {
@@ -161,14 +169,17 @@ export default {
               g.serviceVersion || "",
               g.name || "",
             ].join("||"),
-            p90: null,
-            p95: null,
+            p90: g.p90 ?? null,
+            p95: g.p95 ?? null,
             totalSpans: Math.round((g.avgSpanCount || 0) * (g.traceCount || 0)),
           }));
           this.expandedGroupTraces = {};
           this.expandedGroup = null;
         })
-        .catch(handleError);
+        .catch(handleError)
+        .finally(() => {
+          this.loadedOnce = true;
+        });
     },
     formatDuration(ms) {
       return getDurationText(ms);

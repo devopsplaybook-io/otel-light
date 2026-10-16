@@ -14,6 +14,10 @@ import {
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
+// Bounded random sample of per-trace durations used only for the P90/P95
+// percentiles; exact aggregates come from TRACES_STATS (same pattern as the
+// LLM recommendation sample cap).
+const TRACES_STATS_SAMPLE_CAP = 20000;
 
 export class AnalyticsStatsRoutes {
   //
@@ -210,16 +214,49 @@ export class AnalyticsStatsRoutes {
         allParams,
       );
 
+      // Bounded random sample of full-trace durations (same measure as
+      // avgDuration) for the percentiles, grouped like the web client does:
+      // serviceName||serviceVersion||name. Values stay in nanoseconds.
+      const sampleRows = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.TRACES_DURATION_SAMPLE(rootsWhere, rootsParams.length + 1)[
+          dbType
+        ],
+        [...rootsParams, TRACES_STATS_SAMPLE_CAP],
+      );
+      const sampleDurations: Record<string, number[]> = {};
+      for (const row of sampleRows) {
+        const key = [row.serviceName || "", row.serviceVersion || "", row.name || ""].join("||");
+        if (!sampleDurations[key]) sampleDurations[key] = [];
+        sampleDurations[key].push(Number(row.duration));
+      }
+      const percentileOf = (
+        durations: number[],
+        pct: number,
+        fallback: number,
+      ): number => {
+        if (durations.length === 0) return fallback;
+        const sorted = [...durations].sort((a, b) => a - b);
+        const idx = Math.ceil((pct / 100) * sorted.length) - 1;
+        return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+      };
+
       // Build grouped trace stats
-      const groups = rawRows.map((row) => ({
-        serviceName: row.serviceName,
-        serviceVersion: row.serviceVersion,
-        name: row.name,
-        traceCount: Number(row.traceCount),
-        avgSpanCount: Number(row.avgSpanCount),
-        nbErrors: Number(row.nbErrors),
-        avgDuration: Number(row.avgDuration),
-      }));
+      const groups = rawRows.map((row) => {
+        const avgDuration = Number(row.avgDuration);
+        const key = [row.serviceName || "", row.serviceVersion || "", row.name || ""].join("||");
+        const durations = sampleDurations[key] || [];
+        return {
+          serviceName: row.serviceName,
+          serviceVersion: row.serviceVersion,
+          name: row.name,
+          traceCount: Number(row.traceCount),
+          avgSpanCount: Number(row.avgSpanCount),
+          nbErrors: Number(row.nbErrors),
+          avgDuration,
+          p90: percentileOf(durations, 90, avgDuration),
+          p95: percentileOf(durations, 95, avgDuration),
+        };
+      });
 
       return res.status(200).send({
         groups: await AnalyticsUtilsCompressJson(groups, "gzip"),
@@ -247,6 +284,53 @@ const SQL_QUERIES = {
       FROM logs${sqlWhere}
       GROUP BY severity, bucketIdx
       ORDER BY bucketIdx`,
+  }),
+  // Bounded random sample of per-trace durations (MAX(endTime) − MIN(startTime),
+  // the same measure as avgDuration) reused for the P90/P95 percentiles. The
+  // sample-cap placeholder is the last bound parameter (after rootsWhere).
+  TRACES_DURATION_SAMPLE: (rootsWhere: string, capParamIdx: number) => ({
+    postgres: `
+      WITH roots AS (
+        SELECT "traceId", "name", "serviceName", "serviceVersion"
+        FROM traces
+        WHERE ${rootsWhere}
+      )
+      SELECT r."name",
+             r."serviceName",
+             r."serviceVersion",
+             (t."endTime" - t."startTime") AS "duration"
+      FROM (
+        SELECT t."traceId",
+               MIN(t."startTime") AS "startTime",
+               MAX(t."endTime") AS "endTime"
+        FROM traces t
+        JOIN roots r ON r."traceId" = t."traceId"
+        GROUP BY t."traceId"
+      ) t
+      JOIN roots r ON r."traceId" = t."traceId"
+      ORDER BY RANDOM()
+      LIMIT $${capParamIdx}`,
+    sqlite: `
+      WITH roots AS (
+        SELECT traceId, name, serviceName, serviceVersion
+        FROM traces
+        WHERE ${rootsWhere}
+      )
+      SELECT r.name,
+             r.serviceName,
+             r.serviceVersion,
+             (t.endTime - t.startTime) AS duration
+      FROM (
+        SELECT t.traceId,
+               MIN(t.startTime) AS startTime,
+               MAX(t.endTime) AS endTime
+        FROM traces t
+        JOIN roots r ON r.traceId = t.traceId
+        GROUP BY t.traceId
+      ) t
+      JOIN roots r ON r.traceId = t.traceId
+      ORDER BY RANDOM()
+      LIMIT ?`,
   }),
   TRACES_STATS: (rootsWhere: string, statusCodeVarIdx: number) => ({
     postgres: `

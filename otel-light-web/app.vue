@@ -142,6 +142,19 @@ main {
   font-size: 0.85em;
 }
 
+.empty-state {
+  padding: 2rem 1rem;
+  text-align: center;
+  color: #888;
+  font-size: 0.9em;
+}
+
+.empty-state-hint {
+  margin-top: 0.25rem;
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
 /* Logs */
 
 .log-summary {

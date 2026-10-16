@@ -44,9 +44,17 @@
       <div id="traces-sentinel" ref="sentinel"></div>
       <div class="load-status">
         <Loading v-if="isLoadingMore" size="small" />
-        <span v-else-if="!hasMore && traces.length > 0" class="no-more-data"
-          >No more data</span
+        <div
+          v-else-if="loadedOnce && traces.length === 0"
+          class="empty-state"
         >
+          No results for this search
+          <div class="empty-state-hint">
+            No data matched the current filters — try widening the time window
+            or clearing filters.
+          </div>
+        </div>
+        <span v-else-if="!hasMore" class="no-more-data">No more data</span>
       </div>
     </div>
   </div>
@@ -76,6 +84,7 @@ export default {
       traces: [],
       hasMore: true,
       isLoadingMore: false,
+      loadedOnce: false,
       newestCursor: null,
       oldestCursor: null,
       refreshIntervalId: null,
@@ -232,6 +241,7 @@ export default {
         .catch(handleError)
         .finally(() => {
           this.isLoadingMore = false;
+          this.loadedOnce = true;
         });
     },
     cursorOf(trace) {
