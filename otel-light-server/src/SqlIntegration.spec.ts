@@ -822,6 +822,54 @@ describe("SQL-level integration (sqlite)", () => {
         nbErrors: 0,
       });
     });
+
+    it("computes P90/P95 equal to the full-trace duration for single-trace groups", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/stats?from=${from}&to=${to}`,
+      });
+      expect(res.statusCode).toBe(200);
+      const groups = await decodeB64Json(res.json().groups);
+      const groupA = groups.find((group: Loose) => group.name === "st-op-a");
+      // st-a spans T3 → T3+10s (the child span does not extend the trace).
+      expect(groupA.avgDuration).toBe(10_000_000_000);
+      expect(groupA.p90).toBe(10_000_000_000);
+      expect(groupA.p95).toBe(10_000_000_000);
+      const groupB = groups.find((group: Loose) => group.name === "st-op-b");
+      // st-b spans T3+50s → T3+60s.
+      expect(groupB.avgDuration).toBe(10_000_000_000);
+      expect(groupB.p90).toBe(10_000_000_000);
+      expect(groupB.p95).toBe(10_000_000_000);
+    });
+
+    it("computes percentiles over several traces", async () => {
+      for (let i = 1; i <= 10; i++) {
+        const startTime = T3 + i * 1_000_000_000;
+        await insertTrace(
+          `st-pct-${i}`,
+          `st-pct-${i}-root`,
+          null,
+          "st-op-pct",
+          startTime,
+          startTime + i * 1_000_000_000,
+          0,
+          "stats-trace-svc",
+        );
+      }
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/stats?from=${from}&to=${to}`,
+      });
+      expect(res.statusCode).toBe(200);
+      const groups = await decodeB64Json(res.json().groups);
+      const group = groups.find((group: Loose) => group.name === "st-op-pct");
+      expect(group.traceCount).toBe(10);
+      // Sorted durations 1s..10s: P90 index = ceil(0.9*10)-1 = 8 → 9s,
+      // P95 index = ceil(0.95*10)-1 = 9 → 10s.
+      expect(group.p90).toBe(9_000_000_000);
+      expect(group.p95).toBe(10_000_000_000);
+      expect(group.p90).toBeGreaterThan(group.avgDuration - 1_000_000_000);
+    });
   });
 
   // =========================================================================
@@ -871,6 +919,107 @@ describe("SQL-level integration (sqlite)", () => {
         payload: { content: "not-an-object" },
       });
       expect(res.statusCode).toBe(400);
+    });
+
+    it("rejects cleanup rules with a non-positive periodHours and persists nothing", async () => {
+      const sentinel = {
+        deleteRules: [
+          { signalType: "traces", periodHours: 1, pattern: "put-validation-sentinel" },
+        ],
+      };
+      let res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: { content: sentinel },
+      });
+      expect(res.statusCode).toBe(201);
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: {
+          content: {
+            deleteRules: [{ signalType: "logs", periodHours: 0, pattern: "x" }],
+          },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("periodHours");
+
+      const getRes = await fastify.inject({
+        method: "GET",
+        url: "/api/settings/signal-cleanup-rules",
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json().settings.content).toEqual(sentinel);
+    });
+
+    it("rejects cleanup rules with an empty pattern, an unknown signalType or a non-string serviceName", async () => {
+      let res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: {
+          content: { deleteRules: [{ signalType: "logs", periodHours: 1, pattern: " " }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("pattern");
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: {
+          content: { deleteRules: [{ signalType: "nope", periodHours: 1, pattern: "x" }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("signalType");
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: {
+          content: {
+            deleteRules: [
+              { signalType: "logs", periodHours: 1, pattern: "x", serviceName: 42 },
+            ],
+          },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("serviceName");
+    });
+
+    it("rejects a cleanup-rules PUT without deleteRules", async () => {
+      const res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: { content: { unrelated: true } },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("deleteRules");
+    });
+
+    it("accepts valid cleanup rules and round-trips the content", async () => {
+      const content = {
+        deleteRules: [
+          { signalType: "logs", periodHours: 720, pattern: "noise-*" },
+          { signalType: "traces", periodHours: 48, pattern: "health", serviceName: "svc-a" },
+        ],
+      };
+      const putRes = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/signal-cleanup-rules",
+        payload: { content },
+      });
+      expect(putRes.statusCode).toBe(201);
+
+      const getRes = await fastify.inject({
+        method: "GET",
+        url: "/api/settings/signal-cleanup-rules",
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json().settings.content).toEqual(content);
     });
   });
 

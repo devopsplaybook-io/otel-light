@@ -46,6 +46,16 @@
           hydrate-on-visible
         />
       </article>
+      <div
+        v-if="loadedOnce && !loading && metricsNames.length === 0"
+        class="empty-state"
+      >
+        No metrics found for this search
+        <div class="empty-state-hint">
+          No data matched the current filters — try widening the time window or
+          clearing filters.
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -70,6 +80,7 @@ export default {
         queryString: "",
       },
       loading: false,
+      loadedOnce: false,
       fetchTime: null,
     };
   },
@@ -115,6 +126,7 @@ export default {
         .catch(handleError)
         .finally(() => {
           this.loading = false;
+          this.loadedOnce = true;
         });
     },
     getMetricKey(metric) {

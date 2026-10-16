@@ -44,6 +44,10 @@
         >
           <i class="bi bi-trash" />
         </button>
+        <div v-if="ruleIssues(rule).length" class="delete-rule-invalid">
+          <i class="bi bi-exclamation-triangle" />
+          This rule will be skipped: {{ ruleIssues(rule).join(", ") }}
+        </div>
       </div>
       <button type="button" @click="addRule">Add Rule</button>
       <button type="button" @click="saveSettings">Save</button>
@@ -58,6 +62,7 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { EventBus, EventTypes, handleError } from "~~/services/EventBus";
+import { cleanupRuleIssues, validateCleanupRules } from "~~/services/CleanupRules";
 
 export default {
   components: { SearchOptions },
@@ -81,6 +86,9 @@ export default {
     this.fetchServices();
   },
   methods: {
+    ruleIssues(rule) {
+      return cleanupRuleIssues(rule);
+    },
     addRule() {
       this.settings.deleteRules.push({
         signalType: "",
@@ -134,6 +142,14 @@ export default {
         .catch(handleError);
     },
     async saveSettings() {
+      const issues = validateCleanupRules(this.settings.deleteRules);
+      if (issues.length > 0) {
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "error",
+          text: issues.join("; "),
+        });
+        return;
+      }
       const url = `${SERVER_URL}/settings/signal-cleanup-rules`;
       const transformed = {
         deleteRules: this.settings.deleteRules.map((rule) => ({
@@ -180,7 +196,16 @@ export default {
   font-size: 0.8rem;
 }
 
+.delete-rule-invalid {
+  grid-column: 1 / -1;
+  color: #b45309;
+  font-size: 0.8rem;
+}
+
 @media (max-width: 600px) {
+  .delete-rule-invalid {
+    grid-column: 1 / -1;
+  }
   .delete-rule-row {
     grid-template-columns: auto 1fr 1fr auto;
     grid-template-rows: auto auto;

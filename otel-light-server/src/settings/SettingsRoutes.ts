@@ -55,6 +55,12 @@ export class SettingsRoutes {
         } catch {
           return;
         }
+        if (req.params.category === "signal-cleanup-rules") {
+          const issues = validateSignalCleanupRules(req.body.content);
+          if (issues.length > 0) {
+            return res.status(400).send({ error: issues.join("; ") });
+          }
+        }
         // Single-statement upsert: a failed write leaves the previous
         // category content intact (no delete+insert window).
         await DbUtilsExecSQL(
@@ -66,6 +72,43 @@ export class SettingsRoutes {
       },
     );
   }
+}
+
+// Rules the maintenance engine would silently skip must be rejected here so
+// users learn at save time that a rule will never run. Mirrors the skip
+// conditions in Maintenance.ts ApplyCleanupRule.
+function validateSignalCleanupRules(content: unknown): string[] {
+  const issues: string[] = [];
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return ["deleteRules must be an array of cleanup rules"];
+  }
+  const deleteRules = (content as { deleteRules?: unknown }).deleteRules;
+  if (!Array.isArray(deleteRules)) {
+    return ["deleteRules must be an array of cleanup rules"];
+  }
+  const signalTypes = ["traces", "metrics", "logs"];
+  deleteRules.forEach((rule, idx) => {
+    const n = idx + 1;
+    if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+      issues.push(`Rule ${n}: rule must be an object`);
+      return;
+    }
+    const r = rule as { signalType?: unknown; periodHours?: unknown; pattern?: unknown; serviceName?: unknown };
+    if (!signalTypes.includes(r.signalType as string)) {
+      issues.push(`Rule ${n}: signalType must be one of: ${signalTypes.join(", ")}`);
+    }
+    const periodHours = Number(r.periodHours);
+    if (!Number.isFinite(periodHours) || periodHours <= 0) {
+      issues.push(`Rule ${n}: periodHours must be a positive number`);
+    }
+    if (typeof r.pattern !== "string" || !r.pattern.trim()) {
+      issues.push(`Rule ${n}: pattern must be a non-empty string`);
+    }
+    if (r.serviceName !== undefined && (typeof r.serviceName !== "string" || !r.serviceName.trim())) {
+      issues.push(`Rule ${n}: serviceName must be a non-empty string`);
+    }
+  });
+  return issues;
 }
 
 // SQL
