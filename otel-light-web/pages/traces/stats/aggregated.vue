@@ -12,6 +12,7 @@
         <b>Avg Duration</b>
         <b>P90</b>
         <b>P95</b>
+        <b></b>
       </div>
       <div v-for="(group, idx) in groupedTraces" :key="group.key">
         <div
@@ -31,6 +32,13 @@
           <span>{{ formatDuration(group.avgDuration) }}</span>
           <span>{{ formatDuration(group.p90) }}</span>
           <span>{{ formatDuration(group.p95) }}</span>
+          <span class="trace-group-open">
+            <i
+              class="bi bi-box-arrow-up-right"
+              title="Open in Traces"
+              @click.stop="openGroupInTraces(group)"
+            ></i>
+          </span>
         </div>
         <div v-if="expandedGroup === idx" class="traces-group-expanded">
           <div class="trace-summary">
@@ -83,6 +91,7 @@ import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
+import { TraceGroupToTracesQuery } from "~~/services/TraceLinks";
 
 export default {
   components: { SearchOptions, Trace, TraceSpan },
@@ -219,6 +228,12 @@ export default {
     onTraceClick(traceId) {
       this.toggleTrace(traceId);
     },
+    openGroupInTraces(group) {
+      this.$router.push({
+        path: "/traces",
+        query: TraceGroupToTracesQuery(group, this.$route.query),
+      });
+    },
   },
 };
 </script>
@@ -230,7 +245,7 @@ export default {
 }
 .trace-group-summary {
   display: grid;
-  grid-template-columns: 2fr 2fr 1fr 1fr 1fr 2fr 2fr 2fr;
+  grid-template-columns: 2fr 2fr 1fr 1fr 1fr 2fr 2fr 2fr auto;
   gap: 1rem;
   width: 100%;
 }
@@ -247,6 +262,13 @@ export default {
 }
 .trace-group-summary-errors {
   background-color: #ff950033;
+}
+.trace-group-open i {
+  cursor: pointer;
+  opacity: 0.6;
+}
+.trace-group-open i:hover {
+  opacity: 1;
 }
 .trace-span-expanded {
   background-color: #dfe3eb11;
