@@ -7,6 +7,7 @@
 - HTTP API for ingestion of Traces, Logs, and Metrics
 - User interface to visualize telemetry signals
 - Filter signals by service name and service version
+- Shareable trace pages (deep-linkable `/traces/{traceId}` URLs) with trace JSON copy/download, CSV export of the filtered logs view, and one-click navigation between logs, aggregated trace groups and traces
 - Dynamic paging with infinite scroll for Traces and Logs
 - Administration interface for login and maintenance rule management
 - Maintenance rules support optional service-name filtering

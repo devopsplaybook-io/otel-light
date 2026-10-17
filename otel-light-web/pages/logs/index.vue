@@ -28,9 +28,14 @@
         <span v-else-if="!hasMore" class="no-more-data">No more data</span>
       </div>
     </div>
-    <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
-      <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
-    </button>
+    <div class="fab-actions">
+      <button class="fab-button" @click="exportLogsCsv" title="Export CSV">
+        <i class="bi bi-download"></i>
+      </button>
+      <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
+        <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
+      </button>
+    </div>
   </div>
 </template>
 
@@ -41,7 +46,11 @@ import Loading from "~/components/Loading.vue";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError } from "~~/services/EventBus";
+import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import {
+  ExportDownloadFile,
+  ExportLogsCsv,
+} from "~~/services/ExportService";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import {
   SignalCursorMax,
@@ -160,6 +169,16 @@ export default {
     goToAnalytics() {
       this.$router.push({ path: "/logs/stats", query: this.$route.query });
     },
+    exportLogsCsv() {
+      if (!this.logs || this.logs.length === 0) {
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "info",
+          text: "No logs to export",
+        });
+        return;
+      }
+      ExportDownloadFile("logs.csv", ExportLogsCsv(this.logs), "text/csv");
+    },
     async fetchLogsRefresh() {
       if (!this.newestCursor) return;
       try {
@@ -218,6 +237,22 @@ export default {
 }
 .log-span-expanded {
   background-color: #dfe3eb11;
+}
+
+.fab-actions {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 1000;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.fab-actions .fab-button {
+  position: static;
+}
+.fab-actions .fab-button i {
+  vertical-align: middle;
 }
 
 #logs-sentinel {

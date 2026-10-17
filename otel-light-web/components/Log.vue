@@ -35,6 +35,7 @@
           </div>
         </section>
         <footer>
+          <button v-if="traceId" @click.stop="openTracePage">Open trace</button>
           <button @click.stop="closeLogDialog">Close</button>
         </footer>
       </article>
@@ -63,6 +64,7 @@ export default {
       isShowDialog: false,
       logSpanId: null,
       traceLogs: [],
+      traceId: null,
     };
   },
   methods: {
@@ -70,6 +72,7 @@ export default {
       this.isShowDialog = true;
       if (event) event.stopPropagation();
       this.$refs.logDialog.showModal();
+      this.traceId = this.log.traceId || null;
       if (!this.log.attributes) {
         return;
       }
@@ -85,6 +88,9 @@ export default {
           : null;
       if (traceIdAttr && traceIdAttr.value.stringValue) {
         const traceId = traceIdAttr.value.stringValue;
+        if (!this.traceId) {
+          this.traceId = traceId;
+        }
         await analyticsGet(
             `${SERVER_URL}/analytics/traces?traceId=${traceId}`,
             await AuthService.getAuthHeader(),
@@ -113,6 +119,9 @@ export default {
     closeLogDialog() {
       this.isShowDialog = false;
       this.$refs.logDialog.close();
+    },
+    openTracePage() {
+      this.$router.push("/traces/" + this.traceId);
     },
   },
 };
