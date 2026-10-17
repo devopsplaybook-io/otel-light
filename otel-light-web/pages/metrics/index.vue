@@ -1,9 +1,42 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
+    <div id="metrics-toolbar">
+      <input
+        type="search"
+        v-model="nameFilter"
+        placeholder="Filter metric names…"
+        aria-label="Filter metric names"
+        class="metrics-filter-input"
+      />
+      <select
+        v-model="sortKey"
+        aria-label="Sort metric cards"
+        class="metrics-sort-select"
+      >
+        <option value="service">Sort by service</option>
+        <option value="name">Sort by metric name</option>
+        <option value="lastUpdate">Sort by last update</option>
+      </select>
+      <button
+        type="button"
+        class="metrics-sort-direction"
+        @click="toggleSortOrder"
+        :title="sortOrder === 'asc' ? 'Ascending order' : 'Descending order'"
+      >
+        <i
+          class="bi"
+          :class="sortOrder === 'asc' ? 'bi-sort-down-alt' : 'bi-sort-up-alt'"
+        ></i>
+      </button>
+    </div>
+    <div id="metrics-status">
+      <Loading v-if="loading && !loadedOnce" size="small" />
+      <span v-else-if="statusText">{{ statusText }}</span>
+    </div>
     <div id="metrics-list">
       <article
-        v-for="metric of metricsNames"
+        v-for="metric of visibleMetrics"
         :key="metric.serviceName + metric.name + refreshCounter"
       >
         <header>
@@ -11,13 +44,23 @@
             <h6 class="metric-name" :title="metric.name">
               {{ metric.name }}
             </h6>
-            <span class="metric-service-name">{{ metric.serviceName }}</span>
             <input
               type="checkbox"
               :checked="metric.autoLoad"
               @change="toggleMetricAutoLoad(metric, $event)"
               role="switch"
             />
+            <span class="metric-service-name">{{ metric.serviceName }}</span>
+          </div>
+          <div
+            v-if="latestInfo[getMetricKey(metric)]"
+            class="metric-latest"
+            :title="latestInfo[getMetricKey(metric)].seriesName"
+          >
+            {{ latestText(latestInfo[getMetricKey(metric)]) }}
+          </div>
+          <div v-else class="metric-latest metric-latest-unknown">
+            last update {{ relativeTime(metric.lastSeen) }}
           </div>
         </header>
 
@@ -29,6 +72,8 @@
           :serviceName="metric.serviceName"
           :name="metric.name"
           :filter="filter"
+          @latest="onMetricLatest(getMetricKey(metric), $event)"
+          @loadState="onMetricLoadState(getMetricKey(metric), $event)"
           hydrate-on-visible
         />
         <LazyMetricDataHistogram
@@ -36,6 +81,8 @@
           :serviceName="metric.serviceName"
           :name="metric.name"
           :filter="filter"
+          @latest="onMetricLatest(getMetricKey(metric), $event)"
+          @loadState="onMetricLoadState(getMetricKey(metric), $event)"
           hydrate-on-visible
         />
         <LazyMetricDataSum
@@ -43,6 +90,8 @@
           :serviceName="metric.serviceName"
           :name="metric.name"
           :filter="filter"
+          @latest="onMetricLatest(getMetricKey(metric), $event)"
+          @loadState="onMetricLoadState(getMetricKey(metric), $event)"
           hydrate-on-visible
         />
       </article>
@@ -56,6 +105,21 @@
           clearing filters.
         </div>
       </div>
+      <div
+        v-if="
+          loadedOnce &&
+          !loading &&
+          metricsNames.length > 0 &&
+          visibleMetrics.length === 0
+        "
+        class="empty-state"
+      >
+        No metrics match the name filter
+        <div class="empty-state-hint">
+          No metric or service name matched "{{ nameFilter }}" — clear the
+          filter box to see all charts.
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -63,14 +127,21 @@
 <script>
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
-import { UtilsDecompressJson } from "~/services/Utils";
+import Loading from "~/components/Loading.vue";
+import {
+  MetricsCardsFilterNames,
+  MetricsCardsFormatValue,
+  MetricsCardsSortNames,
+} from "~~/services/MetricsCards";
+import { UtilsDecompressJson, UtilsRelativeTime } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 import { PreferencesService } from "~~/services/PreferencesService";
+import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
-  components: { SearchOptions },
+  components: { SearchOptions, Loading },
   data() {
     return {
       metricsNames: [],
@@ -82,15 +153,100 @@ export default {
       loading: false,
       loadedOnce: false,
       fetchTime: null,
+      nameFilter: "",
+      sortKey: "service",
+      sortOrder: "asc",
+      refreshIntervalId: null,
+      refreshIntervalValue: RefreshIntervalService.get(),
+      lastNamesSnapshot: null,
+      manuallyLoaded: new Set(),
+      latestInfo: {},
+      cardStates: {},
     };
   },
   async created() {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/settings/profile" });
     }
+    this.refreshIntervalValue = RefreshIntervalService.get();
     this.fetchMetricsNames();
   },
+  mounted() {
+    const interval = parseInt(this.refreshIntervalValue, 10);
+    if (interval > 0) {
+      this.refreshIntervalId = setInterval(() => {
+        this.fetchMetricsNames();
+      }, interval);
+    }
+  },
+  beforeUnmount() {
+    if (this.refreshIntervalId) {
+      clearInterval(this.refreshIntervalId);
+    }
+  },
+  computed: {
+    visibleMetrics() {
+      return MetricsCardsSortNames(
+        MetricsCardsFilterNames(this.metricsNames, this.nameFilter),
+        this.sortKey,
+        this.sortOrder,
+      );
+    },
+    statusText() {
+      if (this.loading && !this.loadedOnce) {
+        return "";
+      }
+      let toLoad = 0;
+      let loaded = 0;
+      let errors = 0;
+      let inFlight = 0;
+      for (const metric of this.visibleMetrics) {
+        const key = this.getMetricKey(metric);
+        if (metric.load) {
+          toLoad++;
+        }
+        const state = this.cardStates[key];
+        if (state === "loaded") {
+          loaded++;
+        } else if (state === "error") {
+          errors++;
+        } else if (state === "loading") {
+          inFlight++;
+        }
+      }
+      const done = loaded + errors;
+      const errorSuffix =
+        errors > 0 ? ` — ${errors} charts failed to load` : "";
+      if (inFlight > 0) {
+        return `Loading ${done} of ${toLoad} metric charts…`;
+      }
+      if (toLoad === 0) {
+        return "";
+      }
+      if (done < toLoad) {
+        return `${done} of ${toLoad} charts loaded — scroll to load more${errorSuffix}`;
+      }
+      return `${toLoad} metric charts${errorSuffix}`;
+    },
+  },
   methods: {
+    MetricsCardsFormatValue,
+    UtilsRelativeTime,
+    latestText(info) {
+      const unit = info.unit ? ` ${info.unit}` : "";
+      const counted = info.isHistogramCount ? " observations" : "";
+      return `${MetricsCardsFormatValue(info.value)}${unit}${counted} · last update ${this.UtilsRelativeTime(new Date(info.timeUnixNano / 1e6).toISOString())}`;
+    },
+    relativeTime(lastSeenNs) {
+      const ms = Number(lastSeenNs) / 1e6;
+      if (!Number.isFinite(ms)) {
+        return "";
+      }
+      return this.UtilsRelativeTime(new Date(ms).toISOString());
+    },
+    toggleSortOrder() {
+      this.sortOrder = this.sortOrder === "asc" ? "desc" : "asc";
+    },
     onFilterChanged(filter) {
       this.filter = { ...filter };
       this.refreshCounter++;
@@ -110,18 +266,18 @@ export default {
           }
           const metrics = await UtilsDecompressJson(response.data.metricsNames);
           for (const metric of metrics) {
-            metric.autoLoad = PreferencesService.getMetricAutoLoad(
-              this.getMetricKey(metric),
-            );
-            metric.load = metric.autoLoad;
+            const key = this.getMetricKey(metric);
+            metric.autoLoad = PreferencesService.getMetricAutoLoad(key);
+            metric.load = metric.autoLoad || this.manuallyLoaded.has(key);
           }
-          this.metricsNames = metrics.sort((a, b) => {
-            if (a.autoLoad && !b.autoLoad) return -1;
-            if (!a.autoLoad && b.autoLoad) return 1;
-            const serviceCompare = a.serviceName.localeCompare(b.serviceName);
-            if (serviceCompare !== 0) return serviceCompare;
-            return a.name.localeCompare(b.name);
-          });
+          this.metricsNames = metrics;
+          const snapshot = metrics
+            .map((metric) => `${metric.serviceName}|${metric.name}|${metric.lastSeen}`)
+            .join(",");
+          if (snapshot !== this.lastNamesSnapshot) {
+            this.lastNamesSnapshot = snapshot;
+            this.refreshCounter++;
+          }
         })
         .catch(handleError)
         .finally(() => {
@@ -134,12 +290,27 @@ export default {
     },
     toggleMetricAutoLoad(metric, event) {
       const autoLoad = event.target.checked;
-      PreferencesService.setMetricAutoLoad(this.getMetricKey(metric), autoLoad);
+      const key = this.getMetricKey(metric);
+      PreferencesService.setMetricAutoLoad(key, autoLoad);
       metric.autoLoad = autoLoad;
       metric.load = autoLoad;
+      if (autoLoad) {
+        this.manuallyLoaded.add(key);
+      } else {
+        this.manuallyLoaded.delete(key);
+        delete this.cardStates[key];
+        delete this.latestInfo[key];
+      }
     },
     loadMetric(metric) {
       metric.load = true;
+      this.manuallyLoaded.add(this.getMetricKey(metric));
+    },
+    onMetricLatest(key, info) {
+      this.latestInfo = { ...this.latestInfo, [key]: info };
+    },
+    onMetricLoadState(key, state) {
+      this.cardStates = { ...this.cardStates, [key]: state };
     },
   },
 };
@@ -148,8 +319,40 @@ export default {
 <style scoped>
 #metrics-page {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto auto auto 1fr;
   height: 100%;
+}
+
+#metrics-toolbar {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  padding-bottom: 0.5rem;
+}
+
+.metrics-filter-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.metrics-sort-select {
+  width: auto;
+  flex-shrink: 0;
+}
+
+.metrics-sort-direction {
+  flex-shrink: 0;
+  padding: 0.25rem 0.6rem;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1.2;
+}
+
+#metrics-status {
+  min-height: 1.6rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+  padding-bottom: 0.5rem;
 }
 
 #metrics-list {
@@ -182,6 +385,16 @@ export default {
   line-height: 1.3;
   padding-bottom: 0;
   margin-bottom: 0;
+}
+
+.metric-latest {
+  font-size: 0.75em;
+  opacity: 0.75;
+  margin-top: 0.2rem;
+}
+
+.metric-latest-unknown {
+  opacity: 0.45;
 }
 
 .metric-manual-load {
