@@ -16,6 +16,7 @@ import {
   UtilsMetricSampleDataPoints,
   UtilsMetricSeriesName,
 } from "~/services/Utils";
+import { MetricsCardsLatestInfo } from "~~/services/MetricsCards";
 import { MetricsServiceFetchMetricData } from "~~/services/MetricsService";
 import { handleError } from "~~/services/EventBus";
 
@@ -23,6 +24,7 @@ export default {
   components: {
     apexchart: VueApexCharts,
   },
+  emits: ["latest", "loadState"],
   props: {
     serviceName: {
       type: String,
@@ -128,6 +130,7 @@ export default {
   },
   methods: {
     async fetchMetrics() {
+      this.$emit("loadState", "loading");
       this.loading = true;
       this.chartSeries = [];
       this.allMetrics = [];
@@ -148,8 +151,14 @@ export default {
         this.allMetrics = allMetrics;
         this.metrics = UtilsMetricSampleDataPoints(allMetrics, 500);
         this.displayMetrics();
+        const latest = MetricsCardsLatestInfo(this.allMetrics);
+        if (latest) {
+          this.$emit("latest", latest);
+        }
+        this.$emit("loadState", "loaded");
       } catch (error) {
         handleError(error);
+        this.$emit("loadState", "error");
       }
       this.loading = false;
     },

@@ -8,6 +8,7 @@
 - User interface to visualize telemetry signals
 - Filter signals by service name and service version
 - Shareable trace pages (deep-linkable `/traces/{traceId}` URLs) with trace JSON copy/download, CSV export of the filtered logs view, and one-click navigation between logs, aggregated trace groups and traces
+- Metrics page with auto-refresh, sortable and filterable card grid, per-card latest value with unit and timestamp, and chart loading progress
 - Dynamic paging with infinite scroll for Traces and Logs
 - Administration interface for login and maintenance rule management
 - Maintenance rules support optional service-name filtering

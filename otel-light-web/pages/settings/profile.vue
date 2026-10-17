@@ -184,7 +184,7 @@
         </h3>
         <h4>Refresh</h4>
         <label for="refresh-interval">
-          Auto-refresh interval (Traces and Logs):
+          Auto-refresh interval (Traces, Logs and Metrics):
         </label>
         <select
           id="refresh-interval"
