@@ -10,6 +10,7 @@ describe("SettingsTabs", () => {
     expect(SettingsTabs.map((tab) => tab.id)).toEqual([
       "profile",
       "maintenance",
+      "alerts",
       "users",
     ]);
     expect(SettingsTabs[0].to).toBe("/settings/profile");
@@ -25,6 +26,7 @@ describe("SettingsTabs", () => {
     expect(visibleSettingsTabs(true).map((tab) => tab.id)).toEqual([
       "profile",
       "maintenance",
+      "alerts",
       "users",
     ]);
   });
@@ -44,6 +46,12 @@ describe("resolveSettingsRedirect", () => {
         isAdmin: false,
       }),
     ).toBe("/settings/profile");
+    expect(
+      resolveSettingsRedirect("/settings/alerts", {
+        isAuthenticated: false,
+        isAdmin: false,
+      }),
+    ).toBe("/settings/profile");
   });
 
   it("redirects non-admin users away from admin tabs", () => {
@@ -59,6 +67,12 @@ describe("resolveSettingsRedirect", () => {
         isAdmin: false,
       }),
     ).toBe("/settings/profile");
+    expect(
+      resolveSettingsRedirect("/settings/alerts", {
+        isAuthenticated: true,
+        isAdmin: false,
+      }),
+    ).toBe("/settings/profile");
   });
 
   it("lets admins open the admin tabs", () => {
@@ -70,6 +84,12 @@ describe("resolveSettingsRedirect", () => {
     ).toBeNull();
     expect(
       resolveSettingsRedirect("/settings/users", {
+        isAuthenticated: true,
+        isAdmin: true,
+      }),
+    ).toBeNull();
+    expect(
+      resolveSettingsRedirect("/settings/alerts", {
         isAuthenticated: true,
         isAdmin: true,
       }),

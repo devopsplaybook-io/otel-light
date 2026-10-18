@@ -55,6 +55,10 @@ export class Config extends ConfigBase {
   public NOTIFICATIONS_API = "";
   public NOTIFICATIONS_TOKEN = "";
 
+  // Error Alerts
+  public ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES = 15;
+  public ERROR_ALERTS_STARTUP_DELAY_MINUTES = 1;
+
   constructor() {
     super("otel-light-server");
 
@@ -96,6 +100,10 @@ export class Config extends ConfigBase {
     });
     this.addConfigField({ field: "NOTIFICATIONS_API" });
     this.addConfigField({ field: "NOTIFICATIONS_TOKEN", sensitive: true });
+    this.addConfigField({
+      field: "ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES",
+    });
+    this.addConfigField({ field: "ERROR_ALERTS_STARTUP_DELAY_MINUTES" });
   }
 
   public async reload(): Promise<void> {

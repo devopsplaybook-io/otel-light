@@ -70,6 +70,7 @@ import {
 } from "./utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetrySetLogger } from "./utils-std-ts/DbUtilsNoTelemetry";
 import { OTelLogger, OTelTracer } from "./OTelContext";
+import { ErrorAlertsEvaluate } from "./alerts/ErrorAlerts";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
@@ -1020,6 +1021,190 @@ describe("SQL-level integration (sqlite)", () => {
       });
       expect(getRes.statusCode).toBe(200);
       expect(getRes.json().settings.content).toEqual(content);
+    });
+  });
+
+  // =========================================================================
+  // Error alert rules API
+  // =========================================================================
+  describe("Error alert rules API", () => {
+    it("rejects invalid rules and persists nothing", async () => {
+      const sentinel = {
+        alertRules: [
+          { id: "ea-sentinel", serviceName: "", threshold: 1, periodHours: 1, enabled: true },
+        ],
+      };
+      let res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: { content: sentinel },
+      });
+      expect(res.statusCode).toBe(201);
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: { alertRules: [{ id: "x", threshold: -1, periodHours: 1, enabled: true }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("threshold");
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: { alertRules: [{ id: "x", threshold: 0, periodHours: 0, enabled: true }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("periodHours");
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: { alertRules: [{ threshold: 0, periodHours: 1, enabled: true }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("id");
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: { alertRules: [{ id: "x", threshold: 0, periodHours: 1, enabled: "yes" }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("enabled");
+
+      const getRes = await fastify.inject({
+        method: "GET",
+        url: "/api/settings/error-alert-rules",
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json().settings.content).toEqual(sentinel);
+    });
+
+    it("rejects a non-string serviceName and an oversized id", async () => {
+      let res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: { alertRules: [{ id: "x", serviceName: 42, threshold: 0, periodHours: 1, enabled: true }] },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("serviceName");
+
+      res = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: {
+            alertRules: [{ id: "x".repeat(81), threshold: 0, periodHours: 1, enabled: true }],
+          },
+        },
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("id");
+    });
+
+    it("accepts valid rules and round-trips the content", async () => {
+      const content = {
+        alertRules: [
+          { id: "ea-valid-1", serviceName: "", threshold: 10, periodHours: 24, enabled: true },
+          { id: "ea-valid-2", serviceName: "svc-a", threshold: 0, periodHours: 1, enabled: false },
+        ],
+      };
+      const putRes = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: { content },
+      });
+      expect(putRes.statusCode).toBe(201);
+
+      const getRes = await fastify.inject({
+        method: "GET",
+        url: "/api/settings/error-alert-rules",
+      });
+      expect(getRes.statusCode).toBe(200);
+      expect(getRes.json().settings.content).toEqual(content);
+    });
+  });
+
+  // =========================================================================
+  // Error alerts evaluation end-to-end (real logs table + maintenance_state)
+  // =========================================================================
+  describe("Error alerts evaluation end-to-end", () => {
+    it("counts errors per rule and writes outcomes into maintenance_state", async () => {
+      const nowNs = Date.now() * 1_000_000;
+      await insertLog(
+        "svc-alerts", "1.0", "error", nowNs - 60_000_000_000, "e1",
+        "svc-alerts:1.0 alerttest", "ea-log-1",
+      );
+      await insertLog(
+        "svc-alerts", "1.0", "error", nowNs - 50_000_000_000, "e2",
+        "svc-alerts:1.0 alerttest", "ea-log-2",
+      );
+      await insertLog(
+        "svc-alerts", "1.0", "error", nowNs - 40_000_000_000, "e3",
+        "svc-alerts:1.0 alerttest", "ea-log-3",
+      );
+      await insertLog(
+        "svc-alerts", "1.0", "info", nowNs - 30_000_000_000, "i1",
+        "svc-alerts:1.0 alerttest", "ea-log-4",
+      );
+      // Outside the 1h window: must not be counted.
+      await insertLog(
+        "svc-alerts", "1.0", "error", nowNs - 3 * 3_600_000_000_000, "e-old",
+        "svc-alerts:1.0 alerttest", "ea-log-5",
+      );
+
+      const putRes = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: {
+            alertRules: [
+              { id: "ea-e2e-svc", serviceName: "svc-alerts", threshold: 2, periodHours: 1, enabled: true },
+              { id: "ea-e2e-all", serviceName: "", threshold: 1000, periodHours: 1, enabled: true },
+              { id: "ea-e2e-off", serviceName: "svc-alerts", threshold: 0, periodHours: 1, enabled: false },
+            ],
+          },
+        },
+      });
+      expect(putRes.statusCode).toBe(201);
+
+      await ErrorAlertsEvaluate();
+
+      const rows = await query(
+        "SELECT stateKey, stateValue FROM maintenance_state WHERE stateKey LIKE ?",
+        ["error-alert-outcome-%"],
+      );
+      const outcomes: Record<string, Loose> = {};
+      for (const row of rows) {
+        outcomes[row.stateKey] = JSON.parse(row.stateValue);
+      }
+      // Notifications are not configured in this test context: the breach is
+      // recorded but marked not notified (graceful degradation, never silent).
+      expect(outcomes["error-alert-outcome-ea-e2e-svc"]).toMatchObject({
+        count: 3,
+        threshold: 2,
+        breached: true,
+        notified: false,
+        error: "notifications disabled",
+      });
+      expect(outcomes["error-alert-outcome-ea-e2e-all"].breached).toBe(false);
+      expect(
+        outcomes["error-alert-outcome-ea-e2e-all"].count,
+      ).toBeGreaterThanOrEqual(3);
+      // Disabled rules keep no outcome.
+      expect(outcomes["error-alert-outcome-ea-e2e-off"]).toBeUndefined();
+      expect(rows.length).toBe(2);
     });
   });
 

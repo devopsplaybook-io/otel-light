@@ -12,6 +12,8 @@ import { AnalyticsCacheInit } from "./analytics/AnalyticsCache";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
+import { ErrorAlertsInit } from "./alerts/ErrorAlerts";
+import { ErrorAlertsRoutes } from "./alerts/ErrorAlertsRoutes";
 import { Config } from "./Config";
 import { MaintenanceInit } from "./Maintenance";
 import { RecommendationInit } from "./reports/Recommendation";
@@ -84,6 +86,7 @@ Promise.resolve().then(async () => {
   await AnalyticsCacheInit(span, config);
   await RecommendationInit(span, config);
   NotificationInit(config);
+  await ErrorAlertsInit(span, config);
   await LongestTracesReportInit(span, config);
   await MostCalledTracesReportInit(span, config);
 
@@ -150,6 +153,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new SettingsRoutes().getRoutes, {
     prefix: "/api/settings",
+  });
+  fastify.register(new ErrorAlertsRoutes().getRoutes, {
+    prefix: "/api/alerts",
   });
   fastify.register(new RecommendationRoutes().getRoutes, {
     prefix: "/api/recommendation",
