@@ -1,5 +1,64 @@
 <template>
   <div id="page-intro">
+    <article v-if="overview" id="home-overview">
+      <header>
+        <h3><i class="bi bi-activity"></i> Last 24 hours</h3>
+      </header>
+      <section class="overview-strip">
+        <NuxtLink
+          v-if="hasLogsScope"
+          to="/logs"
+          class="overview-cell plain-link"
+        >
+          <span class="overview-value">{{
+            formatCount(overview.logsTotal)
+          }}</span>
+          <span class="overview-label">logs ingested</span>
+          <span class="overview-sub"
+            >{{ formatCount(overview.logErrors) }} errors</span
+          >
+        </NuxtLink>
+        <NuxtLink
+          v-if="hasTracesScope"
+          to="/traces"
+          class="overview-cell plain-link"
+        >
+          <span class="overview-value">{{
+            formatCount(overview.tracesTotal)
+          }}</span>
+          <span class="overview-label">traces ingested</span>
+          <span class="overview-sub"
+            >{{ formatCount(overview.traceErrors) }} errors</span
+          >
+        </NuxtLink>
+        <NuxtLink
+          v-if="hasMetricsScope"
+          to="/metrics"
+          class="overview-cell plain-link"
+        >
+          <span class="overview-value">{{
+            formatCount(overview.metricSeries)
+          }}</span>
+          <span class="overview-label">metric series</span>
+        </NuxtLink>
+        <div class="overview-cell">
+          <span class="overview-value">{{
+            formatCount(overview.servicesCount)
+          }}</span>
+          <span class="overview-label">services reporting</span>
+        </div>
+        <div class="overview-cell overview-jobs">
+          <span class="overview-label">Scheduled jobs</span>
+          <div v-for="job in overview.jobs" :key="job.label" class="overview-job">
+            <span class="overview-job-label">{{ job.label }}</span>
+            <span class="overview-job-value">{{
+              formatJobTime(job.generatedAt)
+            }}</span>
+          </div>
+        </div>
+      </section>
+    </article>
+
     <NuxtLink to="/traces" class="plain-link">
       <article>
         <header>
@@ -93,28 +152,122 @@
 import axios from "axios";
 import { SERVER_URL } from "~~/services/Config";
 import { AuthService } from "~~/services/AuthService";
+import { analyticsGet } from "~~/services/AnalyticsQueue";
 import { renderMarkdown } from "~~/services/Markdown";
+import { UtilsDecompressJson, UtilsRelativeTime } from "~~/services/Utils";
+import {
+  HomeOverviewBuildModel,
+  HomeOverviewWindowNs,
+} from "~~/services/HomeOverview";
 
 export default {
   data() {
     return {
       recommendation: null,
       regenerating: false,
+      recommendationGeneratedAt: null,
+      overview: null,
     };
   },
   computed: {
     isAdmin() {
       return AuthenticationStore().isAdmin;
     },
+    hasTracesScope() {
+      return AuthenticationStore().hasTracesScope;
+    },
+    hasMetricsScope() {
+      return AuthenticationStore().hasMetricsScope;
+    },
+    hasLogsScope() {
+      return AuthenticationStore().hasLogsScope;
+    },
   },
   async created() {
     if (await AuthenticationStore().ensureAuthenticated()) {
-      this.fetchRecommendation();
+      this.fetchOverview();
     } else {
       useRouter().push({ path: "/settings/profile" });
     }
   },
   methods: {
+    async fetchOverview() {
+      // The recommendation powers both the card below and the strip's job row.
+      const recommendationPromise = this.fetchRecommendation();
+      const authHeader = await AuthService.getAuthHeader();
+      const { from, to } = HomeOverviewWindowNs(Date.now());
+      const windowQs = `from=${from}&to=${to}`;
+      const [logsRes, tracesRes, metricsRes, servicesRes, longestRes, mostCalledRes] =
+        await Promise.all([
+          this.fetchCell(this.hasLogsScope, () =>
+            analyticsGet(
+              `${SERVER_URL}/analytics/logs/stats?${windowQs}`,
+              authHeader,
+            ),
+          ),
+          this.fetchCell(this.hasTracesScope, () =>
+            analyticsGet(
+              `${SERVER_URL}/analytics/traces/stats?${windowQs}`,
+              authHeader,
+            ),
+          ),
+          this.fetchCell(this.hasMetricsScope, () =>
+            analyticsGet(
+              `${SERVER_URL}/analytics/metrics/names?${windowQs}`,
+              authHeader,
+            ),
+          ),
+          this.fetchCell(true, () =>
+            analyticsGet(`${SERVER_URL}/analytics/services`, authHeader),
+          ),
+          this.fetchCell(this.hasTracesScope, () =>
+            axios.get(`${SERVER_URL}/reports/longest-traces`, authHeader),
+          ),
+          this.fetchCell(this.hasTracesScope, () =>
+            axios.get(`${SERVER_URL}/reports/most-called-traces`, authHeader),
+          ),
+        ]);
+      await recommendationPromise;
+
+      let tracesGroups = null;
+      if (tracesRes) {
+        try {
+          tracesGroups = await UtilsDecompressJson(tracesRes.data.groups);
+        } catch (err) {
+          tracesGroups = null;
+        }
+      }
+      let metricNamesCount = null;
+      if (metricsRes) {
+        try {
+          const names = await UtilsDecompressJson(metricsRes.data.metricsNames);
+          metricNamesCount = Array.isArray(names) ? names.length : 0;
+        } catch (err) {
+          metricNamesCount = null;
+        }
+      }
+      this.overview = HomeOverviewBuildModel({
+        logsStats: logsRes ? logsRes.data : null,
+        tracesGroups,
+        metricNamesCount,
+        servicesCount: servicesRes
+          ? (servicesRes.data.services || []).length
+          : null,
+        recommendationGeneratedAt: this.recommendationGeneratedAt,
+        longestReportGeneratedAt: longestRes?.data?.generatedAt ?? null,
+        mostCalledReportGeneratedAt: mostCalledRes?.data?.generatedAt ?? null,
+      });
+    },
+    // Returns null (rendered as "—") when the cell is out of scope or the
+    // fetch fails: a broken cell must never break the page.
+    async fetchCell(enabled, request) {
+      if (!enabled) return null;
+      try {
+        return await request();
+      } catch (err) {
+        return null;
+      }
+    },
     async fetchRecommendation() {
       try {
         const url = `${SERVER_URL}/recommendation`;
@@ -124,17 +277,26 @@ export default {
         );
         if (response.data && response.data.generatedAt) {
           this.recommendation = response.data;
+          this.recommendationGeneratedAt = response.data.generatedAt;
         } else {
           this.recommendation = null;
+          this.recommendationGeneratedAt = null;
         }
       } catch (err) {
         this.recommendation = null;
+        this.recommendationGeneratedAt = null;
       }
     },
     renderMarkdown,
     formatDate(isoString) {
       const d = new Date(isoString);
       return d.toLocaleString();
+    },
+    formatCount(value) {
+      return value === null ? "—" : String(value);
+    },
+    formatJobTime(generatedAt) {
+      return generatedAt === null ? "never" : UtilsRelativeTime(generatedAt);
     },
     async regenerateRecommendation() {
       this.regenerating = true;
@@ -170,6 +332,46 @@ export default {
   text-decoration: none;
 }
 
+/* Overview strip */
+.overview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1rem;
+  align-items: start;
+}
+.overview-cell {
+  display: flex;
+  flex-direction: column;
+}
+.overview-value {
+  font-size: 1.4rem;
+  font-weight: bold;
+  line-height: 1.2;
+}
+.overview-label {
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+.overview-sub {
+  font-size: 0.75rem;
+  opacity: 0.55;
+}
+.overview-jobs {
+  gap: 0.15rem;
+}
+.overview-job {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+.overview-job-label {
+  opacity: 0.7;
+}
+.overview-job-value {
+  white-space: nowrap;
+}
+
 #page-intro article {
   display: flow-root;
 }
@@ -185,6 +387,10 @@ export default {
 
 #page-intro article header i {
   margin-right: 0.5rem;
+}
+
+#home-overview {
+  grid-column: 1 / -1;
 }
 
 #page-intro h3 {

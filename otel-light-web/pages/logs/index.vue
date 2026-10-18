@@ -19,11 +19,14 @@
       <div class="load-status">
         <Loading v-if="isLoadingMore" size="small" />
         <div v-else-if="loadedOnce && logs.length === 0" class="empty-state">
-          No results for this search
-          <div class="empty-state-hint">
-            No data matched the current filters — try widening the time window
-            or clearing filters.
-          </div>
+          <FirstRunGuidance v-if="showFirstRunGuidance" />
+          <template v-else>
+            No results for this search
+            <div class="empty-state-hint">
+              No data matched the current filters — try widening the time
+              window or clearing filters.
+            </div>
+          </template>
         </div>
         <span v-else-if="!hasMore" class="no-more-data">No more data</span>
       </div>
@@ -43,6 +46,8 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
+import FirstRunGuidance from "~/components/FirstRunGuidance.vue";
+import { ServicesStore } from "~/stores/ServicesStore";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -59,7 +64,7 @@ import {
 } from "~~/services/SignalCursors";
 
 export default {
-  components: { SearchOptions, Loading },
+  components: { SearchOptions, Loading, FirstRunGuidance },
   data() {
     return {
       logs: [],
@@ -111,6 +116,15 @@ export default {
     if (this.refreshIntervalId) {
       clearInterval(this.refreshIntervalId);
     }
+  },
+  computed: {
+    showFirstRunGuidance() {
+      const servicesStore = ServicesStore();
+      return (
+        servicesStore.lastFetchedAt > 0 &&
+        servicesStore.services.length === 0
+      );
+    },
   },
   methods: {
     onFilterChanged(filter) {
