@@ -272,15 +272,6 @@ import {
 
 export default {
   data() {
-    let isDark = false;
-    const storedTheme = localStorage.getItem("UI_THEME");
-    if (storedTheme === "dark" || storedTheme === "light") {
-      isDark = storedTheme === "dark";
-    } else {
-      isDark =
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches;
-    }
     return {
       user: {},
       isInitialized: true,
@@ -293,7 +284,7 @@ export default {
       savingApiToken: false,
       createdApiToken: null,
       copiedApiToken: false,
-      isDark,
+      isDark: PreferencesService.isDark(),
       refreshInterval: RefreshIntervalService.get(),
       defaultTimeWindow: {
         traces: getDefaultTimeWindow("traces"),

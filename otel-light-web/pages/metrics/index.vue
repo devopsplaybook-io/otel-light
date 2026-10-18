@@ -70,11 +70,14 @@
         v-if="loadedOnce && !loading && metricsNames.length === 0"
         class="empty-state"
       >
-        No metrics found for this search
-        <div class="empty-state-hint">
-          No data matched the current filters — try widening the time window or
-          clearing filters.
-        </div>
+        <FirstRunGuidance v-if="showFirstRunGuidance" />
+        <template v-else>
+          No metrics found for this search
+          <div class="empty-state-hint">
+            No data matched the current filters — try widening the time window
+            or clearing filters.
+          </div>
+        </template>
       </div>
     </div>
   </div>
@@ -84,6 +87,8 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
+import FirstRunGuidance from "~/components/FirstRunGuidance.vue";
+import { ServicesStore } from "~/stores/ServicesStore";
 import { MetricsCardsFormatValue, MetricsCardsSortAutoLoadLast } from "~~/services/MetricsCards";
 import { UtilsDecompressJson, UtilsRelativeTime } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
@@ -93,7 +98,7 @@ import { PreferencesService } from "~~/services/PreferencesService";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 
 export default {
-  components: { SearchOptions, Loading },
+  components: { SearchOptions, Loading, FirstRunGuidance },
   data() {
     return {
       metricsNames: [],
@@ -134,6 +139,13 @@ export default {
     }
   },
   computed: {
+    showFirstRunGuidance() {
+      const servicesStore = ServicesStore();
+      return (
+        servicesStore.lastFetchedAt > 0 &&
+        servicesStore.services.length === 0
+      );
+    },
     visibleMetrics() {
       return MetricsCardsSortAutoLoadLast(this.metricsNames);
     },

@@ -40,6 +40,16 @@ export function setDefaultTimeWindow(
 
 export const PreferencesService = {
   //
+  isDark(): boolean {
+    const storedTheme = localStorage.getItem("UI_THEME");
+    if (storedTheme === "dark") return true;
+    if (storedTheme === "light") return false;
+    return !!(
+      window.matchMedia &&
+      window.matchMedia("(prefers-color-scheme: dark)").matches
+    );
+  },
+
   toggleTheme(vm: any) {
     vm.isDark = !vm.isDark;
     localStorage.setItem("UI_THEME", vm.isDark ? "dark" : "light");
@@ -47,15 +57,7 @@ export const PreferencesService = {
   },
 
   applyTheme() {
-    const storedTheme = localStorage.getItem("UI_THEME");
-    let isDark = false;
-    if (storedTheme === "dark" || storedTheme === "light") {
-      isDark = storedTheme === "dark";
-    } else {
-      isDark =
-        window.matchMedia &&
-        window.matchMedia("(prefers-color-scheme: dark)").matches;
-    }
+    const isDark = this.isDark();
     document.documentElement.setAttribute(
       "data-theme",
       isDark ? "dark" : "light"
