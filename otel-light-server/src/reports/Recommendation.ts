@@ -172,11 +172,13 @@ export async function RecommendationGenerate(): Promise<void> {
     await fs.writeJson(recommendationFilePath, result);
     logger.info("LLM recommendation generated and cached successfully", span);
 
-    // Send notification with the recommendation
+    // Send notification with the recommendation and the per-service error
+    // digest (a quiet day is confirmed, not only breaches reported).
     await NotificationSendRecommendation(
       periodHours,
       analysis,
       recommendations,
+      stats.logs.perService,
     );
   } catch (err) {
     logger.error(

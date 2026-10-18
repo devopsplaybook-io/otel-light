@@ -20,6 +20,9 @@
   - Configurable period (default 24h) and cron schedule (default daily at midnight)
   - Statistics include: log volumes and error rates, trace counts and top types by duration, metric volumes, all per service
   - Supports any OpenAI-compatible API (DeepSeek, OpenAI, etc.)
+- **Optional error-threshold notifications**: per-service (or global) alert rules "more than N error logs in the last H hours" evaluated on a schedule, pushing through the notification channel (see [Error Notifications](#error-notifications))
+  - Rules managed in the settings **Alerts** tab, with the last evaluation outcome shown per rule
+  - Daily recommendation notifications include a per-service error digest so a quiet day is confirmed, not only breaches
 
 ![](docs/images/Traces.png?raw=true)
 
@@ -111,6 +114,10 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | LONGEST_TRACES_STARTUP_DELAY_MINUTES                    | Delay before the initial longest-traces report        | 15                                          | Config file or environment variable |
 | MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES                | Delay before the initial most-called-traces report    | 25                                          | Config file or environment variable |
 | MAINTENANCE_ORPHAN_LOOKBACK_HOURS                       | Lookback window for orphan-span cleanup scans         | 24                                          | Config file or environment variable |
+| NOTIFICATIONS_API                                       | Notifications API endpoint URL (empty = notifications disabled) | (empty)                           | Config file or environment variable |
+| NOTIFICATIONS_TOKEN                                     | Notifications API token                               | (empty)                                     | Config file or environment variable |
+| ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES               | Interval (in minutes) between error alert rule evaluations | 15                                     | Config file or environment variable |
+| ERROR_ALERTS_STARTUP_DELAY_MINUTES                      | Delay before the first error alert evaluation         | 1                                           | Config file or environment variable |
 
 ## LLM Recommendation
 
@@ -134,6 +141,39 @@ When `LLM_API_KEY` is configured, OTel Light automatically generates a daily tel
 ### Frontend
 
 The recommendation is displayed as a card on the home page, with markdown-rendered analysis and recommendations sections, and the generation timestamp.
+
+## Error Notifications
+
+OTel Light can notify you when a service (or all services) produces too many error logs, using the existing notification channel.
+
+### Alert rules
+
+Rules are managed in the settings **Alerts** tab (admin only). Each rule defines:
+
+- **Service**: a specific service, or all services
+- **Threshold**: the rule breaches when the number of error logs is **greater than** this value during the period (a threshold of 0 means "any error")
+- **Period**: the lookback window in hours or days (e.g. "more than 10 errors in the last 24 hours")
+- **Enabled**: disabled rules are kept but not evaluated
+
+Rules are stored in the settings store and re-read at every evaluation, so changes apply without a restart.
+
+### Evaluation
+
+- The engine evaluates all enabled rules on a schedule: every `ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES` (default 15 minutes), starting `ERROR_ALERTS_STARTUP_DELAY_MINUTES` (default 1 minute) after startup.
+- Only the healthy→breached **transition** sends a notification: a breach that persists does not repeat, and the rule re-arms after an evaluation below the threshold (the breach state survives restarts).
+- The last evaluation outcome of each rule (timestamp, counted errors, threshold, whether an alert was sent, or the error encountered) is shown in the **Alerts** tab — rules are never silently skipped.
+
+### Daily error digest
+
+When the LLM recommendation is enabled, its notification also includes a per-service error digest (total logs and error logs per service), so a quiet day is confirmed and not only breaches reported.
+
+### Disabled integration
+
+When `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not configured, the **Alerts** tab shows the integration as disabled: rules are still evaluated and their outcomes (counts, breaches) are recorded with "not notified", and no notifications are sent.
+
+### API
+
+- `GET /api/alerts/status` — Returns whether the notifications integration is enabled and the last evaluation outcome of each rule
 
 ## API Tokens
 

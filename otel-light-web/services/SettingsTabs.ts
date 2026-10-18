@@ -21,6 +21,12 @@ export const SettingsTabs: SettingsTab[] = [
     adminOnly: true,
   },
   {
+    id: "alerts",
+    label: "Alerts",
+    to: "/settings/alerts",
+    adminOnly: true,
+  },
+  {
     id: "users",
     label: "Users",
     to: "/settings/users",

@@ -61,6 +61,12 @@ export class SettingsRoutes {
             return res.status(400).send({ error: issues.join("; ") });
           }
         }
+        if (req.params.category === "error-alert-rules") {
+          const issues = validateErrorAlertRules(req.body.content);
+          if (issues.length > 0) {
+            return res.status(400).send({ error: issues.join("; ") });
+          }
+        }
         // Single-statement upsert: a failed write leaves the previous
         // category content intact (no delete+insert window).
         await DbUtilsExecSQL(
@@ -106,6 +112,65 @@ function validateSignalCleanupRules(content: unknown): string[] {
     }
     if (r.serviceName !== undefined && (typeof r.serviceName !== "string" || !r.serviceName.trim())) {
       issues.push(`Rule ${n}: serviceName must be a non-empty string`);
+    }
+  });
+  return issues;
+}
+
+// Rules the error alerts engine would not be able to run must be rejected
+// here so users learn at save time. Mirrors the engine's checks in
+// ErrorAlerts.ts (the id is also used as the maintenance_state key prefix,
+// hence the length cap).
+function validateErrorAlertRules(content: unknown): string[] {
+  const issues: string[] = [];
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return ["alertRules must be an array of alert rules"];
+  }
+  const alertRules = (content as { alertRules?: unknown }).alertRules;
+  if (!Array.isArray(alertRules)) {
+    return ["alertRules must be an array of alert rules"];
+  }
+  if (alertRules.length > 100) {
+    return ["alertRules must contain at most 100 rules"];
+  }
+  alertRules.forEach((rule, idx) => {
+    const n = idx + 1;
+    if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
+      issues.push(`Rule ${n}: rule must be an object`);
+      return;
+    }
+    const r = rule as {
+      id?: unknown;
+      serviceName?: unknown;
+      threshold?: unknown;
+      periodHours?: unknown;
+      enabled?: unknown;
+    };
+    if (typeof r.id !== "string" || !r.id.trim()) {
+      issues.push(`Rule ${n}: id must be a non-empty string`);
+    } else if (r.id.length > 80) {
+      issues.push(`Rule ${n}: id must be at most 80 characters`);
+    }
+    if (r.serviceName !== undefined && typeof r.serviceName !== "string") {
+      issues.push(`Rule ${n}: serviceName must be a string (empty = all services)`);
+    }
+    // An empty string must not be silently coerced to 0 ("any error").
+    const threshold = Number(r.threshold);
+    if (
+      r.threshold === "" ||
+      r.threshold === null ||
+      r.threshold === undefined ||
+      !Number.isFinite(threshold) ||
+      threshold < 0
+    ) {
+      issues.push(`Rule ${n}: threshold must be a number >= 0`);
+    }
+    const periodHours = Number(r.periodHours);
+    if (!Number.isFinite(periodHours) || periodHours <= 0) {
+      issues.push(`Rule ${n}: periodHours must be a positive number`);
+    }
+    if (typeof r.enabled !== "boolean") {
+      issues.push(`Rule ${n}: enabled must be a boolean`);
     }
   });
   return issues;
