@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  MetricsCardsFilterNames,
   MetricsCardsFormatValue,
   MetricsCardsLatestInfo,
   MetricsCardsSortNames,
@@ -106,29 +105,6 @@ describe("MetricsCardsFormatValue", () => {
     expect(MetricsCardsFormatValue(1234.56789)).toBe("1,234.5679");
     expect(MetricsCardsFormatValue(0)).toBe("0");
     expect(MetricsCardsFormatValue(2)).toBe("2");
-  });
-});
-
-describe("MetricsCardsFilterNames", () => {
-  const names = [
-    { serviceName: "planner-llm-agent", name: "session.duration", lastSeen: 1 },
-    { serviceName: "otel-light", name: "http.requests", lastSeen: 2 },
-    { serviceName: "OTel-Light", name: "db.queries", lastSeen: 3 },
-  ];
-
-  it("matches case-insensitively over name and serviceName", () => {
-    expect(MetricsCardsFilterNames(names, "duration")).toHaveLength(1);
-    expect(MetricsCardsFilterNames(names, "PLANNER")).toHaveLength(1);
-    expect(MetricsCardsFilterNames(names, "otel-light")).toHaveLength(2);
-  });
-
-  it("returns all entries for empty or whitespace text", () => {
-    expect(MetricsCardsFilterNames(names, "")).toHaveLength(3);
-    expect(MetricsCardsFilterNames(names, "   ")).toHaveLength(3);
-  });
-
-  it("returns no entries when nothing matches", () => {
-    expect(MetricsCardsFilterNames(names, "nomatch")).toHaveLength(0);
   });
 });
 

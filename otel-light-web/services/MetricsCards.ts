@@ -61,19 +61,6 @@ export function MetricsCardsFormatValue(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
-export function MetricsCardsFilterNames(
-  names: MetricsCardsEntry[],
-  text: string
-): MetricsCardsEntry[] {
-  const query = (text || "").trim().toLowerCase();
-  if (!query) return names;
-  return names.filter(
-    (metric) =>
-      (metric.name || "").toLowerCase().includes(query) ||
-      (metric.serviceName || "").toLowerCase().includes(query)
-  );
-}
-
 export function MetricsCardsSortNames(
   names: MetricsCardsEntry[],
   sortKey: MetricsCardsSortKey,

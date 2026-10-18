@@ -2,13 +2,6 @@
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
     <div id="metrics-toolbar">
-      <input
-        type="search"
-        v-model="nameFilter"
-        placeholder="Filter metric names…"
-        aria-label="Filter metric names"
-        class="metrics-filter-input"
-      />
       <select
         v-model="sortKey"
         aria-label="Sort metric cards"
@@ -105,21 +98,6 @@
           clearing filters.
         </div>
       </div>
-      <div
-        v-if="
-          loadedOnce &&
-          !loading &&
-          metricsNames.length > 0 &&
-          visibleMetrics.length === 0
-        "
-        class="empty-state"
-      >
-        No metrics match the name filter
-        <div class="empty-state-hint">
-          No metric or service name matched "{{ nameFilter }}" — clear the
-          filter box to see all charts.
-        </div>
-      </div>
     </div>
   </div>
 </template>
@@ -129,7 +107,6 @@ import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import {
-  MetricsCardsFilterNames,
   MetricsCardsFormatValue,
   MetricsCardsSortNames,
 } from "~~/services/MetricsCards";
@@ -153,7 +130,6 @@ export default {
       loading: false,
       loadedOnce: false,
       fetchTime: null,
-      nameFilter: "",
       sortKey: "service",
       sortOrder: "asc",
       refreshIntervalId: null,
@@ -187,7 +163,7 @@ export default {
   computed: {
     visibleMetrics() {
       return MetricsCardsSortNames(
-        MetricsCardsFilterNames(this.metricsNames, this.nameFilter),
+        this.metricsNames,
         this.sortKey,
         this.sortOrder,
       );
@@ -328,11 +304,6 @@ export default {
   gap: 0.5rem;
   align-items: center;
   padding-bottom: 0.5rem;
-}
-
-.metrics-filter-input {
-  flex: 1;
-  min-width: 0;
 }
 
 .metrics-sort-select {
