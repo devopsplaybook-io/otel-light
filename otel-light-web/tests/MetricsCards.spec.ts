@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import {
   MetricsCardsFormatValue,
   MetricsCardsLatestInfo,
-  MetricsCardsSortNames,
 } from "../services/MetricsCards";
 
 function gaugeRow(unit: string, points: any[]): any {
@@ -105,60 +104,5 @@ describe("MetricsCardsFormatValue", () => {
     expect(MetricsCardsFormatValue(1234.56789)).toBe("1,234.5679");
     expect(MetricsCardsFormatValue(0)).toBe("0");
     expect(MetricsCardsFormatValue(2)).toBe("2");
-  });
-});
-
-describe("MetricsCardsSortNames", () => {
-  const names = [
-    { serviceName: "b-service", name: "z-metric", lastSeen: 10, autoLoad: false },
-    { serviceName: "a-service", name: "m-metric", lastSeen: 30, autoLoad: false },
-    { serviceName: "a-service", name: "a-metric", lastSeen: 20, autoLoad: true },
-  ];
-
-  it("sorts by service with autoLoad entries first (default)", () => {
-    const sorted = MetricsCardsSortNames(names, "service", "asc");
-    expect(sorted.map((m) => m.name)).toEqual([
-      "a-metric",
-      "m-metric",
-      "z-metric",
-    ]);
-    expect(sorted[0].autoLoad).toBe(true);
-  });
-
-  it("reverses service order but keeps autoLoad first on desc", () => {
-    const sorted = MetricsCardsSortNames(names, "service", "desc");
-    expect(sorted[0].autoLoad).toBe(true);
-    expect(sorted[1].serviceName).toBe("b-service");
-    expect(sorted[2].serviceName).toBe("a-service");
-  });
-
-  it("sorts by name with service as tie-break", () => {
-    const sorted = MetricsCardsSortNames(names, "name", "asc");
-    expect(sorted.map((m) => m.name)).toEqual([
-      "a-metric",
-      "m-metric",
-      "z-metric",
-    ]);
-    const desc = MetricsCardsSortNames(names, "name", "desc");
-    expect(desc.map((m) => m.name)).toEqual([
-      "z-metric",
-      "m-metric",
-      "a-metric",
-    ]);
-  });
-
-  it("sorts by lastUpdate newest first on desc", () => {
-    const desc = MetricsCardsSortNames(names, "lastUpdate", "desc");
-    expect(desc.map((m) => m.lastSeen)).toEqual([30, 20, 10]);
-    const asc = MetricsCardsSortNames(names, "lastUpdate", "asc");
-    expect(asc.map((m) => m.lastSeen)).toEqual([10, 20, 30]);
-  });
-
-  it("never mutates the input array", () => {
-    const input = [...names];
-    MetricsCardsSortNames(input, "name", "desc");
-    MetricsCardsSortNames(input, "lastUpdate", "asc");
-    MetricsCardsSortNames(input, "service", "desc");
-    expect(input).toEqual(names);
   });
 });

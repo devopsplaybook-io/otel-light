@@ -8,16 +8,6 @@ export interface MetricsCardLatestInfo {
   seriesName: string;
 }
 
-export interface MetricsCardsEntry {
-  serviceName: string;
-  name: string;
-  lastSeen: number;
-  autoLoad?: boolean;
-}
-
-export type MetricsCardsSortKey = "service" | "name" | "lastUpdate";
-export type MetricsCardsSortOrder = "asc" | "desc";
-
 /**
  * Resolves the latest data point of a metric from the raw OTLP rows
  * returned by /api/analytics/metrics: the point with the greatest
@@ -59,31 +49,4 @@ export function MetricsCardsLatestInfo(
 
 export function MetricsCardsFormatValue(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
-}
-
-export function MetricsCardsSortNames(
-  names: MetricsCardsEntry[],
-  sortKey: MetricsCardsSortKey,
-  sortOrder: MetricsCardsSortOrder
-): MetricsCardsEntry[] {
-  const sorted = [...names];
-  const direction = sortOrder === "desc" ? -1 : 1;
-  sorted.sort((a, b) => {
-    if (sortKey === "lastUpdate") {
-      return (Number(a.lastSeen) - Number(b.lastSeen)) * direction;
-    }
-    if (sortKey === "name") {
-      const nameCompare = String(a.name).localeCompare(String(b.name));
-      if (nameCompare !== 0) return nameCompare * direction;
-      return String(a.serviceName).localeCompare(String(b.serviceName));
-    }
-    if (a.autoLoad && !b.autoLoad) return -1;
-    if (!a.autoLoad && b.autoLoad) return 1;
-    const serviceCompare = String(a.serviceName).localeCompare(
-      String(b.serviceName)
-    );
-    if (serviceCompare !== 0) return serviceCompare * direction;
-    return String(a.name).localeCompare(String(b.name)) * direction;
-  });
-  return sorted;
 }
