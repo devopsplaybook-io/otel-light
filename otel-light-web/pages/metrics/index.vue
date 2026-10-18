@@ -84,7 +84,7 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
-import { MetricsCardsFormatValue } from "~~/services/MetricsCards";
+import { MetricsCardsFormatValue, MetricsCardsSortAutoLoadLast } from "~~/services/MetricsCards";
 import { UtilsDecompressJson, UtilsRelativeTime } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -135,7 +135,7 @@ export default {
   },
   computed: {
     visibleMetrics() {
-      return this.metricsNames;
+      return MetricsCardsSortAutoLoadLast(this.metricsNames);
     },
     statusText() {
       if (this.loading && !this.loadedOnce) {

@@ -50,3 +50,20 @@ export function MetricsCardsLatestInfo(
 export function MetricsCardsFormatValue(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
+
+/**
+ * Orders metric cards for display: metrics with auto-load enabled first,
+ * metrics the user chose not to load by default last; each group ordered
+ * by service name then metric name. Returns a new array, never mutates.
+ */
+export function MetricsCardsSortAutoLoadLast(names: any[]): any[] {
+  return [...names].sort((a, b) => {
+    if (a.autoLoad && !b.autoLoad) return -1;
+    if (!a.autoLoad && b.autoLoad) return 1;
+    const serviceCompare = String(a.serviceName).localeCompare(
+      String(b.serviceName)
+    );
+    if (serviceCompare !== 0) return serviceCompare;
+    return String(a.name).localeCompare(String(b.name));
+  });
+}
