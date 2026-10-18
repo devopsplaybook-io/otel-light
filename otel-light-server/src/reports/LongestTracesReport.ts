@@ -7,6 +7,7 @@ import { OTelLogger, OTelTracer } from "../OTelContext";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { TraceGroupReport, TraceGroupSeries } from "./TraceGroupReportTypes";
+import { BuildGroupFilterCTE } from "./TraceGroupReportUtils";
 
 const logger = OTelLogger().createModuleLogger("LongestTracesReport");
 
@@ -112,7 +113,7 @@ export async function LongestTracesReportGenerate(): Promise<void> {
     }
 
     // Step 2: get daily time series for each top group using a CTE
-    const groupFilters = buildGroupFilterCTE(topGroups);
+    const groupFilters = BuildGroupFilterCTE(topGroups);
     const rawTimeSeries = await DbUtilsNoTelemetryQuerySQL(
       SQL_QUERIES.GROUP_TIME_SERIES_DURATION(
         q,
@@ -172,30 +173,6 @@ export async function LongestTracesReportGenerate(): Promise<void> {
     logger.error("Error generating longest traces report", err, span);
   }
   span.end();
-}
-
-// ── Helpers ────────────────────────────────────────────────────────────────────
-
-// Group filters are passed as bound parameters (values originate from
-// telemetry and must never be interpolated into the SQL text).
-function buildGroupFilterCTE(topGroups: { serviceName: string; name: string }[]): {
-  cte: string;
-  params: string[];
-} {
-  if (topGroups.length === 0) {
-    return { cte: "SELECT NULL AS svc, NULL AS nm WHERE 1=0", params: [] };
-  }
-
-  const dbType = DbUtilsGetType();
-  const params: string[] = [];
-  const rows = topGroups.map((g, i) => {
-    params.push(g.serviceName, g.name);
-    if (dbType === "postgres") {
-      return `SELECT $${i * 2 + 1} AS svc, $${i * 2 + 2} AS nm`;
-    }
-    return "SELECT ? AS svc, ? AS nm";
-  });
-  return { cte: rows.join(" UNION ALL "), params };
 }
 
 // ── SQL ────────────────────────────────────────────────────────────────────────
