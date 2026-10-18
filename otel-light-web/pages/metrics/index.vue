@@ -1,28 +1,6 @@
 <template>
   <div id="metrics-page">
     <SearchOptions @filterChanged="onFilterChanged" type="metrics" />
-    <div id="metrics-toolbar">
-      <select
-        v-model="sortKey"
-        aria-label="Sort metric cards"
-        class="metrics-sort-select"
-      >
-        <option value="service">Sort by service</option>
-        <option value="name">Sort by metric name</option>
-        <option value="lastUpdate">Sort by last update</option>
-      </select>
-      <button
-        type="button"
-        class="metrics-sort-direction"
-        @click="toggleSortOrder"
-        :title="sortOrder === 'asc' ? 'Ascending order' : 'Descending order'"
-      >
-        <i
-          class="bi"
-          :class="sortOrder === 'asc' ? 'bi-sort-down-alt' : 'bi-sort-up-alt'"
-        ></i>
-      </button>
-    </div>
     <div id="metrics-status">
       <Loading v-if="loading && !loadedOnce" size="small" />
       <span v-else-if="statusText">{{ statusText }}</span>
@@ -106,10 +84,7 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
-import {
-  MetricsCardsFormatValue,
-  MetricsCardsSortNames,
-} from "~~/services/MetricsCards";
+import { MetricsCardsFormatValue } from "~~/services/MetricsCards";
 import { UtilsDecompressJson, UtilsRelativeTime } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -130,8 +105,6 @@ export default {
       loading: false,
       loadedOnce: false,
       fetchTime: null,
-      sortKey: "service",
-      sortOrder: "asc",
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
       lastNamesSnapshot: null,
@@ -162,11 +135,7 @@ export default {
   },
   computed: {
     visibleMetrics() {
-      return MetricsCardsSortNames(
-        this.metricsNames,
-        this.sortKey,
-        this.sortOrder,
-      );
+      return this.metricsNames;
     },
     statusText() {
       if (this.loading && !this.loadedOnce) {
@@ -219,9 +188,6 @@ export default {
         return "";
       }
       return this.UtilsRelativeTime(new Date(ms).toISOString());
-    },
-    toggleSortOrder() {
-      this.sortOrder = this.sortOrder === "asc" ? "desc" : "asc";
     },
     onFilterChanged(filter) {
       this.filter = { ...filter };
@@ -295,28 +261,8 @@ export default {
 <style scoped>
 #metrics-page {
   display: grid;
-  grid-template-rows: auto auto auto 1fr;
+  grid-template-rows: auto auto 1fr;
   height: 100%;
-}
-
-#metrics-toolbar {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  padding-bottom: 0.5rem;
-}
-
-.metrics-sort-select {
-  width: auto;
-  flex-shrink: 0;
-}
-
-.metrics-sort-direction {
-  flex-shrink: 0;
-  padding: 0.25rem 0.6rem;
-  cursor: pointer;
-  font-size: 1rem;
-  line-height: 1.2;
 }
 
 #metrics-status {
