@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MetricsCardsFormatValue,
   MetricsCardsLatestInfo,
+  MetricsCardsSortAutoLoadLast,
 } from "../services/MetricsCards";
 
 function gaugeRow(unit: string, points: any[]): any {
@@ -104,5 +105,45 @@ describe("MetricsCardsFormatValue", () => {
     expect(MetricsCardsFormatValue(1234.56789)).toBe("1,234.5679");
     expect(MetricsCardsFormatValue(0)).toBe("0");
     expect(MetricsCardsFormatValue(2)).toBe("2");
+  });
+});
+
+describe("MetricsCardsSortAutoLoadLast", () => {
+  function metric(serviceName: string, name: string, autoLoad: boolean): any {
+    return { serviceName, name, autoLoad };
+  }
+
+  it("lists auto-load metrics first, then non-auto-load, each by service then name", () => {
+    const input = [
+      metric("svc-b", "zeta", false),
+      metric("svc-a", "charlie", false),
+      metric("svc-b", "alpha", true),
+      metric("svc-a", "beta", true),
+      metric("svc-a", "alpha", true),
+      metric("svc-a", "delta", false),
+    ];
+    const result = MetricsCardsSortAutoLoadLast(input);
+    expect(result.map((m) => `${m.serviceName}/${m.name}`)).toEqual([
+      "svc-a/alpha",
+      "svc-a/beta",
+      "svc-b/alpha",
+      "svc-a/charlie",
+      "svc-a/delta",
+      "svc-b/zeta",
+    ]);
+  });
+
+  it("does not mutate the input array", () => {
+    const input = [
+      metric("svc-b", "alpha", true),
+      metric("svc-a", "zeta", false),
+    ];
+    const before = input.map((m) => `${m.serviceName}/${m.name}`);
+    MetricsCardsSortAutoLoadLast(input);
+    expect(input.map((m) => `${m.serviceName}/${m.name}`)).toEqual(before);
+  });
+
+  it("returns an empty array for empty input", () => {
+    expect(MetricsCardsSortAutoLoadLast([])).toEqual([]);
   });
 });
