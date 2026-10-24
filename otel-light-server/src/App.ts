@@ -24,6 +24,7 @@ import { ReportsRoutes } from "./reports/ReportsRoutes";
 import { LongestTracesReportInit } from "./reports/LongestTracesReport";
 import { MostCalledTracesReportInit } from "./reports/MostCalledTracesReport";
 import { NotificationInit } from "./NotificationService";
+import { RateLimitsInit } from "./RateLimits";
 import {
   OTelLogger,
   OTelSetMeter,
@@ -102,6 +103,7 @@ Promise.resolve().then(async () => {
     logger: {
       level: "error",
     },
+    trustProxy: config.API_TRUST_PROXY,
   });
 
   await fastify.register(fastifyCompress, {
@@ -116,6 +118,8 @@ Promise.resolve().then(async () => {
       methods: "GET,PUT,POST,DELETE",
     });
   }
+
+  await RateLimitsInit(fastify, config);
 
   StandardTracerFastifyRegisterHooks(fastify, OTelTracer(), OTelLogger(), {
     ignoreList: [

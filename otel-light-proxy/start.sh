@@ -1,17 +1,33 @@
-#/bin/bash
+#!/usr/bin/env bash
+set -euo pipefail
 
 SERVICE_DIR="$( cd "$( dirname "$0" )" && pwd )"
-cd ${SERVICE_DIR}
+cd "${SERVICE_DIR}"
 
-if [ ! -d bin ]; then
-    mkdir -p bin
-    cd bin
-    wget https://github.com/traefik/traefik/releases/download/v2.9.6/traefik_v2.9.6_linux_amd64.tar.gz
-    tar -xzf *.tar.gz
-    cd ..
+# Dev-only reverse proxy. The pinned binary is verified against the release
+# checksums before use; update the version and SHA256 together.
+TRAEFIK_VERSION="v2.11.60"
+TRAEFIK_ARCHIVE="traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz"
+TRAEFIK_URL="https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/${TRAEFIK_ARCHIVE}"
+TRAEFIK_SHA256="dcfcd1c720db41a21b8ea4597ff8912bbc5f1f4e9cd21b3ee2cebd97bfb1a4d7"
+
+if [ -x bin/traefik ]; then
+    INSTALLED_VERSION="$(./bin/traefik version 2>/dev/null | sed -n 's/^Version: *//p' | head -n1 || true)"
+else
+    INSTALLED_VERSION=""
 fi
 
-cd ${SERVICE_DIR}
+if [ "${INSTALLED_VERSION}" != "${TRAEFIK_VERSION#v}" ]; then
+    rm -rf bin
+    mkdir -p bin
+    cd bin
+    curl -fsSLO "${TRAEFIK_URL}"
+    echo "${TRAEFIK_SHA256}  ${TRAEFIK_ARCHIVE}" | sha256sum -c -
+    tar -xzf "${TRAEFIK_ARCHIVE}"
+    rm -f "${TRAEFIK_ARCHIVE}"
+    cd "${SERVICE_DIR}"
+fi
+
 ./bin/traefik \
     --entryPoints.web.address=:9012 \
     --providers.file.watch=true \

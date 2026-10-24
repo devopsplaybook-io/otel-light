@@ -12,7 +12,7 @@ The repository is a monorepo with three components:
 | ------------------- | ------------------------------------ | ---- | ------------------------------------------------------------------ |
 | `otel-light-server` | Node.js + Fastify + TypeScript       | 8080 | API server: OTLP ingestion, analytics, auth, maintenance           |
 | `otel-light-web`    | Nuxt 3 (Vue 3)                       | 3000 | Static frontend (pre-rendered, served by the server)               |
-| `otel-light-proxy`  | Traefik v2.9.6 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
+| `otel-light-proxy`  | Traefik v2.11.60 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
 
 In production, all three run inside a single Docker container. The server serves the pre-built web assets via `@fastify/static`, eliminating the need for the proxy. The proxy is only used in local development with PM2.
 
@@ -91,7 +91,7 @@ Client → POST /v1/{traces|metrics|logs} → SignalUtilsCheckAuthHeader → par
 Browser → GET /api/analytics/* → AuthGetUserSession → DbUtilsQuerySQL (with OTel span) → JSON response
 ```
 
-**LLM Recommendation** (scheduled via node-cron):
+**LLM Recommendation** (scheduled via node-schedule):
 
 ```
 Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cache result to <DATA_DIR>/recommendation.json → GET /api/recommendation serves cached
@@ -206,7 +206,7 @@ Both pass `node_app_directories: '["otel-light-server"]'` to tell the reusable w
 | `fastify`                               | Web framework (v5)                                                     |
 | `@fastify/compress`                     | Gzip/deflate response compression                                      |
 | `@fastify/cors`                         | CORS handling                                                          |
-| `@fastify/multipart`                    | Multipart form parsing                                                 |
+| `@fastify/rate-limit`                   | Per-route rate limiting (ingestion and login)                          |
 | `@fastify/static`                       | Static file serving (web assets in production)                         |
 | `better-sqlite3`                        | Synchronous SQLite driver (via common-utils)                           |
 | `pg`                                    | PostgreSQL client with connection pooling (via common-utils)           |
@@ -215,8 +215,7 @@ Both pass `node_app_directories: '["otel-light-server"]'` to tell the reusable w
 | `uuid`                                  | UUID v4 generation (ESM — requires mock in tests)                      |
 | `fs-extra`                              | Async file operations                                                  |
 | `axios`                                 | HTTP client (LLM API calls)                                            |
-| `node-cron`                             | Cron scheduling for LLM recommendations and static reports             |
-| `node-schedule`                         | Job scheduling (alternative to node-cron)                              |
+| `node-schedule`                         | Cron scheduling for recommendations, reports and maintenance           |
 | `minimatch`                             | Glob pattern matching (maintenance rules)                              |
 
 ### Web
@@ -240,6 +239,11 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `CORS_POLICY_ORIGIN`                         | (empty)                                     | CORS allowed origin; empty = CORS disabled     |
 | `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` | (empty)                                     | Bearer token required for ingestion            |
 | `INGESTION_BODY_LIMIT_BYTES`                 | `1048576`                                   | Max OTLP/JSON body size (clamped 1024–16777216); over-limit requests get 413 |
+| `INGESTION_RATE_LIMIT_MAX`                   | `3000`                                      | Max ingestion requests per client IP per window (0 = disabled) |
+| `INGESTION_RATE_LIMIT_WINDOW_SECONDS`        | `60`                                        | Ingestion rate-limit window (clamped 1–86400)  |
+| `LOGIN_RATE_LIMIT_MAX`                       | `10`                                        | Max login attempts per client IP + username per window (0 = disabled) |
+| `LOGIN_RATE_LIMIT_WINDOW_SECONDS`            | `60`                                        | Login rate-limit window (clamped 1–86400)      |
+| `API_TRUST_PROXY`                            | `false`                                     | Trust `X-Forwarded-For` (only behind a trusted proxy) |
 | `OPENTELEMETRY_COLLECTOR_HTTP_*`             | `http://localhost:8080/v1/*`                | OTel collector endpoints (overridden in dev)   |
 | `MAINTENANCE_FREQUENCY_HOURS`                | `6`                                         | How often maintenance runs                     |
 | `MAINTENANCE_ORPHAN_LOOKBACK_HOURS`          | `24`                                        | Lookback window for orphan-span cleanup scans  |

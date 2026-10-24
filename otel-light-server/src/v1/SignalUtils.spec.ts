@@ -8,22 +8,32 @@ import {
 import { SignalUtilsInit } from "./SignalUtils";
 
 // Mock OTelContext to avoid needing real tracer/logger setup
-jest.mock("../OTelContext", () => ({
-  OTelTracer: () => ({
-    startSpan: jest.fn(() => ({
-      end: jest.fn(),
-      addEvent: jest.fn(),
-      setStatus: jest.fn(),
-    })),
-  }),
-  OTelLogger: () => ({
-    createModuleLogger: jest.fn(() => ({
-      error: jest.fn(),
-      info: jest.fn(),
-      warn: jest.fn(),
-    })),
-  }),
-}));
+jest.mock("../OTelContext", () => {
+  const moduleLogger = {
+    error: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+  };
+  return {
+    __moduleLogger: moduleLogger,
+    OTelTracer: () => ({
+      startSpan: jest.fn(() => ({
+        end: jest.fn(),
+        addEvent: jest.fn(),
+        setStatus: jest.fn(),
+      })),
+    }),
+    OTelLogger: () => ({
+      createModuleLogger: () => moduleLogger,
+    }),
+  };
+});
+
+const mockModuleLogger = (
+  jest.requireMock("../OTelContext") as {
+    __moduleLogger: { warn: jest.Mock };
+  }
+).__moduleLogger;
 
 // A minimal Span stub used by SignalUtilsInit
 const fakeSpan = {
@@ -38,6 +48,40 @@ beforeAll(async () => {
     OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } as any);
+});
+
+describe("SignalUtilsInit open-ingestion warning", () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it("warns when no authorization header is configured", async () => {
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    expect(mockModuleLogger.warn).toHaveBeenCalledWith(
+      expect.stringContaining("SECURITY WARNING"),
+    );
+  });
+
+  it("does not warn when an authorization header is configured", async () => {
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "my-secret",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    expect(mockModuleLogger.warn).not.toHaveBeenCalled();
+  });
+
+  afterAll(async () => {
+    // Reset config to no auth for other test groups
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+  });
 });
 
 describe("SignalUtilsGetServiceName", () => {
