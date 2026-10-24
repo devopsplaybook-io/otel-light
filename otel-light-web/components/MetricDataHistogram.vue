@@ -169,9 +169,6 @@ export default {
       this.metrics.forEach((data) => {
         data.data.histogram.dataPoints.forEach((point) => {
           const seriesName = UtilsMetricSeriesName(point.attributes);
-          const timestamp = new Date(
-            point.timeUnixNano / 1_000_000,
-          ).toISOString();
 
           if (!chartSeriesContainer[seriesName]) {
             chartSeriesContainer[seriesName] = {};

@@ -6,7 +6,7 @@
       class="span-bar-container"
       :class="{
         'span-error':
-          span.rawSpan && span.rawSpan.status && span.rawSpan.status.code !== 0,
+          span.rawSpan && span.rawSpan.status && span.rawSpan.status.code === 2,
       }"
     >
       <div

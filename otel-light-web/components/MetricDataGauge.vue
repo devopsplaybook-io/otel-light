@@ -53,8 +53,8 @@ export default {
         },
         xaxis: { type: "datetime" },
         stroke: { width: 3 },
+        legend: { height: 80 },
       },
-      legend: { height: 80 },
       chartSeries: [],
       allMetrics: [],
       metrics: [],
@@ -111,20 +111,19 @@ export default {
       this.metrics.forEach((data) => {
         data.data.gauge.dataPoints.forEach((point) => {
           const seriesName = UtilsMetricSeriesName(point.attributes);
-          const timestamp = new Date(point.timestamp).getTime();
           if (!chartSeriesContainer[seriesName]) {
             chartSeriesContainer[seriesName] = [];
           }
           chartSeriesContainer[seriesName].push([
-            new Date(point.timeUnixNano / 1_000_000),
-            point.asDouble,
+            new Date(Number(point.timeUnixNano) / 1_000_000),
+            point.asDouble ?? point.asInt ?? 0,
           ]);
         });
       });
       Object.keys(chartSeriesContainer).forEach((name) => {
         this.chartSeries.push({
           name,
-          data: chartSeriesContainer[name],
+          data: chartSeriesContainer[name].sort((a, b) => a[0] - b[0]),
         });
       });
     },

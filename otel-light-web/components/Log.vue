@@ -47,7 +47,7 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError } from "~~/services/EventBus";
 import { UtilsDecompressJson } from "~/services/Utils";
 
 export default {
@@ -72,49 +72,38 @@ export default {
       this.isShowDialog = true;
       if (event) event.stopPropagation();
       this.$refs.logDialog.showModal();
+      this.trace = null;
+      this.traceSpans = [];
+      this.traceLogs = [];
       this.traceId = this.log.traceId || null;
-      if (!this.log.attributes) {
+      this.logSpanId = this.log.spanId || null;
+      if (!this.traceId) {
         return;
       }
-      const traceIdAttr = this.log.attributes.find(
-        (attr) => attr.key === "trace.id",
-      );
-      const spanIdAttr = this.log.attributes.find(
-        (attr) => attr.key === "span.id",
-      );
-      this.logSpanId =
-        spanIdAttr && spanIdAttr.value.stringValue
-          ? spanIdAttr.value.stringValue
-          : null;
-      if (traceIdAttr && traceIdAttr.value.stringValue) {
-        const traceId = traceIdAttr.value.stringValue;
-        if (!this.traceId) {
-          this.traceId = traceId;
-        }
-        await analyticsGet(
-            `${SERVER_URL}/analytics/traces?traceId=${traceId}`,
+      const traceId = this.traceId;
+      await analyticsGet(
+          `${SERVER_URL}/analytics/traces?traceId=${traceId}`,
+          await AuthService.getAuthHeader(),
+        )
+        .then(async (response) => {
+          const traces = await UtilsDecompressJson(response.data.traces);
+          this.trace = traces && traces.length === 1 ? traces[0] : null;
+          return analyticsGet(
+            `${SERVER_URL}/analytics/traces/${traceId}/spans`,
             await AuthService.getAuthHeader(),
-          )
-          .then(async (response) => {
-            const traces = await UtilsDecompressJson(response.data.traces);
-            this.trace = traces && traces.length === 1 ? traces[0] : null;
-            return analyticsGet(
-              `${SERVER_URL}/analytics/traces/${traceId}/spans`,
-              await AuthService.getAuthHeader(),
-            );
-          })
-          .then(async (response) => {
-            this.traceSpans = response.data.spans;
-            return analyticsGet(
-              `${SERVER_URL}/analytics/traces/${traceId}/logs`,
-              await AuthService.getAuthHeader(),
-            );
-          })
-          .then((response) => {
-            return response.data.logs;
-          })
-          .catch(handleError);
-      }
+          );
+        })
+        .then(async (response) => {
+          this.traceSpans = response.data.spans;
+          return analyticsGet(
+            `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+            await AuthService.getAuthHeader(),
+          );
+        })
+        .then((response) => {
+          this.traceLogs = response.data.logs || [];
+        })
+        .catch(handleError);
     },
     closeLogDialog() {
       this.isShowDialog = false;
