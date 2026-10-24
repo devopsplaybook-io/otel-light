@@ -22,6 +22,7 @@ jest.mock("../../OTelContext", () => {
 });
 
 jest.mock("../SignalUtils", () => ({
+  SignalUtilsCanonicalizeAttributes: jest.fn(),
   SignalUtilsCheckAuthHeader: jest.fn(),
   SignalUtilsGetIngestionBodyLimit: jest.fn(),
   SignalUtilsGetServiceName: jest.fn(),
@@ -38,6 +39,7 @@ jest.mock("../../SignalRollups", () => ({
 // ---------------------------------------------------------------------------
 import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
+  SignalUtilsCanonicalizeAttributes,
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetIngestionBodyLimit,
   SignalUtilsGetServiceName,
@@ -103,6 +105,10 @@ describe("MetricsRoutes POST /v1/metrics", () => {
     (SignalUtilsCheckAuthHeader as jest.Mock).mockReturnValue(true);
     (SignalUtilsGetServiceName as jest.Mock).mockReturnValue("my-svc");
     (SignalUtilsGetServiceVersion as jest.Mock).mockReturnValue("1.0.0");
+    (SignalUtilsCanonicalizeAttributes as jest.Mock).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (attributes: any) => JSON.stringify(attributes ?? []),
+    );
     (DbUtilsNoTelemetryBatchInsert as jest.Mock).mockResolvedValue(1);
     (SignalRollupsRecordSignalInsert as jest.Mock).mockResolvedValue(
       undefined,

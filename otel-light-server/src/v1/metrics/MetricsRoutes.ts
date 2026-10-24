@@ -1,6 +1,7 @@
 import { FastifyInstance } from "fastify";
 import { OTelLogger } from "../../OTelContext";
 import {
+  SignalUtilsCanonicalizeAttributes,
   SignalUtilsCheckAuthHeader,
   SignalUtilsGetIngestionBodyLimit,
   SignalUtilsGetServiceName,
@@ -143,7 +144,9 @@ export class MetricsRoutes {
                     : serviceVersion,
                   metricType,
                   rawMetricTime,
-                  JSON.stringify(resourceMetric.resource?.attributes ?? []),
+                  SignalUtilsCanonicalizeAttributes(
+                    resourceMetric.resource?.attributes,
+                  ),
                   JSON.stringify(metric),
                   keywords.toLowerCase(),
                 ]);

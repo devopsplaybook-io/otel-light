@@ -2,10 +2,12 @@ import * as fse from "fs-extra";
 import * as path from "path";
 import { Span } from "@opentelemetry/sdk-trace-base";
 import { Config } from "../Config";
+import { FileUtilsWriteJsonAtomic } from "../FileUtils";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import {
   SignalRollupsGetMetricNames,
   SignalRollupsGetServicesAndVersions,
+  SignalRollupsIsReady,
 } from "../SignalRollups";
 
 const logger = OTelLogger().createModuleLogger("AnalyticsCache");
@@ -80,10 +82,9 @@ export async function AnalyticsCacheInit(
 
   span.end();
 
-  // Kick off initial refresh and start scheduler
-  AnalyticsCacheRefresh().catch((err) => {
-    logger.error("Error during initial analytics cache refresh", err);
-  });
+  // Refresh once at startup (the caller is still initializing, no need for a
+  // fire-and-forget task), then keep the adaptive scheduler running.
+  await AnalyticsCacheRefresh();
 }
 
 export function AnalyticsCacheGetServices(): ServicesCacheContent | null {
@@ -160,9 +161,11 @@ function scheduleNextRefresh(): void {
       logger.error("Error during scheduled analytics cache refresh", err);
     });
   }, intervalMs);
+  // Never keep the process alive just for the cache scheduler (tests/CLI).
+  refreshTimer.unref();
 }
 
-async function AnalyticsCacheRefresh(): Promise<void> {
+export async function AnalyticsCacheRefresh(): Promise<void> {
   const span = OTelTracer().startSpan("AnalyticsCacheRefresh");
   try {
     logger.info("Refreshing analytics cache", span);
@@ -173,34 +176,27 @@ async function AnalyticsCacheRefresh(): Promise<void> {
       refreshMetricsNames(),
     ]);
 
-    // Build new cache: preserve existing data for failed refreshes
+    // Build new cache: preserve existing data only when a refresh failed
+    // (null) or when the rollups are not ready yet (empty tables before the
+    // one-time recount). A valid empty result means the signals were deleted
+    // and must clear the cache instead of keeping stale services/metrics.
+    const rollupsReady = SignalRollupsIsReady();
     const newData: CacheFile = {
       services: cachedData?.services ?? null,
       metricsNames: cachedData?.metricsNames ?? null,
       lastUpdated: cachedData?.lastUpdated ?? Date.now(),
     };
-    // Only overwrite cached data when the refresh returned actual entries.
-    // An empty result at startup (before metrics are first exported) should
-    // not wipe out data loaded from the cache file.
-    if (
-      servicesData &&
-      (servicesData.services.length > 0 || !cachedData?.services)
-    ) {
+    if (rollupsReady && servicesData) {
       newData.services = servicesData;
     }
-    if (
-      metricsNamesData &&
-      (metricsNamesData.names.length > 0 || !cachedData?.metricsNames)
-    ) {
+    if (rollupsReady && metricsNamesData) {
       newData.metricsNames = metricsNamesData;
     }
     newData.lastUpdated = Date.now();
     cachedData = newData;
 
-    // Persist to file
-    const cacheFile = getCacheFilePath();
-    await fse.ensureDir(path.dirname(cacheFile));
-    await fse.writeJson(cacheFile, newData);
+    // Persist atomically: a crash mid-write must not truncate the cache file.
+    await FileUtilsWriteJsonAtomic(getCacheFilePath(), newData);
     logger.info(
       `Analytics cache refreshed: ${servicesData?.services.length ?? 0} services, ${servicesData?.serviceVersions.length ?? 0} service versions, ${metricsNamesData?.names.length ?? 0} metric names`,
       span,

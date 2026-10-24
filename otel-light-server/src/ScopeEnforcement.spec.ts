@@ -110,6 +110,8 @@ describe("Scope enforcement (H3)", () => {
     });
     (LongestTracesReportGetCached as jest.Mock).mockResolvedValue(null);
     (MostCalledTracesReportGetCached as jest.Mock).mockResolvedValue(null);
+    (LongestTracesReportGenerate as jest.Mock).mockResolvedValue(undefined);
+    (MostCalledTracesReportGenerate as jest.Mock).mockResolvedValue(undefined);
     (RecommendationGetCached as jest.Mock).mockResolvedValue(null);
   });
 
@@ -226,7 +228,24 @@ describe("Scope enforcement (H3)", () => {
       method: "POST",
       url: "/api/reports/longest-traces/regenerate",
     });
-    expect(res.statusCode).toBe(200);
+    expect(res.statusCode).toBe(202);
+    expect(res.json()).toEqual({ started: true });
     expect(LongestTracesReportGenerate).toHaveBeenCalled();
   });
+
+  it.each([
+    ["/api/reports/longest-traces/regenerate", LongestTracesReportGenerate],
+    ["/api/reports/most-called-traces/regenerate", MostCalledTracesReportGenerate],
+  ])(
+    "accepts %s without waiting for the background generation",
+    async (url, generateMock) => {
+      // A generation that never settles proves the route returns immediately
+      // (202) instead of blocking the HTTP request on the full report scan.
+      (generateMock as jest.Mock).mockReturnValue(new Promise(() => undefined));
+      const res = await fastify.inject({ method: "POST", url });
+      expect(res.statusCode).toBe(202);
+      expect(res.json()).toEqual({ started: true });
+      expect(generateMock).toHaveBeenCalled();
+    },
+  );
 });

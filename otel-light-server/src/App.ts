@@ -10,7 +10,9 @@ import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 import { AnalyticsServicesRoutes } from "./analytics/AnalyticsServicesRoutes";
 import { AnalyticsCacheInit } from "./analytics/AnalyticsCache";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
+import { AnalyticsStatsInit } from "./analytics/AnalyticsStatsCache";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
+import { AnalyticsUtilsInit } from "./analytics/AnalyticsUtils";
 import { SelfMetricsInit } from "./analytics/SelfMetrics";
 import { ErrorAlertsInit } from "./alerts/ErrorAlerts";
 import { ErrorAlertsRoutes } from "./alerts/ErrorAlertsRoutes";
@@ -68,6 +70,8 @@ Promise.resolve().then(async () => {
   const span = OTelTracer().startSpan("init");
 
   await SignalUtilsInit(span, config);
+  await AnalyticsUtilsInit(span, config);
+  await AnalyticsStatsInit(span, config);
   await DbUtilsInit(
     span,
     config,

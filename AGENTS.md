@@ -105,14 +105,18 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 4. `OTelLogger().initOTel(config)` — initializes OTel logger with collector URLs
 5. `DbUtilsSetOTel(OTelTracer(), OTelLogger())` — inject OTel into DB utils
 6. `DbUtilsNoTelemetrySetLogger(OTelLogger())` — inject logger into no-telemetry DB utils
-7. `DbUtilsInit(span, config, sqlDir)` — run SQL migrations, open DB connection
-8. `AuthSetOTel` / `UsersDataSetOTel` + `AuthInit(span, config, scopes)` (from common-utils) — register app scopes, generate or load JWT signing key from DB
-9. `MaintenanceInit` — start signal cleanup + metrics compression scheduler
-10. `SelfMetricsInit` — register observable gauges for signal counts
-11. `AnalyticsCacheInit` — load cached analytics from file, start refresh scheduler
-12. `RecommendationInit` — schedule LLM recommendation generation via cron
-13. `LongestTracesReportInit` / `MostCalledTracesReportInit` — schedule static report generation
-14. Register Fastify routes, start listening on `config.API_PORT`
+7. `SignalUtilsInit` — ingestion auth header + body limit
+8. `AnalyticsUtilsInit` — apply `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`
+9. `AnalyticsStatsInit` — apply traces-stats sample cap / cache TTL / max entries, clear the cache
+10. `DbUtilsInit(span, config, sqlDir)` — run SQL migrations, open DB connection
+11. `AuthSetOTel` / `UsersDataSetOTel` + `AuthInit(span, config, scopes)` (from common-utils) — register app scopes, generate or load JWT signing key from DB
+12. `SignalRollupsInit` — one-time recount of the incremental rollups when empty
+13. `MaintenanceInit` — start signal cleanup + metrics compression scheduler
+14. `SelfMetricsInit` — register observable gauges for signal counts
+15. `AnalyticsCacheInit` — load cached analytics from file, refresh, start refresh scheduler
+16. `RecommendationInit` — schedule LLM recommendation generation via cron
+17. `LongestTracesReportInit` / `MostCalledTracesReportInit` — schedule static report generation
+18. Register Fastify routes, start listening on `config.API_PORT`
 
 ## Database Schema
 
@@ -242,15 +246,24 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS`    | `12`                                        | Hours before minute-level compression          |
 | `METRICS_COMPRESS_HOUR_THRESHOLD_DAYS`       | `7`                                         | Days before hour-level compression             |
 | `CACHE_REFRESH_MINUTES`                      | `10`                                        | Analytics cache refresh interval               |
+| `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`       | `10000`                                     | Metrics query result limit (applied by `AnalyticsUtilsInit`) |
+| `ANALYTICS_STATS_SAMPLE_CAP`                 | `20000`                                     | Max traces sampled for traces-stats percentiles |
+| `ANALYTICS_STATS_CACHE_TTL_SECONDS`          | `30`                                        | Traces-stats response cache TTL (0 = off)      |
+| `ANALYTICS_STATS_CACHE_MAX_ENTRIES`          | `100`                                       | Traces-stats response cache size               |
 | `LLM_API_KEY`                                | (empty)                                     | API key for LLM (empty = disabled)             |
 | `LLM_API_URL`                                | `https://api.deepseek.com/chat/completions` | OpenAI-compatible endpoint                     |
 | `LLM_MODEL`                                  | `deepseek-chat`                             | Model name                                     |
 | `LLM_THINKING_MODE`                          | `disabled`                                  | `disabled`/`enabled`/`omit` (see gotcha below) |
-| `LLM_RECOMMENDATION_SCHEDULE_CRON`           | `0 0 * * *`                                 | Daily at midnight                              |
+| `LLM_RECOMMENDATION_SCHEDULE_CRON`           | `20 0 * * *`                                | Daily recommendation generation                |
 | `LLM_RECOMMENDATION_SAMPLE_CAP`              | `20000`                                     | Max root spans sampled for percentiles         |
+| `LLM_RECOMMENDATION_TIMEOUT_SECONDS`         | `180`                                       | Overall budget for all LLM attempts/retries    |
 | `LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES`   | `2`                                         | Delay before initial recommendation generation |
+| `STATIC_REPORT_SCHEDULE_CRON`                | `40 0 * * *`                                | Longest-traces report schedule                 |
+| `MOST_CALLED_TRACES_SCHEDULE_CRON`           | `0 1 * * *`                                 | Most-called-traces report schedule             |
 | `LONGEST_TRACES_STARTUP_DELAY_MINUTES`       | `15`                                        | Delay before initial longest-traces report     |
 | `MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES`   | `25`                                        | Delay before initial most-called-traces report |
+| `SCHEDULED_JOB_JITTER_MINUTES`               | `5`                                         | Random delay after a heavy job's cron fire     |
+| `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES`         | `30`                                        | Wait before skipping an overlapping heavy job  |
 | `STATIC_REPORT_TOP_N`                        | `30`                                        | Top N traces for static reports                |
 | `STATIC_REPORT_PERIOD_DAYS`                  | `30`                                        | Lookback period for static reports             |
 
@@ -261,7 +274,11 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **uuid ESM in tests**: `uuid` v14+ ships ESM. The `jest.config.js` maps `uuid` to `src/__mocks__/uuid.ts` globally. Tests that transitively import uuid work without additional mocking.
 - **SQLite is synchronous**: `better-sqlite3` (used by common-utils) returns values synchronously, not Promises. Consuming code uses `await` which works on both synchronous values and Promises.
 - **SQL_DIR path**: In dev mode, `__dirname` is `src/`; in production (compiled), it is `dist/`. The path `path.join(__dirname, '../sql/${config.DATABASE_TYPE}')` resolves correctly in both because `sql/` is a sibling of both `src/` and `dist/`.
-- **Keywords column**: All signal tables have a `keywords` column (lowercased, space-separated) used for LIKE pattern matching in maintenance cleanup rules. Wildcards (`*`) are converted to `%` SQL wildcards at query time.
+- **Keywords column**: All signal tables have a `keywords` column (lowercased, space-separated) used for LIKE pattern matching in maintenance cleanup rules. `*` is the only wildcard; `MaintenanceFormatRetentionPattern` escapes `\`, `%` and `_` and every rule query uses `LIKE ? ESCAPE '\'`, so those characters compare literally.
+- **Atomic JSON writes**: analytics cache and report/recommendation files are written with `FileUtilsWriteJsonAtomic` (serialize → temp file → fsync → rename). A failed serialization or crash never truncates the previous file; do not use `fs.writeJson` directly for these caches.
+- **Scheduled heavy jobs**: maintenance, LLM recommendation and static reports run through `ScheduledJobRunDelayed` / `ScheduledJobRegisterCron`, which add `SCHEDULED_JOB_JITTER_MINUTES` of random delay and serialize with an in-process mutex (`ScheduledJobRunExclusive`, waits up to `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES` then skips). There is no distributed lock: the guard assumes a single server instance, and the staggered cron defaults mitigate cross-instance overlap.
+- **Traces-stats determinism**: `/api/analytics/traces/stats` rounds windows to whole minutes and samples with a deterministic stride (`ANALYTICS_STATS_SAMPLE_CAP`), so percentiles are stable across identical requests. Responses are cached by rounded window + filters (`ANALYTICS_STATS_CACHE_TTL_SECONDS`, max entries). The cache module defaults to TTL 0 until `AnalyticsStatsInit` runs, keeping tests isolated.
+- **Metric series identity**: `metrics.attributes` stores canonicalized resource attributes (`SignalUtilsCanonicalizeAttributes`: sorted by key, `JSON.stringify`), so compression can compare the TEXT column directly. The compression series identity is `(serviceName, serviceVersion, name, type, attributes, bucket)` in both dialects — do not remove any of these from the GROUP BY/delete predicates.
 - **Raw JSON storage**: `rawSpan`, `rawMetric` columns store the full OTLP JSON for each signal. These are returned by analytics endpoints for client-side rendering.
 - **Nanoseosecond timestamps**: OTel uses nanosecond timestamps. Maintenance calculations multiply JavaScript milliseconds by `1_000_000` to convert. Time-based queries use nanosecond ranges.
 - **Timestamp precision in queries**: Nanosecond timestamps exceed `Number.MAX_SAFE_INTEGER`, so stored values are JS doubles. Analytics routes run query-string times through `AnalyticsUtilsGetTimeParam` before binding: binding the raw digits as text makes SQLite parse them as exact 64-bit integers that no longer equal the stored value, silently breaking equality and composite-cursor predicates.

@@ -1,4 +1,5 @@
 import {
+  SignalUtilsCanonicalizeAttributes,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
   SignalUtilsCheckAuthHeader,
@@ -86,6 +87,40 @@ describe("SignalUtilsGetServiceVersion", () => {
 
   it("should return 'unknown' when resource is null", () => {
     expect(SignalUtilsGetServiceVersion(null)).toBe("unknown");
+  });
+});
+
+describe("SignalUtilsCanonicalizeAttributes", () => {
+  it("sorts attributes by key so the same set always serializes identically", () => {
+    const a = SignalUtilsCanonicalizeAttributes([
+      { key: "service.version", value: { stringValue: "1.0" } },
+      { key: "service.name", value: { stringValue: "svc" } },
+    ]);
+    const b = SignalUtilsCanonicalizeAttributes([
+      { key: "service.name", value: { stringValue: "svc" } },
+      { key: "service.version", value: { stringValue: "1.0" } },
+    ]);
+    expect(a).toBe(b);
+    expect(JSON.parse(a).map((attr: { key: string }) => attr.key)).toEqual([
+      "service.name",
+      "service.version",
+    ]);
+  });
+
+  it("keeps distinct attribute values distinct", () => {
+    const a = SignalUtilsCanonicalizeAttributes([
+      { key: "deployment.environment", value: { stringValue: "prod" } },
+    ]);
+    const b = SignalUtilsCanonicalizeAttributes([
+      { key: "deployment.environment", value: { stringValue: "dev" } },
+    ]);
+    expect(a).not.toBe(b);
+  });
+
+  it("serializes missing or non-array attributes as an empty list", () => {
+    expect(SignalUtilsCanonicalizeAttributes(undefined)).toBe("[]");
+    expect(SignalUtilsCanonicalizeAttributes(null)).toBe("[]");
+    expect(SignalUtilsCanonicalizeAttributes("nope")).toBe("[]");
   });
 });
 

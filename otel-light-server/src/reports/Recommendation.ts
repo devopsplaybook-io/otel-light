@@ -2,10 +2,14 @@ import { Span } from "@opentelemetry/sdk-trace-base";
 import axios from "axios";
 import * as fs from "fs-extra";
 import * as path from "path";
-import * as schedule from "node-schedule";
 import { Config } from "../Config";
+import { FileUtilsWriteJsonAtomic } from "../FileUtils";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import { NotificationSendRecommendation } from "../NotificationService";
+import {
+  ScheduledJobRegisterCron,
+  ScheduledJobRunDelayed,
+} from "../ScheduledJobs";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 
@@ -31,13 +35,13 @@ export async function RecommendationInit(
     logger.info(
       `Scheduling LLM recommendation: ${configIn.LLM_RECOMMENDATION_SCHEDULE_CRON}`,
     );
-    schedule.scheduleJob(configIn.LLM_RECOMMENDATION_SCHEDULE_CRON, () => {
-      RecommendationGenerate().catch((err) =>
-        logger.error(
-          `Failed to generate scheduled recommendation: ${err.message}`,
-        ),
-      );
-    });
+    ScheduledJobRegisterCron(
+      "llm-recommendation",
+      configIn.LLM_RECOMMENDATION_SCHEDULE_CRON,
+      configIn.SCHEDULED_JOB_JITTER_MINUTES,
+      configIn.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+      RecommendationGenerate,
+    );
     // Generate on startup if no cached recommendation exists, after a short
     // delay so recommendation and report generations do not all fire
     // concurrently right after a restart.
@@ -50,15 +54,13 @@ export async function RecommendationInit(
       logger.info(
         `No valid cached recommendation found, scheduling initial generation in ${delayMinutes} minute(s)`,
       );
-      setTimeout(
-        () =>
-          RecommendationGenerate().catch((err) =>
-            logger.error(
-              `Failed to generate initial recommendation: ${err.message}`,
-            ),
-          ),
+      ScheduledJobRunDelayed(
+        "llm-recommendation",
         delayMinutes * 60 * 1000,
-      ).unref();
+        0,
+        configIn.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+        RecommendationGenerate,
+      );
     }
   } else {
     logger.info("LLM not configured; recommendation feature disabled");
@@ -168,8 +170,7 @@ export async function RecommendationGenerate(): Promise<void> {
       analysis,
       recommendations,
     };
-    await fs.ensureDir(path.dirname(recommendationFilePath));
-    await fs.writeJson(recommendationFilePath, result);
+    await FileUtilsWriteJsonAtomic(recommendationFilePath, result);
     logger.info("LLM recommendation generated and cached successfully", span);
 
     // Send notification with the recommendation and the per-service error
@@ -192,11 +193,18 @@ export async function RecommendationGenerate(): Promise<void> {
 
 // ── LLM API call with retry ───────────────────────────────────────────────────
 
-async function callLLMWithRetry(
+export async function callLLMWithRetry(
   prompt: string,
   maxRetries = 3,
 ): Promise<string> {
   let lastError: Error | undefined;
+
+  const timeoutSeconds = Number(config.LLM_RECOMMENDATION_TIMEOUT_SECONDS);
+  const budgetMs =
+    Number.isFinite(timeoutSeconds) && timeoutSeconds > 0
+      ? timeoutSeconds * 1000
+      : 180_000;
+  const deadline = Date.now() + budgetMs;
 
   // "disabled"/"enabled" send the DeepSeek-specific `thinking` field;
   // "omit" leaves it out entirely for strict OpenAI-compatible providers
@@ -209,8 +217,13 @@ async function callLLMWithRetry(
     thinkingMode === "omit"
       ? {}
       : { thinking: { type: thinkingEnabled ? "enabled" : "disabled" } };
+  const attemptTimeoutBaseMs = thinkingEnabled ? 120000 : 60000;
 
   for (let attempt = 0; attempt < maxRetries; attempt++) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) {
+      throw lastError || new Error(`LLM API deadline (${budgetMs} ms) exceeded`);
+    }
     try {
       const response = await axios.post(
         config.LLM_API_URL,
@@ -268,7 +281,7 @@ async function callLLMWithRetry(
             "Content-Type": "application/json",
             Authorization: `Bearer ${config.LLM_API_KEY}`,
           },
-          timeout: thinkingEnabled ? 120000 : 60000,
+          timeout: Math.min(attemptTimeoutBaseMs, remainingMs),
         },
       );
       const content = response.data?.choices?.[0]?.message?.content || "";
@@ -290,6 +303,12 @@ async function callLLMWithRetry(
       }
       if (attempt < maxRetries - 1) {
         const delay = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s
+        if (Date.now() + delay >= deadline) {
+          logger.warn(
+            `LLM API deadline (${budgetMs} ms) reached; not retrying`,
+          );
+          break;
+        }
         logger.warn(
           `LLM API attempt ${attempt + 1} failed (status=${status}), retrying in ${delay}ms: ${lastError.message}`,
         );

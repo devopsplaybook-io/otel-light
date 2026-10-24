@@ -1,10 +1,23 @@
+jest.mock("../OTelContext", () => ({
+  OTelTracer: () => ({
+    startSpan: () => ({
+      end: jest.fn(),
+      addEvent: jest.fn(),
+      setStatus: jest.fn(),
+    }),
+  }),
+}));
+
 import {
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsInit,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
+
+const fakeSpan = { end: jest.fn() } as never;
 
 describe("AnalyticsUtilsGetDefaultFromTime", () => {
   it("should return a nanosecond timestamp approximately 10 minutes in the past", () => {
@@ -99,6 +112,24 @@ describe("AnalyticsUtilsCompressJson", () => {
 
 describe("AnalyticsUtilsResultLimitMetrics", () => {
   it("should default to 10000", () => {
+    expect(AnalyticsUtilsResultLimitMetrics).toBe(10000);
+  });
+});
+
+describe("AnalyticsUtilsInit (L9)", () => {
+  it("applies the configured result limit", async () => {
+    await AnalyticsUtilsInit(fakeSpan, {
+      ANALYTICS_UTILS_RESULT_LIMIT_METRICS: 42,
+    } as never);
+
+    expect(AnalyticsUtilsResultLimitMetrics).toBe(42);
+  });
+
+  it("falls back to 10000 for an invalid configured value", async () => {
+    await AnalyticsUtilsInit(fakeSpan, {
+      ANALYTICS_UTILS_RESULT_LIMIT_METRICS: -1,
+    } as never);
+
     expect(AnalyticsUtilsResultLimitMetrics).toBe(10000);
   });
 });

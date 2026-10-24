@@ -9,6 +9,7 @@ import {
   SignalRollupsRecordSignalDeletion,
   SignalServiceCountsDelta,
 } from "./SignalRollups";
+import { ScheduledJobRunExclusive } from "./ScheduledJobs";
 import {
   DbUtilsExecSQL,
   DbUtilsQuerySQL,
@@ -44,48 +45,13 @@ export async function MaintenanceInit(context: Span, configIn: Config) {
 async function MaintenancePerform(): Promise<void> {
   const span = OTelTracer().startSpan("MaintenancePerform");
   try {
-    logger.info("Performing maintenance tasks", span);
-
-    // Recount rollups if the initial startup recount failed (self-heal)
-    await SignalRollupsEnsureInitialized(span);
-
-    try {
-      await MaintenanceApplyRetentionRules(span);
-    } catch (err) {
-      logger.error("Error applying signal cleanup rules", err, span);
-    }
-
-    try {
-      await MaintenanceDeleteOrphanTraces(span);
-    } catch (err) {
-      logger.error("Error deleting orphan traces", err, span);
-    }
-
-    try {
-      await MaintenanceMetricsCompress(
-        span,
-        config.METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS,
-        60 * 1_000_000_000,
-        METRICS_COMPRESS_MINUTE_CHUNK_NS,
-        METRICS_COMPRESS_MINUTE_MAX_CHUNKS,
-        METRICS_COMPRESS_MINUTE_STATE_KEY,
-      );
-    } catch (err) {
-      logger.error("Error during minute-bucket metrics compression", err, span);
-    }
-
-    try {
-      await MaintenanceMetricsCompress(
-        span,
-        config.METRICS_COMPRESS_HOUR_THRESHOLD_DAYS * 24,
-        3600 * 1_000_000_000,
-        METRICS_COMPRESS_HOUR_CHUNK_NS,
-        METRICS_COMPRESS_HOUR_MAX_CHUNKS,
-        METRICS_COMPRESS_HOUR_STATE_KEY,
-      );
-    } catch (err) {
-      logger.error("Error during hour-bucket metrics compression", err, span);
-    }
+    // Never run concurrently with another heavy scheduled job in this process
+    // (LLM recommendation, static reports). Skipped runs are logged.
+    await ScheduledJobRunExclusive(
+      "maintenance",
+      () => MaintenancePerformJobs(span),
+      config.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+    );
   } catch (err) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     logger.error("Error during maintenance tasks", err, span);
@@ -103,6 +69,51 @@ async function MaintenancePerform(): Promise<void> {
     },
     Math.max(config.MAINTENANCE_FREQUENCY_HOURS, 1) * 3600 * 1000,
   ).unref();
+}
+
+async function MaintenancePerformJobs(span: Span): Promise<void> {
+  logger.info("Performing maintenance tasks", span);
+
+  // Recount rollups if the initial startup recount failed (self-heal)
+  await SignalRollupsEnsureInitialized(span);
+
+  try {
+    await MaintenanceApplyRetentionRules(span);
+  } catch (err) {
+    logger.error("Error applying signal cleanup rules", err, span);
+  }
+
+  try {
+    await MaintenanceDeleteOrphanTraces(span);
+  } catch (err) {
+    logger.error("Error deleting orphan traces", err, span);
+  }
+
+  try {
+    await MaintenanceMetricsCompress(
+      span,
+      config.METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS,
+      60 * 1_000_000_000,
+      METRICS_COMPRESS_MINUTE_CHUNK_NS,
+      METRICS_COMPRESS_MINUTE_MAX_CHUNKS,
+      METRICS_COMPRESS_MINUTE_STATE_KEY,
+    );
+  } catch (err) {
+    logger.error("Error during minute-bucket metrics compression", err, span);
+  }
+
+  try {
+    await MaintenanceMetricsCompress(
+      span,
+      config.METRICS_COMPRESS_HOUR_THRESHOLD_DAYS * 24,
+      3600 * 1_000_000_000,
+      METRICS_COMPRESS_HOUR_CHUNK_NS,
+      METRICS_COMPRESS_HOUR_MAX_CHUNKS,
+      METRICS_COMPRESS_HOUR_STATE_KEY,
+    );
+  } catch (err) {
+    logger.error("Error during hour-bucket metrics compression", err, span);
+  }
 }
 
 // Signal cleanup rules (settings "signal-cleanup-rules"). Rollup counts are
@@ -141,6 +152,19 @@ interface CleanupRule {
   serviceName?: string;
 }
 
+// Only `*` is a wildcard. User-supplied `%`, `_` and `\` are LIKE
+// metacharacters and must stay literal, otherwise a pattern like
+// `error_rate_%` would delete far more rows than intended. Every retention
+// LIKE clause therefore carries `ESCAPE '\'`.
+export function MaintenanceFormatRetentionPattern(patternIn: string): string {
+  const escaped = String(patternIn)
+    .toLowerCase()
+    .replace(/\\/g, "\\\\")
+    .replace(/%/g, "\\%")
+    .replace(/_/g, "\\_");
+  return ("%" + escaped + "%").replace(/\*/g, "%");
+}
+
 async function ApplyCleanupRule(
   span: Span,
   dbType: "sqlite" | "postgres",
@@ -176,15 +200,10 @@ async function ApplyCleanupRule(
   const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
   const serviceName = deleteRule.serviceName?.trim() || null;
   let nbRows = 0;
-  const formatPattern = (patternIn) => {
-    return ("%" + patternIn + "%")
-      .toLowerCase()
-      .replace(/\*/g, "%")
-      .replace(/%+/g, "%");
-  };
+  const pattern = MaintenanceFormatRetentionPattern(deleteRule.pattern);
   const params = serviceName
-    ? [deleteTimestamp, formatPattern(deleteRule.pattern), serviceName]
-    : [deleteTimestamp, formatPattern(deleteRule.pattern)];
+    ? [deleteTimestamp, pattern, serviceName]
+    : [deleteTimestamp, pattern];
 
   if (deleteRule.signalType === "traces") {
     const deltas = await DbUtilsQuerySQL(
@@ -290,8 +309,11 @@ async function MaintenanceDeleteOrphanTraces(span: Span): Promise<void> {
 
 // Chunked duplicate-metric compression: walks forward from a persisted
 // watermark toward (now - retention threshold) in bounded, bucket-aligned
-// chunks; each chunk deletes duplicate rows (same name/service/bucket) and
-// decrements the metric rollups with the pre-delete deltas.
+// chunks; each chunk deletes duplicate rows and decrements the metric rollups
+// with the pre-delete deltas. Compression keeps one row per *series* per
+// bucket: the series identity is (serviceName, serviceVersion, name, type,
+// attributes). Grouping only by name/service collapsed distinct label sets and
+// types after 12 h.
 async function MaintenanceMetricsCompress(
   context: Span,
   thresholdHours: number,
@@ -437,47 +459,47 @@ const SQL_QUERIES = {
   },
   DELETE_TRACES: (serviceName: string | null) => ({
     postgres:
-      'DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2' +
+      `DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
       (serviceName ? ' AND "serviceName" = $3' : ""),
     sqlite:
-      "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ?" +
+      "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ? ESCAPE '\\'" +
       (serviceName ? " AND serviceName = ?" : ""),
   }),
   GET_TRACES_DELETE_DELTAS: (serviceName: string | null) => ({
     postgres:
-      'SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2' +
+      `SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
       (serviceName ? ' AND "serviceName" = $3' : "") +
       ' GROUP BY "serviceName", "serviceVersion"',
     sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE startTime < ? AND keywords LIKE ?" +
+      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE startTime < ? AND keywords LIKE ? ESCAPE '\\'" +
       (serviceName ? " AND serviceName = ?" : "") +
       " GROUP BY serviceName, serviceVersion",
   }),
   DELETE_SIGNALS: (tableName: string, serviceName: string | null) => ({
     postgres:
-      `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2` +
+      `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
       (serviceName ? ' AND "serviceName" = $3' : ""),
     sqlite:
-      `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ?` +
+      `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ? ESCAPE '\\'` +
       (serviceName ? " AND serviceName = ?" : ""),
   }),
   GET_METRICS_DELETE_DELTAS: (serviceName: string | null) => ({
     postgres:
-      'SELECT "serviceName", "serviceVersion", "name", "type", COUNT(*) AS cnt FROM metrics WHERE "time" < $1 AND "keywords" LIKE $2' +
+      `SELECT "serviceName", "serviceVersion", "name", "type", COUNT(*) AS cnt FROM metrics WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
       (serviceName ? ' AND "serviceName" = $3' : "") +
       ' GROUP BY "serviceName", "serviceVersion", "name", "type"',
     sqlite:
-      "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics WHERE time < ? AND keywords LIKE ?" +
+      "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics WHERE time < ? AND keywords LIKE ? ESCAPE '\\'" +
       (serviceName ? " AND serviceName = ?" : "") +
       " GROUP BY serviceName, serviceVersion, name, type",
   }),
   GET_LOGS_DELETE_DELTAS: (serviceName: string | null) => ({
     postgres:
-      'SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM logs WHERE "time" < $1 AND "keywords" LIKE $2' +
+      `SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM logs WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
       (serviceName ? ' AND "serviceName" = $3' : "") +
       ' GROUP BY "serviceName", "serviceVersion"',
     sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM logs WHERE time < ? AND keywords LIKE ?" +
+      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM logs WHERE time < ? AND keywords LIKE ? ESCAPE '\\'" +
       (serviceName ? " AND serviceName = ?" : "") +
       " GROUP BY serviceName, serviceVersion",
   }),
@@ -516,6 +538,8 @@ const SQL_QUERIES = {
       '   AND EXISTS (' +
       '     SELECT 1 FROM metrics b' +
       '     WHERE b."name" = a."name" AND b."serviceName" = a."serviceName"' +
+      '       AND b."serviceVersion" = a."serviceVersion" AND b."type" = a."type"' +
+      '       AND b."attributes" = a."attributes"' +
       '       AND CAST(b."time" / $3 AS INTEGER) = CAST(a."time" / $3 AS INTEGER)' +
       '       AND b."time" >= $1 AND b."time" < $2' +
       '       AND b.ctid > a.ctid)' +
@@ -524,7 +548,7 @@ const SQL_QUERIES = {
       "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics" +
       " WHERE time >= ? AND time < ? AND rowid NOT IN (" +
       "   SELECT MAX(rowid) FROM metrics WHERE time >= ? AND time < ?" +
-      "   GROUP BY name, serviceName, CAST(time / ? AS INTEGER))" +
+      "   GROUP BY name, serviceName, serviceVersion, type, attributes, CAST(time / ? AS INTEGER))" +
       " GROUP BY serviceName, serviceVersion, name, type",
   },
   DELETE_DUPLICATE_METRICS: {
@@ -532,6 +556,9 @@ const SQL_QUERIES = {
        USING metrics b
        WHERE a."name" = b."name"
          AND a."serviceName" = b."serviceName"
+         AND a."serviceVersion" = b."serviceVersion"
+         AND a."type" = b."type"
+         AND a."attributes" = b."attributes"
          AND CAST(a."time" / $3 AS INTEGER) = CAST(b."time" / $3 AS INTEGER)
          AND a."time" >= $1 AND a."time" < $2
          AND b."time" >= $1 AND b."time" < $2
@@ -540,7 +567,7 @@ const SQL_QUERIES = {
       "DELETE FROM metrics" +
       " WHERE time >= ? AND time < ? AND rowid NOT IN (" +
       "   SELECT MAX(rowid) FROM metrics WHERE time >= ? AND time < ?" +
-      "   GROUP BY name, serviceName, CAST(time / ? AS INTEGER))",
+      "   GROUP BY name, serviceName, serviceVersion, type, attributes, CAST(time / ? AS INTEGER))",
   },
   GET_MAINTENANCE_STATE: {
     postgres:

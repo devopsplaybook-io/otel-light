@@ -11,13 +11,36 @@ import {
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
 } from "./AnalyticsUtils";
+import {
+  AnalyticsStatsCacheBuildKey,
+  AnalyticsStatsCacheGet,
+  AnalyticsStatsCacheSet,
+  AnalyticsStatsGetSampleCap,
+} from "./AnalyticsStatsCache";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
 const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
-// Bounded random sample of per-trace durations used only for the P90/P95
-// percentiles; exact aggregates come from TRACES_STATS (same pattern as the
-// LLM recommendation sample cap).
-const TRACES_STATS_SAMPLE_CAP = 20000;
+const MINUTE_NS = 60 * 1_000_000_000;
+
+// Minute-rounded windows keep repeated dashboard loads (a moving `from`) on
+// the same deterministic SQL and on the same cache entry.
+function roundTimeDownToMinute(
+  value: string | number | undefined,
+): string | number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return value;
+  }
+  return Math.floor(value / MINUTE_NS) * MINUTE_NS;
+}
+
+function roundTimeUpToMinute(
+  value: string | number | undefined,
+): string | number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return value;
+  }
+  return Math.ceil(value / MINUTE_NS) * MINUTE_NS;
+}
 
 export class AnalyticsStatsRoutes {
   //
@@ -158,6 +181,7 @@ export class AnalyticsStatsRoutes {
         to?: number;
         serviceName?: string;
         serviceVersion?: string;
+        includePercentiles?: string;
       };
     }>("/traces/stats", async (req, res) => {
       const userSession = await AuthGetUserSession(req);
@@ -179,31 +203,63 @@ export class AnalyticsStatsRoutes {
       const rootsParams: any[] = [];
       let rootsWhere = `${q("parentSpanId")} IS NULL`;
 
+      const includePercentiles = !["false", "0", "no"].includes(
+        String(req.query.includePercentiles ?? "true")
+          .trim()
+          .toLowerCase(),
+      );
+      const serviceName = String(req.query.serviceName ?? "").trim();
+      const serviceVersion = String(req.query.serviceVersion ?? "").trim();
+
       // Default window: bound the aggregation scan unless the caller asked
-      // for an explicit range (the web UI always sends `from`).
-      const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime24h();
+      // for an explicit range (the web UI always sends `from`). Windows are
+      // rounded to whole minutes so repeated loads are deterministic and
+      // share a cache entry.
+      const fromTime = roundTimeDownToMinute(
+        AnalyticsUtilsGetTimeParam(
+          req.query.from || AnalyticsUtilsGetDefaultFromTime24h(),
+        ),
+      );
+      const toTime = req.query.to
+        ? roundTimeUpToMinute(
+            AnalyticsUtilsGetTimeParam(req.query.to),
+          )
+        : undefined;
+
+      const cacheKey = AnalyticsStatsCacheBuildKey(
+        fromTime,
+        toTime,
+        serviceName || undefined,
+        serviceVersion || undefined,
+        includePercentiles,
+      );
+      const cached = AnalyticsStatsCacheGet(cacheKey);
+      if (cached) {
+        return res.status(200).send(cached);
+      }
+
       rootsWhere +=
         ` AND ${q("startTime")} >= ` +
         AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-      rootsParams.push(AnalyticsUtilsGetTimeParam(fromTime));
+      rootsParams.push(fromTime);
 
-      if (req.query.to) {
+      if (toTime !== undefined) {
         rootsWhere +=
           ` AND ${q("startTime")} <= ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(AnalyticsUtilsGetTimeParam(req.query.to));
+        rootsParams.push(toTime);
       }
-      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+      if (serviceName) {
         rootsWhere +=
           ` AND ${q("serviceName")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(String(req.query.serviceName).trim());
+        rootsParams.push(serviceName);
       }
-      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+      if (serviceVersion) {
         rootsWhere +=
           ` AND ${q("serviceVersion")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(String(req.query.serviceVersion).trim());
+        rootsParams.push(serviceVersion);
       }
 
       const statusCodeVarIdx = rootsParams.length + 1;
@@ -214,20 +270,35 @@ export class AnalyticsStatsRoutes {
         allParams,
       );
 
-      // Bounded random sample of full-trace durations (same measure as
-      // avgDuration) for the percentiles, grouped like the web client does:
-      // serviceName||serviceVersion||name. Values stay in nanoseconds.
-      const sampleRows = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.TRACES_DURATION_SAMPLE(rootsWhere, rootsParams.length + 1)[
-          dbType
-        ],
-        [...rootsParams, TRACES_STATS_SAMPLE_CAP],
-      );
+      // Deterministic, bounded stride sample of full-trace durations (same
+      // measure as avgDuration) for the percentiles, grouped like the web
+      // client does: serviceName||serviceVersion||name. Values stay in ns.
+      // The stride is derived from the exact trace count, so identical
+      // requests always return identical percentiles and the sample never
+      // exceeds ANALYTICS_STATS_SAMPLE_CAP.
       const sampleDurations: Record<string, number[]> = {};
-      for (const row of sampleRows) {
-        const key = [row.serviceName || "", row.serviceVersion || "", row.name || ""].join("||");
-        if (!sampleDurations[key]) sampleDurations[key] = [];
-        sampleDurations[key].push(Number(row.duration));
+      const totalTraces = rawRows.reduce(
+        (sum: number, row: { traceCount: number }) =>
+          sum + Number(row.traceCount || 0),
+        0,
+      );
+      if (includePercentiles && totalTraces > 0) {
+        const stride = Math.max(
+          1,
+          Math.ceil(totalTraces / AnalyticsStatsGetSampleCap()),
+        );
+        const sampleRows = await DbUtilsNoTelemetryQuerySQL(
+          SQL_QUERIES.TRACES_DURATION_SAMPLE(
+            rootsWhere,
+            rootsParams.length + 1,
+          )[dbType],
+          [...rootsParams, stride],
+        );
+        for (const row of sampleRows) {
+          const key = [row.serviceName || "", row.serviceVersion || "", row.name || ""].join("||");
+          if (!sampleDurations[key]) sampleDurations[key] = [];
+          sampleDurations[key].push(Number(row.duration));
+        }
       }
       const percentileOf = (
         durations: number[],
@@ -245,7 +316,7 @@ export class AnalyticsStatsRoutes {
         const avgDuration = Number(row.avgDuration);
         const key = [row.serviceName || "", row.serviceVersion || "", row.name || ""].join("||");
         const durations = sampleDurations[key] || [];
-        return {
+        const group = {
           serviceName: row.serviceName,
           serviceVersion: row.serviceVersion,
           name: row.name,
@@ -253,15 +324,23 @@ export class AnalyticsStatsRoutes {
           avgSpanCount: Number(row.avgSpanCount),
           nbErrors: Number(row.nbErrors),
           avgDuration,
-          p90: percentileOf(durations, 90, avgDuration),
-          p95: percentileOf(durations, 95, avgDuration),
         };
+        if (includePercentiles) {
+          return {
+            ...group,
+            p90: percentileOf(durations, 90, avgDuration),
+            p95: percentileOf(durations, 95, avgDuration),
+          };
+        }
+        return group;
       });
 
-      return res.status(200).send({
+      const payload = {
         groups: await AnalyticsUtilsCompressJson(groups, "gzip"),
         compressed: true,
-      });
+      };
+      AnalyticsStatsCacheSet(cacheKey, payload);
+      return res.status(200).send(payload);
     });
   }
 }
@@ -285,52 +364,77 @@ const SQL_QUERIES = {
       GROUP BY severity, bucketIdx
       ORDER BY bucketIdx`,
   }),
-  // Bounded random sample of per-trace durations (MAX(endTime) − MIN(startTime),
-  // the same measure as avgDuration) reused for the P90/P95 percentiles. The
-  // sample-cap placeholder is the last bound parameter (after rootsWhere).
-  TRACES_DURATION_SAMPLE: (rootsWhere: string, capParamIdx: number) => ({
+  // Deterministic stride sample of per-trace durations (MAX(endTime) −
+  // MIN(startTime), the same measure as avgDuration) reused for the P90/P95
+  // percentiles. Rows are ranked on stable keys and every `stride`-th one is
+  // kept: bounded work, identical results for identical requests (no RANDOM),
+  // and at most `cap` rows because stride = ceil(traceCount / cap). The stride
+  // placeholder is the last bound parameter (after rootsWhere).
+  TRACES_DURATION_SAMPLE: (rootsWhere: string, strideParamIdx: number) => ({
     postgres: `
       WITH roots AS (
         SELECT "traceId", "name", "serviceName", "serviceVersion"
         FROM traces
         WHERE ${rootsWhere}
-      )
-      SELECT r."name",
-             r."serviceName",
-             r."serviceVersion",
-             (t."endTime" - t."startTime") AS "duration"
-      FROM (
+      ),
+      trace_durations AS (
         SELECT t."traceId",
                MIN(t."startTime") AS "startTime",
                MAX(t."endTime") AS "endTime"
         FROM traces t
         JOIN roots r ON r."traceId" = t."traceId"
         GROUP BY t."traceId"
-      ) t
-      JOIN roots r ON r."traceId" = t."traceId"
-      ORDER BY RANDOM()
-      LIMIT $${capParamIdx}`,
+      ),
+      ranked AS (
+        SELECT d."startTime",
+               d."endTime",
+               r."name",
+               r."serviceName",
+               r."serviceVersion",
+               ROW_NUMBER() OVER (
+                 ORDER BY d."startTime", d."traceId", r."serviceName", r."name"
+               ) AS rn
+        FROM trace_durations d
+        JOIN roots r ON r."traceId" = d."traceId"
+      )
+      SELECT "name",
+             "serviceName",
+             "serviceVersion",
+             ("endTime" - "startTime") AS "duration"
+      FROM ranked
+      WHERE (rn - 1) % $${strideParamIdx} = 0`,
     sqlite: `
       WITH roots AS (
         SELECT traceId, name, serviceName, serviceVersion
         FROM traces
         WHERE ${rootsWhere}
-      )
-      SELECT r.name,
-             r.serviceName,
-             r.serviceVersion,
-             (t.endTime - t.startTime) AS duration
-      FROM (
+      ),
+      trace_durations AS (
         SELECT t.traceId,
                MIN(t.startTime) AS startTime,
                MAX(t.endTime) AS endTime
         FROM traces t
         JOIN roots r ON r.traceId = t.traceId
         GROUP BY t.traceId
-      ) t
-      JOIN roots r ON r.traceId = t.traceId
-      ORDER BY RANDOM()
-      LIMIT ?`,
+      ),
+      ranked AS (
+        SELECT d.startTime,
+               d.endTime,
+               r.name,
+               r.serviceName,
+               r.serviceVersion,
+               ROW_NUMBER() OVER (
+                 ORDER BY d.startTime, d.traceId, r.serviceName, r.name
+               ) AS rn
+        FROM trace_durations d
+        JOIN roots r ON r.traceId = d.traceId
+      )
+      SELECT name,
+             serviceName,
+             serviceVersion,
+             (endTime - startTime) AS duration
+      FROM ranked
+      WHERE (rn - 1) % ? = 0`,
   }),
   TRACES_STATS: (rootsWhere: string, statusCodeVarIdx: number) => ({
     postgres: `

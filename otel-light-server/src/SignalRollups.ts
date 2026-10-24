@@ -70,6 +70,15 @@ export interface MetricNameDelta {
 
 const INSERT_CHUNK_ROWS = 200;
 
+// True once the rollups reflect the raw tables (initial recount or a healthy
+// pre-existing rollup set). Consumers must not treat an empty read as "no
+// data" before this flag is set: the rollups may simply not be populated yet.
+let rollupsReady = false;
+
+export function SignalRollupsIsReady(): boolean {
+  return rollupsReady;
+}
+
 // ── Initialization / recount ──────────────────────────────────────────────────
 
 export async function SignalRollupsInit(context: Span): Promise<void> {
@@ -108,6 +117,7 @@ async function ensureInitialized(span: Span): Promise<void> {
     isRollupEmpty("signal_metric_names"),
   ]);
   if (!countsEmpty && !namesEmpty) {
+    rollupsReady = true;
     return;
   }
   logger.info(
@@ -115,6 +125,7 @@ async function ensureInitialized(span: Span): Promise<void> {
     span,
   );
   await recount(span);
+  rollupsReady = true;
 }
 
 async function isRollupEmpty(tableName: string): Promise<boolean> {
