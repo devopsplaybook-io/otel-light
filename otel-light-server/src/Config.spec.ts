@@ -88,3 +88,66 @@ describe("Config JWT_KEY handling (C1)", () => {
     expect(mockModuleLogger.error).not.toHaveBeenCalled();
   });
 });
+
+describe("Config INGESTION_BODY_LIMIT_BYTES", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "otel-light-config-"));
+    jest.clearAllMocks();
+    delete process.env.INGESTION_BODY_LIMIT_BYTES;
+  });
+
+  afterEach(async () => {
+    delete process.env.INGESTION_BODY_LIMIT_BYTES;
+    await fs.remove(tmpDir);
+  });
+
+  const newConfig = async (configContent?: object): Promise<Config> => {
+    const configFile = path.join(tmpDir, "config.json");
+    if (configContent) {
+      await fs.writeJson(configFile, configContent);
+    }
+    const config = new Config();
+    config.CONFIG_FILE = configFile;
+    return config;
+  };
+
+  it("defaults to 1 MiB", async () => {
+    const config = await newConfig();
+    await config.reload();
+    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(1_048_576);
+  });
+
+  it("reads the value from the config file", async () => {
+    const config = await newConfig({ INGESTION_BODY_LIMIT_BYTES: 4_194_304 });
+    await config.reload();
+    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(4_194_304);
+  });
+
+  it("reads the value from the environment as a number", async () => {
+    process.env.INGESTION_BODY_LIMIT_BYTES = "2097152";
+    const config = await newConfig();
+    await config.reload();
+    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(2_097_152);
+  });
+
+  it("clamps above the maximum", async () => {
+    const config = await newConfig({ INGESTION_BODY_LIMIT_BYTES: 999_999_999 });
+    await config.reload();
+    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(16_777_216);
+  });
+
+  it("clamps below the minimum", async () => {
+    const config = await newConfig({ INGESTION_BODY_LIMIT_BYTES: 0 });
+    await config.reload();
+    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(1_024);
+  });
+
+  it("falls back to the default for a non-numeric value", async () => {
+    process.env.INGESTION_BODY_LIMIT_BYTES = "abc";
+    const config = await newConfig();
+    await config.reload();
+    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(1_048_576);
+  });
+});

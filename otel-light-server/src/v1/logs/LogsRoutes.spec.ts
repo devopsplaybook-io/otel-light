@@ -23,6 +23,7 @@ jest.mock("../../OTelContext", () => {
 
 jest.mock("../SignalUtils", () => ({
   SignalUtilsCheckAuthHeader: jest.fn(),
+  SignalUtilsGetIngestionBodyLimit: jest.fn(),
   SignalUtilsGetServiceName: jest.fn(),
   SignalUtilsGetServiceVersion: jest.fn(),
 }));
@@ -37,6 +38,7 @@ jest.mock("../../SignalRollups", () => ({
 import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
   SignalUtilsCheckAuthHeader,
+  SignalUtilsGetIngestionBodyLimit,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
@@ -46,6 +48,8 @@ import { LogsRoutes } from "./LogsRoutes";
 const mockModuleLogger = jest.requireMock<{
   __moduleLogger: { error: jest.Mock; info: jest.Mock; warn: jest.Mock };
 }>("../../OTelContext").__moduleLogger;
+
+const BODY_LIMIT = 1_048_576;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -79,6 +83,8 @@ describe("LogsRoutes POST /v1/logs", () => {
   let fastify: ReturnType<typeof Fastify>;
 
   beforeAll(async () => {
+    // Captured at route registration time.
+    (SignalUtilsGetIngestionBodyLimit as jest.Mock).mockReturnValue(BODY_LIMIT);
     fastify = Fastify();
     await fastify.register(new LogsRoutes().getRoutes, {
       prefix: "/v1/logs",
@@ -92,6 +98,7 @@ describe("LogsRoutes POST /v1/logs", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (SignalUtilsGetIngestionBodyLimit as jest.Mock).mockReturnValue(BODY_LIMIT);
     (SignalUtilsCheckAuthHeader as jest.Mock).mockReturnValue(true);
     (SignalUtilsGetServiceName as jest.Mock).mockReturnValue("my-svc");
     (SignalUtilsGetServiceVersion as jest.Mock).mockReturnValue("1.0.0");
@@ -117,14 +124,15 @@ describe("LogsRoutes POST /v1/logs", () => {
   });
 
   // --- Success ---
-  it("returns 201 on successful ingestion", async () => {
+  it("returns 200 on successful ingestion", async () => {
     const res = await fastify.inject({
       method: "POST",
       url: "/v1/logs",
       payload: buildBody(),
     });
 
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({});
     expect(DbUtilsNoTelemetryBatchInsert).toHaveBeenCalledTimes(1);
   });
 
@@ -158,7 +166,7 @@ describe("LogsRoutes POST /v1/logs", () => {
     ]);
   });
 
-  it("still returns 201 when rollup recording fails", async () => {
+  it("still returns 200 when rollup recording fails", async () => {
     (SignalRollupsRecordSignalInsert as jest.Mock).mockRejectedValue(
       new Error("rollup unavailable"),
     );
@@ -169,7 +177,7 @@ describe("LogsRoutes POST /v1/logs", () => {
       payload: buildBody(),
     });
 
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
     expect(mockModuleLogger.error).toHaveBeenCalledWith(
       "Failed to update log rollups",
       expect.any(Error),
@@ -193,10 +201,12 @@ describe("LogsRoutes POST /v1/logs", () => {
 
   // --- Schema validation ---
   it.each([
-    ["missing resourceLogs", {}],
     ["resourceLogs not an array", { resourceLogs: "nope" }],
-    ["missing scopeLogs", { resourceLogs: [{}] }],
-    ["logRecords not an array", { resourceLogs: [{ scopeLogs: [{ logRecords: "x" }] }] }],
+    ["scopeLogs not an array", { resourceLogs: [{ scopeLogs: "x" }] }],
+    [
+      "logRecords not an array",
+      { resourceLogs: [{ scopeLogs: [{ logRecords: "x" }] }] },
+    ],
   ])("returns 400 for malformed payload (%s)", async (_label, payload) => {
     const res = await fastify.inject({
       method: "POST",
@@ -208,7 +218,7 @@ describe("LogsRoutes POST /v1/logs", () => {
     expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
   });
 
-  // --- Empty payload ---
+  // --- Minimal payloads ---
   it("handles empty resourceLogs gracefully", async () => {
     const res = await fastify.inject({
       method: "POST",
@@ -216,8 +226,47 @@ describe("LogsRoutes POST /v1/logs", () => {
       payload: { resourceLogs: [] },
     });
 
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
     expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts an empty OTLP payload", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts a minimal payload without resource or attributes", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: {
+        resourceLogs: [
+          {
+            scopeLogs: [
+              {
+                logRecords: [
+                  {
+                    timeUnixNano: "1700000000000000000",
+                    body: { stringValue: "hello" },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+    expect(rows[0][0]).toBe("my-svc");
+    expect(rows[0][7]).toBe("[]"); // attributes column
   });
 
   // --- Log body types ---
@@ -268,7 +317,22 @@ describe("LogsRoutes POST /v1/logs", () => {
   });
 
   // --- traceId/spanId extraction ---
-  it("extracts traceId and spanId from log attributes", async () => {
+  it("extracts top-level traceId and spanId", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ traceId: "top-trace", spanId: "top-span" }),
+      ]),
+    });
+
+    const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+    // traceId is at index 2, spanId at index 3
+    expect(rows[0][2]).toBe("top-trace");
+    expect(rows[0][3]).toBe("top-span");
+  });
+
+  it("falls back to trace.id/span.id attributes", async () => {
     await fastify.inject({
       method: "POST",
       url: "/v1/logs",
@@ -283,12 +347,32 @@ describe("LogsRoutes POST /v1/logs", () => {
     });
 
     const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
-    // traceId is at index 2, spanId at index 3
     expect(rows[0][2]).toBe("abc123");
     expect(rows[0][3]).toBe("def456");
   });
 
-  it("sets traceId and spanId to null when not present in attributes", async () => {
+  it("prefers the top-level IDs over the attributes", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({
+          traceId: "top-trace",
+          spanId: "top-span",
+          attributes: [
+            { key: "trace.id", value: { stringValue: "attr-trace" } },
+            { key: "span.id", value: { stringValue: "attr-span" } },
+          ],
+        }),
+      ]),
+    });
+
+    const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+    expect(rows[0][2]).toBe("top-trace");
+    expect(rows[0][3]).toBe("top-span");
+  });
+
+  it("sets traceId and spanId to null when not present", async () => {
     await fastify.inject({
       method: "POST",
       url: "/v1/logs",
@@ -298,6 +382,53 @@ describe("LogsRoutes POST /v1/logs", () => {
     const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
     expect(rows[0][2]).toBeNull();
     expect(rows[0][3]).toBeNull();
+  });
+
+  // --- Content type / body limit ---
+  it("returns 415 with protocol guidance for a protobuf payload", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      headers: { "content-type": "application/x-protobuf" },
+      payload: Buffer.from([0x0a, 0x00]),
+    });
+
+    expect(res.statusCode).toBe(415);
+    expect(res.json().message).toContain(
+      "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+    );
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 when the payload exceeds the configured body limit", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ body: { stringValue: "x".repeat(BODY_LIMIT + 1_000) } }),
+      ]),
+    });
+
+    expect(res.statusCode).toBe(413);
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts a large batch under the body limit in one insert call", async () => {
+    const logRecords = Array.from({ length: 1_000 }, (_, index) =>
+      mockLogRecord({ body: { stringValue: `record-${index}` } }),
+    );
+
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody(logRecords),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(DbUtilsNoTelemetryBatchInsert).toHaveBeenCalledTimes(1);
+    expect(
+      (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2],
+    ).toHaveLength(1_000);
   });
 
   // --- Per-record service name/version override (L3) ---

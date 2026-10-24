@@ -32,8 +32,8 @@ otel-light/
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
-│   │   ├── sqlite/init-0000..0008.sql  # 9 migration files (CREATE tables, indexes, ALTER columns)
-│   │   └── postgres/init-0000..0008.sql # Parallel migrations for PostgreSQL
+│   │   ├── sqlite/init-0000..0012.sql  # 13 migration files (CREATE tables, indexes, ALTER columns)
+│   │   └── postgres/init-0000..0012.sql # Parallel migrations for PostgreSQL
 │   └── src/
 │       ├── App.ts                      # Entry point: config init, OTel setup, DB init, Fastify routes
 │       ├── Config.ts                   # Extends ConfigBase from common-utils
@@ -125,7 +125,7 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 | `metrics`  | name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords                                                  | Ingested metric data points      |
 | `logs`     | serviceName, serviceVersion, severity, time, logText, attributes, keywords, traceId, spanId                                     | Ingested log records             |
 
-Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0008). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
+Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0012). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
 ## Key Conventions
 
@@ -235,6 +235,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `API_PORT`                                   | `8080`                                      | Server listen port (inherited from ConfigBase) |
 | `CORS_POLICY_ORIGIN`                         | (empty)                                     | CORS allowed origin; empty = CORS disabled     |
 | `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` | (empty)                                     | Bearer token required for ingestion            |
+| `INGESTION_BODY_LIMIT_BYTES`                 | `1048576`                                   | Max OTLP/JSON body size (clamped 1024–16777216); over-limit requests get 413 |
 | `OPENTELEMETRY_COLLECTOR_HTTP_*`             | `http://localhost:8080/v1/*`                | OTel collector endpoints (overridden in dev)   |
 | `MAINTENANCE_FREQUENCY_HOURS`                | `6`                                         | How often maintenance runs                     |
 | `MAINTENANCE_ORPHAN_LOOKBACK_HOURS`          | `24`                                        | Lookback window for orphan-span cleanup scans  |

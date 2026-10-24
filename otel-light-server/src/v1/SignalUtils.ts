@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "crypto";
 import { Span } from "@opentelemetry/sdk-trace-base";
-import { Config } from "../Config";
+import { Config, ConfigClampIngestionBodyLimit } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 
 const logger = OTelLogger().createModuleLogger("SignalUtils");
@@ -31,6 +31,10 @@ export function SignalUtilsGetServiceVersion(resource: any): string {
       (attr: any) => attr?.key === "service.version",
     )?.value?.stringValue || "unknown"
   );
+}
+
+export function SignalUtilsGetIngestionBodyLimit(): number {
+  return ConfigClampIngestionBodyLimit(config?.INGESTION_BODY_LIMIT_BYTES);
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

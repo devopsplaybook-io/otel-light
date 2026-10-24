@@ -76,6 +76,8 @@ import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { MaintenanceInit } from "./Maintenance";
+import { SignalUtilsInit } from "./v1/SignalUtils";
+import { TracesRoutes } from "./v1/traces/TracesRoutes";
 import {
   SignalRollupsGetAllCounts,
   SignalRollupsGetMetricNames,
@@ -204,7 +206,16 @@ describe("SQL-level integration (sqlite)", () => {
       path.join(__dirname, "../sql/sqlite"),
     );
 
+    await SignalUtilsInit(testSpan(), {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      INGESTION_BODY_LIMIT_BYTES: 1_048_576,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
     fastify = Fastify();
+    await fastify.register(new TracesRoutes().getRoutes, {
+      prefix: "/v1/traces",
+    });
     await fastify.register(new AnalyticsTracesRoutes().getRoutes, {
       prefix: "/api/analytics/traces",
     });
@@ -239,12 +250,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 11 and creates the rollup tables", async () => {
+    it("applies all migrations up to version 12 and creates the rollup tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(11);
+      expect(Number(versionRows[0].maxVersion)).toBe(12);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -268,6 +279,12 @@ describe("SQL-level integration (sqlite)", () => {
         [],
       );
       expect(indexRows.length).toBe(1);
+
+      const spanIndexRows = await query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_traces_traceid_spanid'",
+        [],
+      );
+      expect(spanIndexRows.length).toBe(1);
     });
   });
 
@@ -1308,6 +1325,91 @@ describe("SQL-level integration (sqlite)", () => {
   });
 
   // =========================================================================
+  // OTLP ingestion end-to-end (idempotency, partial success)
+  // =========================================================================
+  describe("Trace ingestion", () => {
+    const traceBatch = (serviceName: string, spans: unknown[]) => ({
+      resourceSpans: [
+        {
+          resource: {
+            attributes: [
+              { key: "service.name", value: { stringValue: serviceName } },
+              { key: "service.version", value: { stringValue: "1.0" } },
+            ],
+          },
+          scopeSpans: [{ spans }],
+        },
+      ],
+    });
+
+    const span = (traceId: string, spanId: string, overrides = {}) => ({
+      traceId,
+      spanId,
+      name: "op",
+      startTimeUnixNano: "1750000000000000000",
+      endTimeUnixNano: "1750000000000100000",
+      status: { code: 0 },
+      ...overrides,
+    });
+
+    it("does not duplicate spans or rollups when a batch is replayed", async () => {
+      const payload = traceBatch("replay-svc", [
+        span("replay-trace", "replay-root"),
+        span("replay-trace", "replay-child", { parentSpanId: "replay-root" }),
+      ]);
+
+      const first = await fastify.inject({
+        method: "POST",
+        url: "/v1/traces",
+        payload,
+      });
+      const second = await fastify.inject({
+        method: "POST",
+        url: "/v1/traces",
+        payload,
+      });
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+
+      const rows = await query(
+        "SELECT COUNT(*) AS c FROM traces WHERE serviceName = ?",
+        ["replay-svc"],
+      );
+      expect(Number(rows[0].c)).toBe(2);
+
+      const counts = await SignalRollupsGetAllCounts();
+      const rollup = counts.find(
+        (entry) =>
+          entry.signalType === "traces" && entry.serviceName === "replay-svc",
+      );
+      expect(rollup?.count).toBe(2);
+    });
+
+    it("stores valid spans and reports rejected ones as partial success", async () => {
+      const payload = traceBatch("partial-svc", [
+        span("partial-trace", "partial-root"),
+        span("partial-trace", ""),
+      ]);
+
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/traces",
+        payload,
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().partialSuccess.rejectedSpans).toBe("1");
+
+      const rows = await query(
+        "SELECT COUNT(*) AS c FROM traces WHERE serviceName = ?",
+        ["partial-svc"],
+      );
+      expect(Number(rows[0].c)).toBe(1);
+    });
+  });
+
+  // =========================================================================
   // Restart: migrations re-run on an up-to-date database
   // =========================================================================
   describe("Restart with an up-to-date database", () => {
@@ -1329,7 +1431,7 @@ describe("SQL-level integration (sqlite)", () => {
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(11);
+      expect(Number(versionRows[0].maxVersion)).toBe(12);
     });
   });
 });

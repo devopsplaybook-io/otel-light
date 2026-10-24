@@ -92,6 +92,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | OPENTELEMETRY_COLLECTOR_EXPORT_LOGS_INTERVAL_SECONDS    | Interval (in seconds) to export logs                  | 60                                          | Config file or environment variable |
 | OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics               | 60                                          | Config file or environment variable |
 | OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection              | (empty)                                     | Config file or environment variable |
+| INGESTION_BODY_LIMIT_BYTES                              | Maximum OTLP/JSON request body size in bytes (clamped to 1024–16777216); larger requests get HTTP 413 | 1048576        | Config file or environment variable |
 | METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12                                          | Config file or environment variable |
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7                                           | Config file or environment variable |
 | MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6                                           | Config file or environment variable |
@@ -204,6 +205,21 @@ If you have set the `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` parameter, you 
 ```
 Bearer <value of OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER>
 ```
+
+### OTLP ingestion
+
+The ingestion endpoints accept **OTLP/JSON only** (`application/json`). Protobuf is not implemented, so exporters must be configured for the JSON protocol:
+
+- SDKs: set `OTEL_EXPORTER_OTLP_PROTOCOL=http/json` — or per signal: `OTEL_EXPORTER_OTLP_TRACES_PROTOCOL`, `OTEL_EXPORTER_OTLP_METRICS_PROTOCOL` and `OTEL_EXPORTER_OTLP_LOGS_PROTOCOL` to `http/json`.
+- OpenTelemetry Collector: use the `otlphttp` exporter with `encoding: json` (the default `otlp` gRPC exporter cannot be used against otel-light directly; route it through an `otlphttp` exporter).
+
+Any other content type (for example `application/x-protobuf`) is rejected with **HTTP 415** and a message pointing at these settings.
+
+Accepted requests answer **HTTP 200** with an empty JSON object. Trace ingestion may instead return an OTLP `partialSuccess` object (`rejectedSpans`, `errorMessage`) when some spans are missing a `traceId`/`spanId` or a positive start/end time; the valid spans in the same batch are still stored.
+
+Spans are de-duplicated on `(traceId, spanId)`: replaying a batch (an exporter retry) does not duplicate rows or inflate counts. Logs are stored at-least-once (OTLP has no stable log record ID) and metrics may duplicate on retry.
+
+Requests larger than `INGESTION_BODY_LIMIT_BYTES` are rejected with **HTTP 413**. Request payload compression is not supported.
 
 ## Contributing
 
