@@ -9,7 +9,8 @@ COPY otel-light-server otel-light-server
 
 RUN cd otel-light-server && \
     npm ci && \
-    npm run build
+    npm run build && \
+    npm prune --omit=dev
 
 COPY otel-light-web otel-light-web
 
@@ -39,5 +40,8 @@ RUN chown -R node:node /opt/app/otel-light
 WORKDIR /opt/app/otel-light
 
 USER node
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD wget -qO- "http://127.0.0.1:${API_PORT:-8080}/api/status" >/dev/null || exit 1
 
 ENTRYPOINT [ "/entrypoint.sh" ]

@@ -10,6 +10,13 @@ let config: Config;
 export async function SignalUtilsInit(context: Span, configIn: Config) {
   const span = OTelTracer().startSpan("SignalUtilsInit", context);
   config = configIn;
+  if (!config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {
+    logger.warn(
+      "SECURITY WARNING: /v1/* ingestion accepts unauthenticated writes; " +
+        "set OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER to require a Bearer " +
+        "token on POST /v1/traces, /v1/metrics and /v1/logs.",
+    );
+  }
   span.end();
 }
 

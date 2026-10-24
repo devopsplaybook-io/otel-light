@@ -96,6 +96,12 @@ export default {
       this.isLoading = true;
       try {
         const authHeader = await AuthService.getAuthHeader();
+        const logsRequest = AuthenticationStore().hasLogsScope
+          ? analyticsGet(
+              `${SERVER_URL}/analytics/traces/${this.traceId}/logs`,
+              authHeader
+            )
+          : Promise.resolve({ data: { logs: [] } });
         const [summaryResponse, spansResponse, logsResponse] = await Promise.all([
           analyticsGet(
             `${SERVER_URL}/analytics/traces?traceId=${this.traceId}`,
@@ -105,10 +111,7 @@ export default {
             `${SERVER_URL}/analytics/traces/${this.traceId}/spans`,
             authHeader
           ),
-          analyticsGet(
-            `${SERVER_URL}/analytics/traces/${this.traceId}/logs`,
-            authHeader
-          ),
+          logsRequest,
         ]);
         const traces = await UtilsDecompressJson(summaryResponse.data.traces);
         this.trace = traces && traces.length === 1 ? traces[0] : null;

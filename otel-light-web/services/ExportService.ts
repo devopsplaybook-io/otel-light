@@ -2,11 +2,18 @@
 // and RFC-4180 CSV of the filtered log records. File download is a thin DOM
 // wrapper around Blob + temporary anchor click.
 
+// Spreadsheet applications execute cells that start with one of these
+// characters; an apostrophe prefix makes them plain text instead.
+function CsvNeutralizeFormula(value: string): string {
+  return /^[=+\-@\t\r\n]/.test(value) ? "'" + value : value;
+}
+
 function CsvEscapeField(value: string): string {
-  if (/[",\n\r]/.test(value)) {
-    return '"' + value.replace(/"/g, '""') + '"';
+  const neutralized = CsvNeutralizeFormula(value);
+  if (/[",\n\r]/.test(neutralized)) {
+    return '"' + neutralized.replace(/"/g, '""') + '"';
   }
-  return value;
+  return neutralized;
 }
 
 export function ExportLogsCsv(logs: any[]): string {

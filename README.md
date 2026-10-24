@@ -81,6 +81,16 @@ kubectl kustomize . | kubectl apply -f -
 
 See [`docs/deployments`](docs/deployments) for additional deployment options.
 
+## Security
+
+- **Ingestion authentication**: when `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` is empty (the default), the `/v1/*` ingestion endpoints accept unauthenticated writes and the server logs a `SECURITY WARNING` at startup. Set the header on any instance reachable from an untrusted network; clients must then send `Authorization: Bearer <value>`.
+- **Rate limiting**: `POST /v1/{traces,metrics,logs}` are limited per client IP (`INGESTION_RATE_LIMIT_MAX` requests per `INGESTION_RATE_LIMIT_WINDOW_SECONDS`, default 3000 per 60 s) and `POST /api/users/session` is limited per IP + username (`LOGIN_RATE_LIMIT_MAX` per `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, default 10 per 60 s). `0` disables a limit. Exceeding a limit returns **HTTP 429** with a `Retry-After` header and a `{"statusCode":429,"error":"Too Many Requests","code":"RATE_LIMITED","message":"..."}` body. Counters are in-memory and per process: they reset on restart and are not shared between replicas. Limits are read at startup, so restart the server after changing them.
+- **Reverse proxies**: buckets are keyed on the client IP. Set `API_TRUST_PROXY=true` only when a trusted reverse proxy overwrites `X-Forwarded-For`; on a directly exposed server, trusting the header lets clients spoof their IP and evade the limits.
+- **Admin-only data**: reading and writing `/api/settings/:category` and `GET /api/alerts/status` require the admin role.
+- **Trace logs**: `/api/analytics/traces/:traceId/logs` requires the `logs` scope; the trace pages hide/skip the log panel for users without it.
+- **CSV export**: exported log values that start with `=`, `+`, `-`, `@`, tab, CR or LF are prefixed with an apostrophe so spreadsheets treat them as text instead of formulas.
+- **Browser tokens**: the web UI keeps its JWT in `localStorage`, so any XSS on the app origin could read it (markdown is sanitized before rendering). Tokens without a numeric `exp` claim are rejected. API tokens can be revoked immediately and their permissions are re-checked on every request. This is an accepted tradeoff of the SPA; do not host untrusted scripts on the same origin.
+
 ## Configuration
 
 Configuration can be provided via a JSON configuration file (e.g., using a ConfigMap) or environment variables.
@@ -93,6 +103,11 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | OPENTELEMETRY_COLLECTOR_EXPORT_METRICS_INTERVAL_SECONDS | Interval (in seconds) to export metrics               | 60                                          | Config file or environment variable |
 | OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER              | Authorization header for OTel collection              | (empty)                                     | Config file or environment variable |
 | INGESTION_BODY_LIMIT_BYTES                              | Maximum OTLP/JSON request body size in bytes (clamped to 1024–16777216); larger requests get HTTP 413 | 1048576        | Config file or environment variable |
+| INGESTION_RATE_LIMIT_MAX                                | Max OTLP ingestion requests per client IP per window (0 disables) | 3000                            | Config file or environment variable |
+| INGESTION_RATE_LIMIT_WINDOW_SECONDS                     | Ingestion rate-limit window in seconds (clamped to 1–86400) | 60                                   | Config file or environment variable |
+| LOGIN_RATE_LIMIT_MAX                                    | Max login attempts per client IP + username per window (0 disables) | 10                          | Config file or environment variable |
+| LOGIN_RATE_LIMIT_WINDOW_SECONDS                         | Login rate-limit window in seconds (clamped to 1–86400) | 60                                    | Config file or environment variable |
+| API_TRUST_PROXY                                         | Trust `X-Forwarded-For` for client IPs (enable only behind a trusted reverse proxy) | false        | Config file or environment variable |
 | METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12                                          | Config file or environment variable |
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7                                           | Config file or environment variable |
 | MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6                                           | Config file or environment variable |
@@ -192,7 +207,7 @@ When `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not configured, the **Alerts*
 
 ### API
 
-- `GET /api/alerts/status` — Returns whether the notifications integration is enabled and the last evaluation outcome of each rule
+- `GET /api/alerts/status` — Returns whether the notifications integration is enabled and the last evaluation outcome of each rule (admin only)
 
 ## API Tokens
 
@@ -223,6 +238,8 @@ If you have set the `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` parameter, you 
 ```
 Bearer <value of OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER>
 ```
+
+When the header is empty, ingestion is open to anyone who can reach the server (subject to the ingestion rate limit — see [Security](#security)).
 
 ### OTLP ingestion
 

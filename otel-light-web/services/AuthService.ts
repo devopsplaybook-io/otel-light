@@ -18,7 +18,13 @@ let _cachedInfo: JwtTokenInfo | null = null;
 function decodeToken(token: string): JwtTokenInfo | null {
   try {
     const decoded: any = jwtDecode(token);
-    if (decoded.exp < Date.now() / 1000) {
+    const hasValidExpiry =
+      decoded !== null &&
+      typeof decoded === "object" &&
+      typeof decoded.exp === "number" &&
+      Number.isFinite(decoded.exp) &&
+      decoded.exp >= Date.now() / 1000;
+    if (!hasValidExpiry) {
       localStorage.removeItem(AUTH_TOKEN_KEY);
       _cachedToken = null;
       _cachedInfo = null;
@@ -38,8 +44,13 @@ export class AuthService {
 
   public static saveToken(token: string): void {
     localStorage.setItem(AUTH_TOKEN_KEY, token);
+    const info = decodeToken(token);
+    if (!info) {
+      AuthService.removeToken();
+      return;
+    }
     _cachedToken = token;
-    _cachedInfo = decodeToken(token);
+    _cachedInfo = info;
   }
 
   public static removeToken(): void {

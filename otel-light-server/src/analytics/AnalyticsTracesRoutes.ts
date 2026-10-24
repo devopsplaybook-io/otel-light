@@ -5,6 +5,7 @@ import {
 } from "@devopsplaybook.io/common-utils";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
+import { Log } from "../model/Log";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
@@ -215,7 +216,7 @@ export class AnalyticsTracesRoutes {
         return res.status(403).send({ error: "Access Denied" });
       }
       try {
-        await AuthHasScope(req, res, "traces");
+        await AuthHasScope(req, res, "logs");
       } catch {
         return;
       }
@@ -226,7 +227,7 @@ export class AnalyticsTracesRoutes {
       );
       const logs = [];
       rawLogs.forEach((rawLog) => {
-        logs.push(new Span(rawLog));
+        logs.push(new Log(rawLog));
       });
 
       return res.status(200).send({ logs });

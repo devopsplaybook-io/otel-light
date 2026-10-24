@@ -140,6 +140,9 @@ export default {
       });
     },
     async getTraceLogs(traceId) {
+      if (!AuthenticationStore().hasLogsScope) {
+        return [];
+      }
       return await analyticsGet(
         `${SERVER_URL}/analytics/traces/${traceId}/logs`,
         await AuthService.getAuthHeader(),

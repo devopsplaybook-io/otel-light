@@ -47,6 +47,74 @@ describe("ExportLogsCsv", () => {
   });
 });
 
+describe("ExportLogsCsv formula injection", () => {
+  const row = (logText: string) =>
+    ExportLogsCsv([{ time: 0, logText }]).split("\r\n")[1];
+
+  it.each(["=1+1", "+cmd", "-cmd", "@SUM(A1)", "\tcmd"])(
+    "prefixes a leading formula trigger: %j",
+    (value) => {
+      expect(row(value)).toBe(
+        ["1970-01-01T00:00:00.000Z", "", "", "", "", "", "'" + value].join(",")
+      );
+    }
+  );
+
+  it("prefixes and RFC-4180 quotes leading CR and LF", () => {
+    expect(row("\rline")).toBe(
+      ["1970-01-01T00:00:00.000Z", "", "", "", "", "", `"'\rline"`].join(",")
+    );
+    expect(row("\nline")).toBe(
+      ["1970-01-01T00:00:00.000Z", "", "", "", "", "", `"'\nline"`].join(",")
+    );
+  });
+
+  it("neutralizes a formula that also needs quoting", () => {
+    expect(row('=a,"b"')).toBe(
+      ["1970-01-01T00:00:00.000Z", "", "", "", "", "", `"'=a,""b"""`].join(",")
+    );
+  });
+
+  it("neutralizes every exported field", () => {
+    const csv = ExportLogsCsv([
+      {
+        time: 0,
+        severity: "=SEV",
+        serviceName: "+svc",
+        serviceVersion: "-1.0",
+        traceId: "@trace",
+        spanId: "\tspan",
+        logText: "=cmd",
+      },
+    ]);
+    expect(csv).toBe(
+      CSV_HEADER +
+        "\r\n" +
+        [
+          "1970-01-01T00:00:00.000Z",
+          "'=SEV",
+          "'+svc",
+          "'-1.0",
+          "'@trace",
+          "'\tspan",
+          "'=cmd",
+        ].join(",")
+    );
+  });
+
+  it("leaves safe values untouched", () => {
+    expect(row("hello")).toBe(
+      ["1970-01-01T00:00:00.000Z", "", "", "", "", "", "hello"].join(",")
+    );
+    expect(row("123")).toBe(
+      ["1970-01-01T00:00:00.000Z", "", "", "", "", "", "123"].join(",")
+    );
+    expect(row("GET /api")).toBe(
+      ["1970-01-01T00:00:00.000Z", "", "", "", "", "", "GET /api"].join(",")
+    );
+  });
+});
+
 describe("ExportTraceJson", () => {
   it("returns pretty-printed JSON bundling trace, spans and logs", () => {
     const trace = { traceId: "t-1", name: "GET /api" };

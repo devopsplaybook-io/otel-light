@@ -59,6 +59,15 @@ export class Config extends ConfigBase {
   public ANALYTICS_UTILS_RESULT_LIMIT_METRICS = 10000;
   public INGESTION_BODY_LIMIT_BYTES = INGESTION_BODY_LIMIT_DEFAULT_BYTES;
 
+  // Security / rate limits (0 disables a limit). Read once at startup.
+  public INGESTION_RATE_LIMIT_MAX = 3000;
+  public INGESTION_RATE_LIMIT_WINDOW_SECONDS = 60;
+  public LOGIN_RATE_LIMIT_MAX = 10;
+  public LOGIN_RATE_LIMIT_WINDOW_SECONDS = 60;
+  // Only enable behind a trusted reverse proxy that overwrites
+  // X-Forwarded-For; otherwise clients can spoof their rate-limit key.
+  public API_TRUST_PROXY = false;
+
   // Analytics traces stats (dashboard): bounded deterministic sampling + cache
   public ANALYTICS_STATS_SAMPLE_CAP = 20000;
   public ANALYTICS_STATS_CACHE_TTL_SECONDS = 30;
@@ -127,6 +136,11 @@ export class Config extends ConfigBase {
     this.addConfigField({ field: "METRICS_SELF_REFRESH_MINUTES" });
     this.addConfigField({ field: "ANALYTICS_UTILS_RESULT_LIMIT_METRICS" });
     this.addConfigField({ field: "INGESTION_BODY_LIMIT_BYTES" });
+    this.addConfigField({ field: "INGESTION_RATE_LIMIT_MAX" });
+    this.addConfigField({ field: "INGESTION_RATE_LIMIT_WINDOW_SECONDS" });
+    this.addConfigField({ field: "LOGIN_RATE_LIMIT_MAX" });
+    this.addConfigField({ field: "LOGIN_RATE_LIMIT_WINDOW_SECONDS" });
+    this.addConfigField({ field: "API_TRUST_PROXY" });
     this.addConfigField({ field: "ANALYTICS_STATS_SAMPLE_CAP" });
     this.addConfigField({ field: "ANALYTICS_STATS_CACHE_TTL_SECONDS" });
     this.addConfigField({ field: "ANALYTICS_STATS_CACHE_MAX_ENTRIES" });
@@ -180,6 +194,32 @@ export class Config extends ConfigBase {
           `using ${this.INGESTION_BODY_LIMIT_BYTES}.`,
       );
     }
+
+    this.INGESTION_RATE_LIMIT_MAX = ConfigClampNumber(
+      this.INGESTION_RATE_LIMIT_MAX,
+      3000,
+      0,
+      1_000_000,
+    );
+    this.INGESTION_RATE_LIMIT_WINDOW_SECONDS = ConfigClampNumber(
+      this.INGESTION_RATE_LIMIT_WINDOW_SECONDS,
+      60,
+      1,
+      86400,
+    );
+    this.LOGIN_RATE_LIMIT_MAX = ConfigClampNumber(
+      this.LOGIN_RATE_LIMIT_MAX,
+      10,
+      0,
+      100_000,
+    );
+    this.LOGIN_RATE_LIMIT_WINDOW_SECONDS = ConfigClampNumber(
+      this.LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+      60,
+      1,
+      86400,
+    );
+    this.API_TRUST_PROXY = this.API_TRUST_PROXY === true;
 
     this.SCHEDULED_JOB_JITTER_MINUTES = ConfigClampNumber(
       this.SCHEDULED_JOB_JITTER_MINUTES,
