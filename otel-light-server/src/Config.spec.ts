@@ -151,3 +151,77 @@ describe("Config INGESTION_BODY_LIMIT_BYTES", () => {
     expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(1_048_576);
   });
 });
+
+describe("Config scheduled work and analytics stats defaults (M8/M10)", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "otel-light-config-"));
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await fs.remove(tmpDir);
+  });
+
+  const newConfig = async (configContent?: object): Promise<Config> => {
+    const configFile = path.join(tmpDir, "config.json");
+    if (configContent) {
+      await fs.writeJson(configFile, configContent);
+    }
+    const config = new Config();
+    config.CONFIG_FILE = configFile;
+    return config;
+  };
+
+  it("ships distinct, staggered cron defaults for the heavy jobs", async () => {
+    const config = await newConfig();
+    await config.reload();
+
+    const crons = [
+      config.LLM_RECOMMENDATION_SCHEDULE_CRON,
+      config.STATIC_REPORT_SCHEDULE_CRON,
+      config.MOST_CALLED_TRACES_SCHEDULE_CRON,
+    ];
+    expect(new Set(crons).size).toBe(crons.length);
+    expect(config.SCHEDULED_JOB_JITTER_MINUTES).toBe(5);
+    expect(config.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES).toBe(30);
+    expect(config.LLM_RECOMMENDATION_TIMEOUT_SECONDS).toBe(180);
+  });
+
+  it("ships bounded analytics stats defaults", async () => {
+    const config = await newConfig();
+    await config.reload();
+
+    expect(config.ANALYTICS_STATS_SAMPLE_CAP).toBe(20000);
+    expect(config.ANALYTICS_STATS_CACHE_TTL_SECONDS).toBe(30);
+    expect(config.ANALYTICS_STATS_CACHE_MAX_ENTRIES).toBe(100);
+  });
+
+  it("reads the stats options from the config file", async () => {
+    const config = await newConfig({
+      ANALYTICS_STATS_SAMPLE_CAP: 500,
+      ANALYTICS_STATS_CACHE_TTL_SECONDS: 5,
+      ANALYTICS_STATS_CACHE_MAX_ENTRIES: 10,
+    });
+    await config.reload();
+
+    expect(config.ANALYTICS_STATS_SAMPLE_CAP).toBe(500);
+    expect(config.ANALYTICS_STATS_CACHE_TTL_SECONDS).toBe(5);
+    expect(config.ANALYTICS_STATS_CACHE_MAX_ENTRIES).toBe(10);
+  });
+
+  it("clamps the LLM overall timeout to a sane range", async () => {
+    const tooHigh = await newConfig({
+      LLM_RECOMMENDATION_TIMEOUT_SECONDS: 999_999,
+    });
+    await tooHigh.reload();
+    expect(tooHigh.LLM_RECOMMENDATION_TIMEOUT_SECONDS).toBe(3600);
+
+    const tooLow = await newConfig({
+      LLM_RECOMMENDATION_TIMEOUT_SECONDS: -5,
+    });
+    await tooLow.reload();
+    expect(tooLow.LLM_RECOMMENDATION_TIMEOUT_SECONDS).toBe(0.001);
+  });
+});

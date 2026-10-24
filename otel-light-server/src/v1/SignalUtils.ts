@@ -37,6 +37,22 @@ export function SignalUtilsGetIngestionBodyLimit(): number {
   return ConfigClampIngestionBodyLimit(config?.INGESTION_BODY_LIMIT_BYTES);
 }
 
+// Canonical JSON for a stored attribute list: sorted by key so the exact same
+// resource attributes always produce the same text. Metric compression groups
+// by this column to keep distinct series, so attribute order must not create
+// phantom series (or hide real ones).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function SignalUtilsCanonicalizeAttributes(attributes: any): string {
+  if (!Array.isArray(attributes)) {
+    return "[]";
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sorted = [...attributes].sort((a: any, b: any) =>
+    String(a?.key ?? "").localeCompare(String(b?.key ?? "")),
+  );
+  return JSON.stringify(sorted);
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function SignalUtilsCheckAuthHeader(req: any): boolean {
   if (!config.OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER) {

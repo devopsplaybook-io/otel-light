@@ -1,9 +1,13 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import * as fse from "fs-extra";
 import * as path from "path";
-import * as schedule from "node-schedule";
 import { Config } from "../Config";
+import { FileUtilsWriteJsonAtomic } from "../FileUtils";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import {
+  ScheduledJobRegisterCron,
+  ScheduledJobRunDelayed,
+} from "../ScheduledJobs";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { TraceGroupReport, TraceGroupSeries } from "./TraceGroupReportTypes";
@@ -34,15 +38,15 @@ export async function MostCalledTracesReportInit(
     `Most called traces report storage initialized at: ${reportFilePath}`,
   );
 
-  const cronExpr = configIn.STATIC_REPORT_SCHEDULE_CRON;
+  const cronExpr = configIn.MOST_CALLED_TRACES_SCHEDULE_CRON;
   logger.info(`Scheduling most called traces report: ${cronExpr}`);
-  schedule.scheduleJob(cronExpr, () => {
-    MostCalledTracesReportGenerate().catch((err) =>
-      logger.error(
-        `Failed to generate scheduled most called traces report: ${err.message}`,
-      ),
-    );
-  });
+  ScheduledJobRegisterCron(
+    "most-called-traces-report",
+    cronExpr,
+    configIn.SCHEDULED_JOB_JITTER_MINUTES,
+    configIn.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+    MostCalledTracesReportGenerate,
+  );
 
   const cached = await MostCalledTracesReportGetCached();
   if (!cached) {
@@ -53,15 +57,13 @@ export async function MostCalledTracesReportInit(
     logger.info(
       `No cached most called traces report found, scheduling initial generation in ${delayMinutes} minute(s)`,
     );
-    setTimeout(
-      () =>
-        MostCalledTracesReportGenerate().catch((err) =>
-          logger.error(
-            `Failed to generate initial most called traces report: ${err.message}`,
-          ),
-        ),
+    ScheduledJobRunDelayed(
+      "most-called-traces-report",
       delayMinutes * 60 * 1000,
-    ).unref();
+      0,
+      configIn.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+      MostCalledTracesReportGenerate,
+    );
   }
   span.end();
 }
@@ -106,8 +108,7 @@ export async function MostCalledTracesReportGenerate(): Promise<void> {
         bucketNs,
         series: [],
       };
-      await fse.ensureDir(path.dirname(reportFilePath));
-      await fse.writeJson(reportFilePath, emptyReport);
+      await FileUtilsWriteJsonAtomic(reportFilePath, emptyReport);
       logger.info("Most called traces report generated: 0 groups", span);
       span.end();
       return;
@@ -162,8 +163,7 @@ export async function MostCalledTracesReportGenerate(): Promise<void> {
       series: reportSeries,
     };
 
-    await fse.ensureDir(path.dirname(reportFilePath));
-    await fse.writeJson(reportFilePath, report);
+    await FileUtilsWriteJsonAtomic(reportFilePath, report);
 
     logger.info(
       `Most called traces report generated: ${reportSeries.length} groups (top ${topN}, last ${periodDays} days)`,

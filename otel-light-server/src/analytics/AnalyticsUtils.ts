@@ -14,9 +14,18 @@ export async function AnalyticsUtilsInit(
 ): Promise<void> {
   const span = OTelTracer().startSpan("AnalyticsUtilsInit", context);
 
-  AnalyticsUtilsResultLimitMetrics =
-    configIn.ANALYTICS_UTILS_RESULT_LIMIT_METRICS;
+  AnalyticsUtilsResultLimitMetrics = AnalyticsUtilsSanitizeResultLimit(
+    configIn.ANALYTICS_UTILS_RESULT_LIMIT_METRICS,
+  );
   span.end();
+}
+
+export function AnalyticsUtilsSanitizeResultLimit(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return 10000;
+  }
+  return Math.trunc(numeric);
 }
 
 export function AnalyticsUtilsGetDefaultFromTime(): number {

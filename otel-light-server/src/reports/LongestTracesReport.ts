@@ -1,9 +1,13 @@
 import { Span } from "@opentelemetry/sdk-trace-base";
 import * as fse from "fs-extra";
 import * as path from "path";
-import * as schedule from "node-schedule";
 import { Config } from "../Config";
+import { FileUtilsWriteJsonAtomic } from "../FileUtils";
 import { OTelLogger, OTelTracer } from "../OTelContext";
+import {
+  ScheduledJobRegisterCron,
+  ScheduledJobRunDelayed,
+} from "../ScheduledJobs";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { TraceGroupReport, TraceGroupSeries } from "./TraceGroupReportTypes";
@@ -36,13 +40,13 @@ export async function LongestTracesReportInit(
 
   const cronExpr = configIn.STATIC_REPORT_SCHEDULE_CRON;
   logger.info(`Scheduling longest traces report: ${cronExpr}`);
-  schedule.scheduleJob(cronExpr, () => {
-    LongestTracesReportGenerate().catch((err) =>
-      logger.error(
-        `Failed to generate scheduled longest traces report: ${err.message}`,
-      ),
-    );
-  });
+  ScheduledJobRegisterCron(
+    "longest-traces-report",
+    cronExpr,
+    configIn.SCHEDULED_JOB_JITTER_MINUTES,
+    configIn.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+    LongestTracesReportGenerate,
+  );
 
   const cached = await LongestTracesReportGetCached();
   if (!cached) {
@@ -53,15 +57,13 @@ export async function LongestTracesReportInit(
     logger.info(
       `No cached longest traces report found, scheduling initial generation in ${delayMinutes} minute(s)`,
     );
-    setTimeout(
-      () =>
-        LongestTracesReportGenerate().catch((err) =>
-          logger.error(
-            `Failed to generate initial longest traces report: ${err.message}`,
-          ),
-        ),
+    ScheduledJobRunDelayed(
+      "longest-traces-report",
       delayMinutes * 60 * 1000,
-    ).unref();
+      0,
+      configIn.SCHEDULED_JOB_OVERLAP_WAIT_MINUTES,
+      LongestTracesReportGenerate,
+    );
   }
   span.end();
 }
@@ -105,8 +107,7 @@ export async function LongestTracesReportGenerate(): Promise<void> {
         bucketNs,
         series: [],
       };
-      await fse.ensureDir(path.dirname(reportFilePath));
-      await fse.writeJson(reportFilePath, emptyReport);
+      await FileUtilsWriteJsonAtomic(reportFilePath, emptyReport);
       logger.info("Longest traces report generated: 0 groups", span);
       span.end();
       return;
@@ -161,8 +162,7 @@ export async function LongestTracesReportGenerate(): Promise<void> {
       series: reportSeries,
     };
 
-    await fse.ensureDir(path.dirname(reportFilePath));
-    await fse.writeJson(reportFilePath, report);
+    await FileUtilsWriteJsonAtomic(reportFilePath, report);
 
     logger.info(
       `Longest traces report generated: ${reportSeries.length} groups (top ${topN}, last ${periodDays} days)`,

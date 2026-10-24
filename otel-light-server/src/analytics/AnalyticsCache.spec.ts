@@ -1,9 +1,50 @@
-import { MetricsNamesEntry } from "./AnalyticsCache";
+jest.mock("../OTelContext", () => {
+  const span = {
+    end: jest.fn(),
+    addEvent: jest.fn(),
+    setStatus: jest.fn(),
+  };
+  const moduleLogger = {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  };
+  return {
+    OTelLogger: () => ({ createModuleLogger: () => moduleLogger }),
+    OTelTracer: () => ({ startSpan: () => span }),
+  };
+});
+
+jest.mock("../SignalRollups", () => ({
+  SignalRollupsGetServicesAndVersions: jest.fn(),
+  SignalRollupsGetMetricNames: jest.fn(),
+  SignalRollupsIsReady: jest.fn(),
+}));
+
+import * as fs from "fs-extra";
+import * as os from "os";
+import * as path from "path";
+import {
+  AnalyticsCacheFilterMetricsNames,
+  AnalyticsCacheGetServices,
+  AnalyticsCacheInit,
+  AnalyticsCacheRefresh,
+  MetricsNamesEntry,
+} from "./AnalyticsCache";
+import {
+  SignalRollupsGetMetricNames,
+  SignalRollupsGetServicesAndVersions,
+  SignalRollupsIsReady,
+} from "../SignalRollups";
+
+// A minimal Span stub; the mocked tracer ignores it.
+const fakeSpan = { end: jest.fn() } as never;
 
 // We test the filter logic by importing the module and directly invoking
 // the functions it exposes. The cache-dependent functions rely on internal
-// module state, so we test AnalyticsCacheFilterMetricsNames indirectly via
-// the filter logic which is pure data transformation.
+// module state, so we test analytics cache refresh/preservation below by
+// mocking the rollup reads.
 
 describe("AnalyticsCache Filter Logic", () => {
   const sampleNames: MetricsNamesEntry[] = [
@@ -157,3 +198,107 @@ function filterNames(
 
   return filtered;
 }
+
+// L11: a failed refresh or a not-ready rollup must not wipe the cache, while
+// a valid empty refresh (signals were deleted) must clear it.
+describe("AnalyticsCacheRefresh preservation (L11)", () => {
+  let tmpDir: string;
+  let cacheFile: string;
+
+  beforeAll(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "otel-light-cache-"));
+    cacheFile = path.join(tmpDir, "cache", "analyticsCache.json");
+  });
+
+  afterAll(async () => {
+    await fs.remove(tmpDir);
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    (SignalRollupsIsReady as jest.Mock).mockReturnValue(true);
+    (SignalRollupsGetServicesAndVersions as jest.Mock).mockResolvedValue({
+      services: ["svc-a"],
+      serviceVersions: [{ serviceName: "svc-a", serviceVersion: "1.0.0" }],
+    });
+    (SignalRollupsGetMetricNames as jest.Mock).mockResolvedValue([
+      {
+        serviceName: "svc-a",
+        name: "metric.a",
+        type: "sum",
+        firstSeen: 1,
+        lastSeen: 2,
+      },
+    ]);
+  });
+
+  it("populates the cache and persists valid JSON", async () => {
+    await AnalyticsCacheInit(fakeSpan, {
+      DATA_DIR: tmpDir,
+      CACHE_REFRESH_MINUTES: 1,
+    } as never);
+
+    expect(AnalyticsCacheGetServices()).toEqual({
+      services: ["svc-a"],
+      serviceVersions: [{ serviceName: "svc-a", serviceVersion: "1.0.0" }],
+    });
+
+    const content = await fs.readJson(cacheFile);
+    expect(content.services.services).toEqual(["svc-a"]);
+    expect(content.metricsNames.names.map((n: { name: string }) => n.name)).toEqual(
+      ["metric.a"],
+    );
+  });
+
+  it("preserves existing data when the refresh fails", async () => {
+    (SignalRollupsGetServicesAndVersions as jest.Mock).mockRejectedValue(
+      new Error("db down"),
+    );
+    (SignalRollupsGetMetricNames as jest.Mock).mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await AnalyticsCacheRefresh();
+
+    expect(AnalyticsCacheGetServices()?.services).toEqual(["svc-a"]);
+    const content = await fs.readJson(cacheFile);
+    expect(content.services.services).toEqual(["svc-a"]);
+    expect(content.metricsNames.names.map((n: { name: string }) => n.name)).toEqual(
+      ["metric.a"],
+    );
+  });
+
+  it("preserves existing data while the rollups are not ready", async () => {
+    (SignalRollupsIsReady as jest.Mock).mockReturnValue(false);
+    (SignalRollupsGetServicesAndVersions as jest.Mock).mockResolvedValue({
+      services: [],
+      serviceVersions: [],
+    });
+    (SignalRollupsGetMetricNames as jest.Mock).mockResolvedValue([]);
+
+    await AnalyticsCacheRefresh();
+
+    expect(AnalyticsCacheGetServices()?.services).toEqual(["svc-a"]);
+    expect(AnalyticsCacheFilterMetricsNames()).toHaveLength(1);
+  });
+
+  it("clears the cache on a valid empty refresh", async () => {
+    (SignalRollupsGetServicesAndVersions as jest.Mock).mockResolvedValue({
+      services: [],
+      serviceVersions: [],
+    });
+    (SignalRollupsGetMetricNames as jest.Mock).mockResolvedValue([]);
+
+    await AnalyticsCacheRefresh();
+
+    expect(AnalyticsCacheGetServices()).toEqual({
+      services: [],
+      serviceVersions: [],
+    });
+    expect(AnalyticsCacheFilterMetricsNames()).toEqual([]);
+
+    const content = await fs.readJson(cacheFile);
+    expect(content.services.services).toEqual([]);
+    expect(content.metricsNames.names).toEqual([]);
+  });
+});

@@ -68,7 +68,10 @@ import {
   DbUtilsQuerySQL,
   DbUtilsSetOTel,
 } from "./utils-std-ts/DbUtils";
-import { DbUtilsNoTelemetrySetLogger } from "./utils-std-ts/DbUtilsNoTelemetry";
+import {
+  DbUtilsNoTelemetryBatchInsert,
+  DbUtilsNoTelemetrySetLogger,
+} from "./utils-std-ts/DbUtilsNoTelemetry";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 import { ErrorAlertsEvaluate } from "./alerts/ErrorAlerts";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
@@ -76,6 +79,8 @@ import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import { MaintenanceInit } from "./Maintenance";
+import { MaintenanceFormatRetentionPattern } from "./Maintenance";
+import { AnalyticsStatsInit } from "./analytics/AnalyticsStatsCache";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
 import {
@@ -181,10 +186,11 @@ const insertMetric = (
   serviceVersion: string,
   type: string,
   time: number,
+  attributesJson = "[]",
 ) =>
   runSql(
     'INSERT INTO metrics ("name", "serviceName", "serviceVersion", "type", "time", "attributes", "rawMetric", "keywords") VALUES (?,?,?,?,?,?,?,?)',
-    [name, serviceName, serviceVersion, type, time, "[]", "{}", name],
+    [name, serviceName, serviceVersion, type, time, attributesJson, "{}", name],
   );
 
 // ---------------------------------------------------------------------------
@@ -333,6 +339,35 @@ describe("SQL-level integration (sqlite)", () => {
           metricBase + offset,
         );
       }
+      // Same name/service/version/bucket but three distinct series (different
+      // type or resource attributes): compression must keep one row per
+      // series instead of collapsing them into one.
+      const seriesAttributesA =
+        '[{"key":"route","value":{"stringValue":"/a"}}]';
+      const seriesAttributesB =
+        '[{"key":"route","value":{"stringValue":"/b"}}]';
+      for (const type of ["sum", "gauge"]) {
+        for (const offset of [0, 1_000_000_000]) {
+          await insertMetric(
+            "series-metric",
+            "maint-svc",
+            "1.0",
+            type,
+            metricBase + offset,
+            seriesAttributesA,
+          );
+        }
+      }
+      for (const offset of [0, 1_000_000_000]) {
+        await insertMetric(
+          "series-metric",
+          "maint-svc",
+          "1.0",
+          "sum",
+          metricBase + offset,
+          seriesAttributesB,
+        );
+      }
       // Two old traces carrying the scoped-pattern keyword; only the one
       // belonging to the rule's service may be deleted.
       await insertTrace(
@@ -377,6 +412,32 @@ describe("SQL-level integration (sqlite)", () => {
         "sco-keep-log-svc:1.0 cleanme-log",
         "rec-scoped-2",
       );
+      // LIKE metacharacters in a pattern must stay literal: the rule pattern
+      // contains a real `%`, so only the trace with a literal `%` matches.
+      await insertTrace(
+        "esc-tr-old",
+        "s-esc-1",
+        null,
+        "escape-op",
+        oldTraceStart,
+        oldTraceStart + 1_000_000_000,
+        0,
+        "escape-svc",
+        "1.0",
+        "escape-svc:1.0 esc-tr-old escapepct%100",
+      );
+      await insertTrace(
+        "esc-tr-keep",
+        "s-esc-2",
+        null,
+        "escape-op",
+        oldTraceStart,
+        oldTraceStart + 1_000_000_000,
+        0,
+        "escape-svc",
+        "1.0",
+        "escape-svc:1.0 esc-tr-keep escapepctX100",
+      );
       await runSql("INSERT INTO settings (category, content) VALUES (?, ?)", [
         "signal-cleanup-rules",
         JSON.stringify({
@@ -388,6 +449,7 @@ describe("SQL-level integration (sqlite)", () => {
               periodHours: 24,
               serviceName: "scoped-svc",
             },
+            { signalType: "traces", pattern: "escapepct%100", periodHours: 24 },
             // No matching service: exercises the metrics delta builder with a
             // serviceName without deleting anything.
             {
@@ -423,17 +485,23 @@ describe("SQL-level integration (sqlite)", () => {
       expect(done).toBe(true);
 
       // Retention: the 48h-old unscoped trace was deleted, the fresh one kept;
-      // the scoped rule deleted only its service's trace (sco-tr-keep stays).
+      // the scoped rule deleted only its service's trace (sco-tr-keep stays);
+      // the literal `%` pattern matched only esc-tr-old (not esc-tr-keep).
       const traceIds = (
         await query("SELECT traceId FROM traces ORDER BY traceId", [])
       ).map((row) => row.traceId);
-      expect(traceIds).toEqual(["maint-tr-fresh", "sco-tr-keep"]);
+      expect(traceIds).toEqual(["esc-tr-keep", "maint-tr-fresh", "sco-tr-keep"]);
 
-      // Compression: one row per (name, service, minute bucket) kept.
-      const metricCount = await query("SELECT COUNT(*) AS c FROM metrics", []);
-      expect(Number(metricCount[0].c)).toBe(1);
+      // Compression keeps one row per series (name/service/version/type/
+      // attributes) per minute bucket: dup-metric collapses 3 -> 1, while the
+      // three distinct series-metric series survive.
+      const metricCount = await query(
+        "SELECT COUNT(*) AS c FROM metrics WHERE serviceName = ?",
+        ["maint-svc"],
+      );
+      expect(Number(metricCount[0].c)).toBe(4);
 
-      // Rollups decremented accordingly: traces 2 -> 1, metrics 3 -> 1.
+      // Rollups decremented accordingly: traces 2 -> 1, metrics 9 -> 4.
       const counts = await SignalRollupsGetAllCounts();
       const tracesRollup = counts.find(
         (row) => row.signalType === "traces" && row.serviceName === "maint-svc",
@@ -442,14 +510,37 @@ describe("SQL-level integration (sqlite)", () => {
       const metricsRollup = counts.find(
         (row) => row.signalType === "metrics" && row.serviceName === "maint-svc",
       );
-      expect(metricsRollup?.count).toBe(1);
+      expect(metricsRollup?.count).toBe(4);
 
-      // Metric-name rollup decremented as well (3 -> 1).
+      // Metric-name rollup decremented as well (3 -> 1 and 6 -> 3).
       const nameRows = await query(
         "SELECT count FROM signal_metric_names WHERE serviceName = ? AND name = ?",
         ["maint-svc", "dup-metric"],
       );
       expect(Number(nameRows[0].count)).toBe(1);
+      // The name rollup is keyed by (service, name, type): the two sum
+      // series survive next to the gauge one, so their counts sum to 3.
+      const seriesNameRows = await query(
+        "SELECT type, count FROM signal_metric_names WHERE serviceName = ? AND name = ? ORDER BY type",
+        ["maint-svc", "series-metric"],
+      );
+      expect(
+        seriesNameRows.map((row) => [row.type, Number(row.count)]),
+      ).toEqual([
+        ["gauge", 1],
+        ["sum", 2],
+      ]);
+      const seriesRows = await query(
+        "SELECT type, attributes, COUNT(*) AS c FROM metrics WHERE serviceName = ? AND name = ? GROUP BY type, attributes ORDER BY type, attributes",
+        ["maint-svc", "series-metric"],
+      );
+      expect(
+        seriesRows.map((row) => [row.type, row.attributes, Number(row.c)]),
+      ).toEqual([
+        ["gauge", seriesAttributesA, 1],
+        ["sum", seriesAttributesA, 1],
+        ["sum", seriesAttributesB, 1],
+      ]);
 
       // Scoped rules: the serviceName filter must be applied to both the
       // delta query and the delete, and a scoped rule must not abort the
@@ -485,6 +576,24 @@ describe("SQL-level integration (sqlite)", () => {
             row.signalType === "traces" && row.serviceName === "sco-keep-svc",
         )?.count,
       ).toBe(1);
+    });
+  });
+
+  // =========================================================================
+  // Retention pattern escaping (L22)
+  // =========================================================================
+  describe("MaintenanceFormatRetentionPattern", () => {
+    it("keeps only * as a wildcard and escapes LIKE metacharacters", () => {
+      expect(MaintenanceFormatRetentionPattern("maintcleanup")).toBe(
+        "%maintcleanup%",
+      );
+      expect(MaintenanceFormatRetentionPattern("a*b")).toBe("%a%b%");
+    });
+
+    it("escapes %, _ and \\ and lowercases the pattern", () => {
+      expect(MaintenanceFormatRetentionPattern("A%B_C\\D*")).toBe(
+        "%a\\%b\\_c\\\\d%%",
+      );
     });
   });
 
@@ -887,6 +996,175 @@ describe("SQL-level integration (sqlite)", () => {
       expect(group.p90).toBe(9_000_000_000);
       expect(group.p95).toBe(10_000_000_000);
       expect(group.p90).toBeGreaterThan(group.avgDuration - 1_000_000_000);
+    });
+  });
+
+  // =========================================================================
+  // Analytics traces stats: bounded, deterministic and cached (M8)
+  // =========================================================================
+  describe("Analytics traces stats determinism and cache", () => {
+    const MINUTE_NS = 60_000_000_000;
+    const windowEnd =
+      Math.floor((Date.now() * 1_000_000) / MINUTE_NS) * MINUTE_NS -
+      3_600_000_000_000; // now - 1h, minute-aligned
+    const windowStart = windowEnd - 25 * MINUTE_NS;
+    const benchService = "bench-stats-svc";
+    const latencyService = "bench-latency-svc";
+    const statsUrl = (serviceName: string, extra = "") =>
+      `/api/analytics/traces/stats?from=${windowStart}&to=${windowEnd}&serviceName=${serviceName}${extra}`;
+
+    beforeAll(async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 5,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      for (let i = 1; i <= 100; i++) {
+        const startTime = windowStart + i * 1_000_000_000;
+        await insertTrace(
+          `bench-${i}`,
+          `bench-${i}-root`,
+          null,
+          "bench-op",
+          startTime,
+          startTime + i * 1_000_000_000,
+          0,
+          benchService,
+        );
+      }
+    });
+
+    afterAll(async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 20000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    });
+
+    it("returns identical percentiles for identical requests", async () => {
+      const res1 = await fastify.inject({ method: "GET", url: statsUrl(benchService) });
+      const res2 = await fastify.inject({ method: "GET", url: statsUrl(benchService) });
+      expect(res1.statusCode).toBe(200);
+      expect(res2.statusCode).toBe(200);
+      const group1 = (await decodeB64Json(res1.json().groups))[0];
+      const group2 = (await decodeB64Json(res2.json().groups))[0];
+      expect(group1.traceCount).toBe(100);
+      expect(group1.p90).toBeDefined();
+      expect(group1.p95).toBeDefined();
+      expect(group2.p90).toBe(group1.p90);
+      expect(group2.p95).toBe(group1.p95);
+    });
+
+    it("omits percentiles when includePercentiles=false", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: statsUrl(benchService, "&includePercentiles=false"),
+      });
+      expect(res.statusCode).toBe(200);
+      const group = (await decodeB64Json(res.json().groups))[0];
+      expect(group.traceCount).toBe(100);
+      expect(group).not.toHaveProperty("p90");
+      expect(group).not.toHaveProperty("p95");
+    });
+
+    it("serves repeated requests from the cache and clears it when disabled", async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 60,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 5,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const first = await fastify.inject({
+        method: "GET",
+        url: statsUrl(benchService),
+      });
+      const firstGroup = (await decodeB64Json(first.json().groups))[0];
+      expect(firstGroup.traceCount).toBe(100);
+
+      // New data inside the same window: the cached response must not change
+      // before the TTL expires.
+      for (let i = 101; i <= 110; i++) {
+        const startTime = windowStart + i * 1_000_000_000;
+        await insertTrace(
+          `bench-${i}`,
+          `bench-${i}-root`,
+          null,
+          "bench-op",
+          startTime,
+          startTime + 1_000_000_000,
+          0,
+          benchService,
+        );
+      }
+      const cached = await fastify.inject({
+        method: "GET",
+        url: statsUrl(benchService),
+      });
+      const cachedGroup = (await decodeB64Json(cached.json().groups))[0];
+      expect(cachedGroup.traceCount).toBe(100);
+
+      // Disabling the cache (TTL 0) makes the new traces visible immediately.
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 5,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      const fresh = await fastify.inject({
+        method: "GET",
+        url: statsUrl(benchService),
+      });
+      const freshGroup = (await decodeB64Json(fresh.json().groups))[0];
+      expect(freshGroup.traceCount).toBe(110);
+    });
+
+    it("stays bounded in time on a large table", async () => {
+      const rows = [];
+      for (let i = 0; i < 5000; i++) {
+        const startTime = windowStart + i * 1_000_000;
+        const endTime = startTime + ((i % 100) + 1) * 1_000_000;
+        rows.push([
+          `bench-lat-${i}`,
+          `bench-lat-${i}-root`,
+          null,
+          "bench-lat-op",
+          latencyService,
+          "1.0",
+          startTime,
+          endTime,
+          0,
+          "[]",
+          "{}",
+          `${latencyService}:1.0 bench-lat-${i}`,
+        ]);
+      }
+      await DbUtilsNoTelemetryBatchInsert(
+        'INTO traces ("traceId", "spanId", "parentSpanId", "name", "serviceName", "serviceVersion", "startTime", "endTime", "statusCode", "attributes", "rawSpan", "keywords")',
+        12,
+        rows,
+      );
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 100,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      const startedAt = Date.now();
+      const res = await fastify.inject({
+        method: "GET",
+        url: statsUrl(latencyService),
+      });
+      const elapsedMs = Date.now() - startedAt;
+      expect(res.statusCode).toBe(200);
+      const group = (await decodeB64Json(res.json().groups))[0];
+      expect(group.traceCount).toBe(5000);
+      expect(group.p90).toBeDefined();
+      expect(elapsedMs).toBeLessThan(5000);
     });
   });
 

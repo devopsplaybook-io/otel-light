@@ -104,21 +104,39 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | DATABASE_POSTGRES_PASSWORD                              | PostgreSQL password                                   |                                             | Config file or environment variable |
 | DATABASE_POSTGRES_DATABASE                              | PostgreSQL database name                              |                                             | Config file or environment variable |
 | ANALYTICS_UTILS_RESULT_LIMIT_METRICS                    | Maximum number of results for metrics queries         | 10000                                       | Config file or environment variable |
+| ANALYTICS_STATS_SAMPLE_CAP                              | Max traces deterministically sampled for duration percentiles on `/api/analytics/traces/stats` | 20000 | Config file or environment variable |
+| ANALYTICS_STATS_CACHE_TTL_SECONDS                       | TTL of the traces-stats response cache (0 disables)   | 30                                          | Config file or environment variable |
+| ANALYTICS_STATS_CACHE_MAX_ENTRIES                       | Max cached traces-stats responses                     | 100                                         | Config file or environment variable |
 | LLM_API_KEY                                             | API key for the LLM service (leave empty to disable)  | (empty)                                     | Config file or environment variable |
 | LLM_API_URL                                             | LLM API endpoint (OpenAI-compatible)                  | `https://api.deepseek.com/chat/completions` | Config file or environment variable |
 | LLM_MODEL                                               | LLM model name                                        | `deepseek-chat`                             | Config file or environment variable |
 | LLM_THINKING_MODE                                       | Thinking mode for reasoning LLMs (`disabled`, `enabled` or `omit`) | `disabled`                                  | Config file or environment variable |
-| LLM_RECOMMENDATION_SCHEDULE_CRON                        | Cron expression for daily recommendation generation   | `0 0 * * *`                                 | Config file or environment variable |
+| LLM_RECOMMENDATION_SCHEDULE_CRON                        | Cron expression for daily recommendation generation   | `20 0 * * *`                                | Config file or environment variable |
 | LLM_RECOMMENDATION_PERIOD_HOURS                         | Hours of telemetry data to include in each report     | 24                                          | Config file or environment variable |
 | LLM_RECOMMENDATION_SAMPLE_CAP                           | Max root spans randomly sampled for percentiles       | 20000                                       | Config file or environment variable |
+| LLM_RECOMMENDATION_TIMEOUT_SECONDS                      | Overall budget for all LLM attempts (including retries and backoff) | 180                            | Config file or environment variable |
 | LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES                | Delay before the initial recommendation generation    | 2                                           | Config file or environment variable |
+| STATIC_REPORT_SCHEDULE_CRON                             | Cron expression for the longest-traces report         | `40 0 * * *`                                | Config file or environment variable |
+| MOST_CALLED_TRACES_SCHEDULE_CRON                        | Cron expression for the most-called-traces report     | `0 1 * * *`                                 | Config file or environment variable |
 | LONGEST_TRACES_STARTUP_DELAY_MINUTES                    | Delay before the initial longest-traces report        | 15                                          | Config file or environment variable |
 | MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES                | Delay before the initial most-called-traces report    | 25                                          | Config file or environment variable |
+| SCHEDULED_JOB_JITTER_MINUTES                            | Random delay (0..N minutes) added after a heavy job's cron fire | 5                                  | Config file or environment variable |
+| SCHEDULED_JOB_OVERLAP_WAIT_MINUTES                      | How long a heavy job waits for another running job before skipping that run | 30                    | Config file or environment variable |
 | MAINTENANCE_ORPHAN_LOOKBACK_HOURS                       | Lookback window for orphan-span cleanup scans         | 24                                          | Config file or environment variable |
 | NOTIFICATIONS_API                                       | Notifications API endpoint URL (empty = notifications disabled) | (empty)                           | Config file or environment variable |
 | NOTIFICATIONS_TOKEN                                     | Notifications API token                               | (empty)                                     | Config file or environment variable |
 | ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES               | Interval (in minutes) between error alert rule evaluations | 15                                     | Config file or environment variable |
 | ERROR_ALERTS_STARTUP_DELAY_MINUTES                      | Delay before the first error alert evaluation         | 1                                           | Config file or environment variable |
+
+## Signal Cleanup and Metric Compression
+
+Cleanup rules (settings → **Maintenance**) delete old signals whose `keywords` match a pattern. Patterns are matched case-insensitively and `*` is the **only** wildcard (it matches any sequence). SQL wildcards are escaped before the query, so `%`, `_` and `\` are compared literally — a rule like `error%100` matches that exact text, not "error followed by anything".
+
+Periodic metric compression keeps one data point per minute (then per hour) bucket **per full series**: `serviceName`, `serviceVersion`, `name`, `type` and the resource `attributes` are all part of the series identity. Series that share a name but differ by type, version or resource attributes are therefore preserved. Note that data compressed by older versions may already have lost series; that history cannot be recovered.
+
+## Analytics Statistics
+
+`GET /api/analytics/traces/stats` rounds its `from`/`to` window down/up to whole minutes and uses a deterministic sampling stride (capped by `ANALYTICS_STATS_SAMPLE_CAP`) for P90/P95 durations, so repeated identical requests return identical percentiles. Responses are cached for `ANALYTICS_STATS_CACHE_TTL_SECONDS` (up to `ANALYTICS_STATS_CACHE_MAX_ENTRIES` entries). Pass `includePercentiles=false` to skip the percentile computation and payload.
 
 ## LLM Recommendation
 
