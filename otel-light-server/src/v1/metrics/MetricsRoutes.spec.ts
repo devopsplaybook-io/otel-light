@@ -23,6 +23,7 @@ jest.mock("../../OTelContext", () => {
 
 jest.mock("../SignalUtils", () => ({
   SignalUtilsCheckAuthHeader: jest.fn(),
+  SignalUtilsGetIngestionBodyLimit: jest.fn(),
   SignalUtilsGetServiceName: jest.fn(),
   SignalUtilsGetServiceVersion: jest.fn(),
 }));
@@ -38,6 +39,7 @@ jest.mock("../../SignalRollups", () => ({
 import { DbUtilsNoTelemetryBatchInsert } from "../../utils-std-ts/DbUtilsNoTelemetry";
 import {
   SignalUtilsCheckAuthHeader,
+  SignalUtilsGetIngestionBodyLimit,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
@@ -50,6 +52,8 @@ import { MetricsRoutes } from "./MetricsRoutes";
 const mockModuleLogger = jest.requireMock<{
   __moduleLogger: { error: jest.Mock; info: jest.Mock; warn: jest.Mock };
 }>("../../OTelContext").__moduleLogger;
+
+const BODY_LIMIT = 65_536;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -80,6 +84,8 @@ describe("MetricsRoutes POST /v1/metrics", () => {
   let fastify: ReturnType<typeof Fastify>;
 
   beforeAll(async () => {
+    // Captured at route registration time.
+    (SignalUtilsGetIngestionBodyLimit as jest.Mock).mockReturnValue(BODY_LIMIT);
     fastify = Fastify();
     await fastify.register(new MetricsRoutes().getRoutes, {
       prefix: "/v1/metrics",
@@ -93,6 +99,7 @@ describe("MetricsRoutes POST /v1/metrics", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    (SignalUtilsGetIngestionBodyLimit as jest.Mock).mockReturnValue(BODY_LIMIT);
     (SignalUtilsCheckAuthHeader as jest.Mock).mockReturnValue(true);
     (SignalUtilsGetServiceName as jest.Mock).mockReturnValue("my-svc");
     (SignalUtilsGetServiceVersion as jest.Mock).mockReturnValue("1.0.0");
@@ -122,14 +129,15 @@ describe("MetricsRoutes POST /v1/metrics", () => {
   });
 
   // --- Success ---
-  it("returns 201 on successful ingestion", async () => {
+  it("returns 200 on successful ingestion", async () => {
     const res = await fastify.inject({
       method: "POST",
       url: "/v1/metrics",
       payload: buildBody(),
     });
 
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({});
     expect(DbUtilsNoTelemetryBatchInsert).toHaveBeenCalledTimes(1);
   });
 
@@ -178,7 +186,7 @@ describe("MetricsRoutes POST /v1/metrics", () => {
     ]);
   });
 
-  it("still returns 201 when rollup recording fails", async () => {
+  it("still returns 200 when rollup recording fails", async () => {
     (SignalRollupsRecordSignalInsert as jest.Mock).mockRejectedValue(
       new Error("rollup unavailable"),
     );
@@ -189,7 +197,7 @@ describe("MetricsRoutes POST /v1/metrics", () => {
       payload: buildBody(),
     });
 
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
     expect(mockModuleLogger.error).toHaveBeenCalledWith(
       "Failed to update metric rollups",
       expect.any(Error),
@@ -213,9 +221,8 @@ describe("MetricsRoutes POST /v1/metrics", () => {
 
   // --- Schema validation ---
   it.each([
-    ["missing resourceMetrics", {}],
     ["resourceMetrics not an array", { resourceMetrics: "nope" }],
-    ["missing scopeMetrics", { resourceMetrics: [{}] }],
+    ["scopeMetrics not an array", { resourceMetrics: [{ scopeMetrics: "x" }] }],
     [
       "metrics not an array",
       { resourceMetrics: [{ scopeMetrics: [{ metrics: "x" }] }] },
@@ -239,7 +246,85 @@ describe("MetricsRoutes POST /v1/metrics", () => {
       payload: { resourceMetrics: [] },
     });
 
-    expect(res.statusCode).toBe(201);
+    expect(res.statusCode).toBe(200);
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts an empty OTLP payload", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/metrics",
+      payload: {},
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("accepts a minimal payload without resource or attributes", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/metrics",
+      payload: {
+        resourceMetrics: [
+          {
+            scopeMetrics: [
+              {
+                metrics: [
+                  {
+                    name: "min.metric",
+                    gauge: { dataPoints: [{ timeUnixNano: 1700000000000000 }] },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+    expect(rows[0][0]).toBe("min.metric");
+    expect(rows[0][5]).toBe("[]"); // attributes column
+  });
+
+  it("defaults a missing metric name to an empty string", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/metrics",
+      payload: buildBody([mockMetric({ name: undefined })]),
+    });
+
+    expect(res.statusCode).toBe(200);
+    const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+    expect(rows[0][0]).toBe("");
+  });
+
+  // --- Content type / body limit ---
+  it("returns 415 with protocol guidance for a protobuf payload", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/metrics",
+      headers: { "content-type": "application/x-protobuf" },
+      payload: Buffer.from([0x0a, 0x00]),
+    });
+
+    expect(res.statusCode).toBe(415);
+    expect(res.json().message).toContain(
+      "OTEL_EXPORTER_OTLP_PROTOCOL=http/json",
+    );
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+  });
+
+  it("returns 413 when the payload exceeds the configured body limit", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/metrics",
+      payload: buildBody([mockMetric({ name: "x".repeat(BODY_LIMIT + 1_000) })]),
+    });
+
+    expect(res.statusCode).toBe(413);
     expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
   });
 

@@ -2,6 +2,7 @@ import { FastifyInstance } from "fastify";
 import { OTelLogger } from "../../OTelContext";
 import {
   SignalUtilsCheckAuthHeader,
+  SignalUtilsGetIngestionBodyLimit,
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
@@ -12,24 +13,24 @@ import {
   SignalRollupsRecordMetricNamesInsert,
   SignalRollupsRecordSignalInsert,
 } from "../../SignalRollups";
+import { SignalIngestionRegisterJsonProtocol } from "../SignalIngestion";
 
 const logger = OTelLogger().createModuleLogger("v1/metrics");
 
+// OTLP fields are optional: a minimal but valid payload may omit the nested
+// arrays, so only the types are validated (missing arrays default to []).
 const BODY_SCHEMA = {
   type: "object",
-  required: ["resourceMetrics"],
   properties: {
     resourceMetrics: {
       type: "array",
       items: {
         type: "object",
-        required: ["scopeMetrics"],
         properties: {
           scopeMetrics: {
             type: "array",
             items: {
               type: "object",
-              required: ["metrics"],
               properties: {
                 metrics: {
                   type: "array",
@@ -77,84 +78,99 @@ export class MetricsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
-    fastify.post("/", { schema: { body: BODY_SCHEMA } }, async (req, res) => {
-      try {
-        if (!SignalUtilsCheckAuthHeader(req)) {
-          return res.status(401).send({});
-        }
-        const ingestionTime = Date.now() * 1_000_000;
-        const rollupEntries: SignalInsertEntry[] = [];
-        const rollupNameEntries: MetricNameInsertEntry[] = [];
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const resourceMetric of (req.body as any).resourceMetrics) {
-          const serviceName = SignalUtilsGetServiceName(
-            resourceMetric.resource,
-          );
-          const serviceVersion = SignalUtilsGetServiceVersion(
-            resourceMetric.resource,
-          );
-          for (const scopeMetric of resourceMetric.scopeMetrics) {
-            const rows = [];
-            for (const metric of scopeMetric.metrics) {
-              let metricType = "unknown";
-              if (metric.gauge) metricType = "gauge";
-              else if (metric.sum) metricType = "sum";
-              else if (metric.histogram) metricType = "histogram";
-              else if (metric.exponentialHistogram)
-                metricType = "exponentialHistogram";
-              else if (metric.summary) metricType = "summary";
-              const keywords =
-                `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metric.name}`.substring(
-                  0,
-                  4000,
-                );
-              const rawMetricTime = getMetricTimeUnixNano(metric, ingestionTime);
-              rollupEntries.push({
-                serviceName,
-                serviceVersion,
-                time: Number(rawMetricTime),
-              });
-              rollupNameEntries.push({
-                serviceName,
-                name: metric.name || "",
-                type: metricType,
-                time: Number(rawMetricTime),
-              });
-              rows.push([
-                metric.name ? metric.name.substring(0, 2000) : metric.name,
-                serviceName ? serviceName.substring(0, 2000) : serviceName,
-                serviceVersion
-                  ? serviceVersion.substring(0, 2000)
-                  : serviceVersion,
-                metricType,
-                rawMetricTime,
-                JSON.stringify(resourceMetric.resource.attributes),
-                JSON.stringify(metric),
-                keywords.toLowerCase(),
-              ]);
-            }
-            await DbUtilsNoTelemetryBatchInsert(
-              'INTO metrics ("name", "serviceName", "serviceVersion", "type", "time", "attributes", "rawMetric", "keywords")',
-              8,
-              rows,
-            );
-          }
-        }
-
+    SignalIngestionRegisterJsonProtocol(fastify);
+    fastify.post(
+      "/",
+      {
+        schema: { body: BODY_SCHEMA },
+        bodyLimit: SignalUtilsGetIngestionBodyLimit(),
+      },
+      async (req, res) => {
         try {
-          await SignalRollupsRecordSignalInsert("metrics", rollupEntries);
-          await SignalRollupsRecordMetricNamesInsert(rollupNameEntries);
-        } catch (rollupErr) {
-          // Signals are stored: do not fail the request (client would retry
-          // and duplicate metrics). A recount can rebuild the rollups later.
-          logger.error("Failed to update metric rollups", rollupErr);
-        }
+          if (!SignalUtilsCheckAuthHeader(req)) {
+            return res.status(401).send({});
+          }
+          const ingestionTime = Date.now() * 1_000_000;
+          const rollupEntries: SignalInsertEntry[] = [];
+          const rollupNameEntries: MetricNameInsertEntry[] = [];
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          for (const resourceMetric of (req.body as any).resourceMetrics ??
+            []) {
+            const serviceName = SignalUtilsGetServiceName(
+              resourceMetric.resource,
+            );
+            const serviceVersion = SignalUtilsGetServiceVersion(
+              resourceMetric.resource,
+            );
+            for (const scopeMetric of resourceMetric.scopeMetrics ?? []) {
+              const rows = [];
+              for (const metric of scopeMetric.metrics ?? []) {
+                let metricType = "unknown";
+                if (metric.gauge) metricType = "gauge";
+                else if (metric.sum) metricType = "sum";
+                else if (metric.histogram) metricType = "histogram";
+                else if (metric.exponentialHistogram)
+                  metricType = "exponentialHistogram";
+                else if (metric.summary) metricType = "summary";
+                const metricName = metric.name
+                  ? metric.name.substring(0, 2000)
+                  : "";
+                const keywords =
+                  `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${metricName}`.substring(
+                    0,
+                    4000,
+                  );
+                const rawMetricTime = getMetricTimeUnixNano(
+                  metric,
+                  ingestionTime,
+                );
+                rollupEntries.push({
+                  serviceName,
+                  serviceVersion,
+                  time: Number(rawMetricTime),
+                });
+                rollupNameEntries.push({
+                  serviceName,
+                  name: metricName,
+                  type: metricType,
+                  time: Number(rawMetricTime),
+                });
+                rows.push([
+                  metricName,
+                  serviceName ? serviceName.substring(0, 2000) : serviceName,
+                  serviceVersion
+                    ? serviceVersion.substring(0, 2000)
+                    : serviceVersion,
+                  metricType,
+                  rawMetricTime,
+                  JSON.stringify(resourceMetric.resource?.attributes ?? []),
+                  JSON.stringify(metric),
+                  keywords.toLowerCase(),
+                ]);
+              }
+              await DbUtilsNoTelemetryBatchInsert(
+                'INTO metrics ("name", "serviceName", "serviceVersion", "type", "time", "attributes", "rawMetric", "keywords")',
+                8,
+                rows,
+              );
+            }
+          }
 
-        return res.status(201).send({});
-      } catch (err) {
-        logger.error("Error ingesting metrics", err);
-        return res.status(500).send({ error: "Internal Server Error" });
-      }
-    });
+          try {
+            await SignalRollupsRecordSignalInsert("metrics", rollupEntries);
+            await SignalRollupsRecordMetricNamesInsert(rollupNameEntries);
+          } catch (rollupErr) {
+            // Signals are stored: do not fail the request (client would retry
+            // and duplicate metrics). A recount can rebuild the rollups later.
+            logger.error("Failed to update metric rollups", rollupErr);
+          }
+
+          return res.status(200).send({});
+        } catch (err) {
+          logger.error("Error ingesting metrics", err);
+          return res.status(500).send({ error: "Internal Server Error" });
+        }
+      },
+    );
   }
 }

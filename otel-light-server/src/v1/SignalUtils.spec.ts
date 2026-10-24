@@ -2,6 +2,7 @@ import {
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
   SignalUtilsCheckAuthHeader,
+  SignalUtilsGetIngestionBodyLimit,
 } from "./SignalUtils";
 import { SignalUtilsInit } from "./SignalUtils";
 
@@ -141,5 +142,42 @@ describe("SignalUtilsCheckAuthHeader", () => {
       OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
+  });
+});
+
+describe("SignalUtilsGetIngestionBodyLimit", () => {
+  it("returns the configured limit", async () => {
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      INGESTION_BODY_LIMIT_BYTES: 4_194_304,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    expect(SignalUtilsGetIngestionBodyLimit()).toBe(4_194_304);
+  });
+
+  it("clamps an out-of-range limit", async () => {
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      INGESTION_BODY_LIMIT_BYTES: 999_999_999,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+
+    expect(SignalUtilsGetIngestionBodyLimit()).toBe(16_777_216);
+  });
+
+  it("falls back to the default when the setting is missing or invalid", async () => {
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      INGESTION_BODY_LIMIT_BYTES: "abc",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    expect(SignalUtilsGetIngestionBodyLimit()).toBe(1_048_576);
+
+    await SignalUtilsInit(fakeSpan, {
+      OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER: "",
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any);
+    expect(SignalUtilsGetIngestionBodyLimit()).toBe(1_048_576);
   });
 });

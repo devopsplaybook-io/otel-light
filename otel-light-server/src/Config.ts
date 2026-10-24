@@ -7,6 +7,21 @@ const logger = OTelLogger().createModuleLogger("config");
 
 const KNOWN_DEFAULT_JWT_KEYS = ["dev"];
 
+export const INGESTION_BODY_LIMIT_DEFAULT_BYTES = 1_048_576;
+export const INGESTION_BODY_LIMIT_MIN_BYTES = 1_024;
+export const INGESTION_BODY_LIMIT_MAX_BYTES = 16_777_216;
+
+export function ConfigClampIngestionBodyLimit(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return INGESTION_BODY_LIMIT_DEFAULT_BYTES;
+  }
+  return Math.min(
+    INGESTION_BODY_LIMIT_MAX_BYTES,
+    Math.max(INGESTION_BODY_LIMIT_MIN_BYTES, Math.trunc(numeric)),
+  );
+}
+
 export class Config extends ConfigBase {
   // Project-specific OTel defaults (override ConfigBase empty-string defaults)
   public OPENTELEMETRY_COLLECTOR_HTTP_TRACES =
@@ -27,6 +42,7 @@ export class Config extends ConfigBase {
 
   // API Limits
   public ANALYTICS_UTILS_RESULT_LIMIT_METRICS = 10000;
+  public INGESTION_BODY_LIMIT_BYTES = INGESTION_BODY_LIMIT_DEFAULT_BYTES;
 
   // LLM Recommendation
   public LLM_API_KEY = "";
@@ -81,6 +97,7 @@ export class Config extends ConfigBase {
     this.addConfigField({ field: "CACHE_REFRESH_MINUTES" });
     this.addConfigField({ field: "METRICS_SELF_REFRESH_MINUTES" });
     this.addConfigField({ field: "ANALYTICS_UTILS_RESULT_LIMIT_METRICS" });
+    this.addConfigField({ field: "INGESTION_BODY_LIMIT_BYTES" });
     this.addConfigField({ field: "LLM_API_KEY", sensitive: true });
     this.addConfigField({ field: "LLM_API_URL" });
     this.addConfigField({ field: "LLM_MODEL" });
@@ -115,6 +132,18 @@ export class Config extends ConfigBase {
     await super.reload((message: string) => logger.info(message));
     this.JWT_KEY = jwtKey;
     this.warnIfDefaultJWTKey();
+
+    const requestedBodyLimit = this.INGESTION_BODY_LIMIT_BYTES;
+    this.INGESTION_BODY_LIMIT_BYTES = ConfigClampIngestionBodyLimit(
+      requestedBodyLimit,
+    );
+    if (this.INGESTION_BODY_LIMIT_BYTES !== requestedBodyLimit) {
+      logger.warn(
+        `INGESTION_BODY_LIMIT_BYTES ${requestedBodyLimit} is invalid or out of range ` +
+          `(${INGESTION_BODY_LIMIT_MIN_BYTES}-${INGESTION_BODY_LIMIT_MAX_BYTES}); ` +
+          `using ${this.INGESTION_BODY_LIMIT_BYTES}.`,
+      );
+    }
   }
 
   public warnIfDefaultJWTKey(): void {
