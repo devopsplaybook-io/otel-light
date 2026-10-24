@@ -79,14 +79,20 @@
 </template>
 
 <script setup>
-import { AuthService } from "~~/services/AuthService";
 import { PreferencesService } from "~/services/PreferencesService";
 const authenticationStore = AuthenticationStore();
 </script>
 
 <script>
-import axios from "axios";
-import { SERVER_URL } from "~~/services/Config.ts";
+import { AuthService } from "~~/services/AuthService";
+import { EventBus, EventTypes } from "~~/services/EventBus";
+import {
+  SessionRenewalDelayMs,
+  SessionRenewalIsAuthError,
+  SessionRenewalRefresh,
+} from "~~/services/SessionRenewal";
+
+const RENEWAL_RETRY_DELAY_MS = 60_000;
 
 export default {
   watch: {
@@ -105,27 +111,25 @@ export default {
     this.routeUpdated(this.$route);
     this.isDark = PreferencesService.isDark();
     if (await AuthenticationStore().ensureAuthenticated()) {
-      this._renewTimer = setTimeout(async () => {
-        // Renew session token
-        try {
-          const res = await axios.post(
-            `${SERVER_URL}/users/session`,
-            {},
-            await AuthService.getAuthHeader(),
-          );
-          AuthService.saveToken(res.data.token);
-          AuthenticationStore().refreshFromToken();
-        } catch {
-          // silently ignore
-        }
-      }, 10000);
+      this.scheduleRenewal();
     }
+    this._stopAuthWatch = this.$watch(
+      () => AuthenticationStore().isAuthenticated,
+      (isAuthenticated) => {
+        if (isAuthenticated) {
+          this.scheduleRenewal();
+        } else {
+          this.clearRenewal();
+        }
+      },
+    );
     PreferencesService.applyTheme();
   },
   beforeUnmount() {
-    if (this._renewTimer) {
-      clearTimeout(this._renewTimer);
-      this._renewTimer = null;
+    this.clearRenewal();
+    if (this._stopAuthWatch) {
+      this._stopAuthWatch();
+      this._stopAuthWatch = null;
     }
   },
   methods: {
@@ -135,6 +139,46 @@ export default {
     },
     toggleTheme() {
       PreferencesService.toggleTheme(this);
+    },
+    clearRenewal() {
+      if (this._renewTimer) {
+        clearTimeout(this._renewTimer);
+        this._renewTimer = null;
+      }
+    },
+    scheduleRenewal(delayMs) {
+      this.clearRenewal();
+      const tokenInfo = AuthService.getTokenInfo();
+      if (!tokenInfo) {
+        return;
+      }
+      const delay =
+        delayMs ?? SessionRenewalDelayMs(tokenInfo.exp, Date.now());
+      this._renewTimer = setTimeout(() => this.renewSession(), delay);
+    },
+    async renewSession() {
+      this._renewTimer = null;
+      try {
+        await SessionRenewalRefresh();
+        await AuthenticationStore().refreshFromToken();
+        this.scheduleRenewal();
+      } catch (error) {
+        if (SessionRenewalIsAuthError(error)) {
+          AuthService.removeToken();
+          await AuthenticationStore().ensureAuthenticated();
+          EventBus.emit(EventTypes.ALERT_MESSAGE, {
+            type: "error",
+            text: "Your session has expired. Please sign in again.",
+          });
+          this.$router.push("/settings/profile");
+          return;
+        }
+        // Transient failure: retry while the current token is still valid.
+        const tokenInfo = AuthService.getTokenInfo();
+        if (tokenInfo && tokenInfo.exp * 1_000 > Date.now()) {
+          this.scheduleRenewal(RENEWAL_RETRY_DELAY_MS);
+        }
+      }
     },
   },
 };

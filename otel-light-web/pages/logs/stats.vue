@@ -47,16 +47,15 @@
 </template>
 
 <script>
+import axios from "axios";
 import { analyticsGet } from "~~/services/AnalyticsQueue";
 import VueApexCharts from "vue3-apexcharts";
 import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
-import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 
-const PAGE_SIZE = 200;
 const TARGET_BUCKETS = 50;
 const REDRAW_INTERVAL_MS = 250;
 
@@ -183,48 +182,6 @@ export default {
       const raw = Math.ceil(spanNs / TARGET_BUCKETS);
       // round to at least 1 second
       return Math.max(1_000_000_000, raw);
-    },
-    foldPage(logs) {
-      if (!logs || !logs.length) return;
-      // Lazy bucket width if window unknown: derive from first page timestamps
-      if (this.bucketMsNs === null) {
-        let minT = Infinity;
-        let maxT = -Infinity;
-        for (const l of logs) {
-          if (l.time < minT) minT = l.time;
-          if (l.time > maxT) maxT = l.time;
-        }
-        const fromNs = this.windowFromNs !== null ? this.windowFromNs : minT;
-        const toNs =
-          this.windowToNs !== null
-            ? this.windowToNs
-            : Math.max(maxT, fromNs + 1e9);
-        this.windowFromNs = fromNs;
-        this.windowToNs = toNs;
-        this.bucketMsNs = this.computeBucketWidth(fromNs, toNs);
-      }
-
-      const fromNs = this.windowFromNs;
-      const bw = this.bucketMsNs;
-      const counts = this.buckets;
-      const keys = this.bucketKeys;
-      const sevCounts = { ...this.severityCounts };
-      let total = this.totalCount;
-
-      for (const log of logs) {
-        const sev = (log.severity || "UNKNOWN").toUpperCase();
-        const t = log.time;
-        // Normalize bucket: anchor at fromNs
-        const idx = Math.floor((t - fromNs) / bw);
-        const keyNs = fromNs + idx * bw;
-        if (!counts[sev]) counts[sev] = new Map();
-        counts[sev].set(keyNs, (counts[sev].get(keyNs) || 0) + 1);
-        keys.add(keyNs);
-        sevCounts[sev] = (sevCounts[sev] || 0) + 1;
-        total++;
-      }
-      this.severityCounts = sevCounts;
-      this.totalCount = total;
     },
     scheduleRedraw(force = false) {
       const now = Date.now();

@@ -11,7 +11,7 @@ The repository is a monorepo with three components:
 | Component           | Technology                           | Port | Role                                                               |
 | ------------------- | ------------------------------------ | ---- | ------------------------------------------------------------------ |
 | `otel-light-server` | Node.js + Fastify + TypeScript       | 8080 | API server: OTLP ingestion, analytics, auth, maintenance           |
-| `otel-light-web`    | Nuxt 3 (Vue 3)                       | 3000 | Static frontend (pre-rendered, served by the server)               |
+| `otel-light-web`    | Nuxt 4.6.1 (Vue 3)                   | 3000 | Static frontend (pre-rendered, served by the server)               |
 | `otel-light-proxy`  | Traefik v2.11.60 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
 
 In production, all three run inside a single Docker container. The server serves the pre-built web assets via `@fastify/static`, eliminating the need for the proxy. The proxy is only used in local development with PM2.
@@ -67,7 +67,7 @@ otel-light/
 │           ├── DbUtilsNoTelemetry.ts   # → DbUtilsNoTelemetrySetLogger, DbUtilsNoTelemetryBatchInsert, ...
 │           ├── SystemCommand.ts        # → SystemCommandExecute
 │           └── Timeout.ts              # → TimeoutWait
-├── otel-light-web/                     # --- FRONTEND (Nuxt 3) ---
+├── otel-light-web/                     # --- FRONTEND (Nuxt 4) ---
 │   ├── app.vue                         # Root component with tab navigation
 │   ├── nuxt.config.ts                  # SSR disabled, generate static output
 │   ├── components/                     # Vue components (Trace, Log, Metric charts, SearchOptions)
@@ -84,6 +84,8 @@ otel-light/
 ```
 Client → POST /v1/{traces|metrics|logs} → SignalUtilsCheckAuthHeader → parse OTLP JSON → DbUtilsNoTelemetryBatchInsert → DB
 ```
+
+Ingestion accepts **OTLP/JSON only** (`application/json`): Protobuf payloads are rejected with HTTP 415. Bodies larger than `INGESTION_BODY_LIMIT_BYTES` are rejected with HTTP 413; request payload compression is not supported.
 
 **Analytics** (web UI):
 
@@ -151,7 +153,7 @@ Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0012). The `metada
 
 ```bash
 cd otel-light-server
-npm install          # installs common-utils from local file:../_libs/common-utils
+npm install          # installs @devopsplaybook.io/common-utils from npm (^1.15.1)
 npm run build        # tsc → dist/ + type-check of spec files (tsconfig.spec.json --noEmit)
 npm run lint         # oxlint src (recommended preset)
 npm run test         # jest --coverage (@swc/jest transform, v8 coverage provider)
@@ -163,6 +165,8 @@ npm run test         # jest --coverage (@swc/jest transform, v8 coverage provide
 cd otel-light-web
 npm install
 npm run dev          # Nuxt dev server on :3000
+npm run lint         # eslint . (must report 0 warnings)
+npm run test         # vitest run
 npm run generate     # Static generation → .output/public/
 ```
 
@@ -192,7 +196,7 @@ GitHub Actions workflows are callers that reference reusable workflows from `dev
 - **`main-build.yml`** (push to main): calls `reusable-merge-build.yml` — lint, test, build, Docker build with version tags, push to Docker Hub
 - **`pr-check.yml`** (pull request): calls `reusable-pr-verify.yml` — matrix Node.js versions + multi-platform Docker build
 
-Both pass `node_app_directories: '["otel-light-server"]'` to tell the reusable workflow where to find the Node.js application.
+Both pass `node_app_directories: '["otel-light-server", "otel-light-web"]'` to tell the reusable workflow where to find the Node.js applications.
 
 ## Dependencies
 
@@ -220,11 +224,19 @@ Both pass `node_app_directories: '["otel-light-server"]'` to tell the reusable w
 
 ### Web
 
-| Package       | Role                                         |
-| ------------- | -------------------------------------------- |
-| `nuxt`        | Nuxt 3 framework (Vue 3, SSR disabled)       |
-| `apexcharts`  | Chart library for trace/metric visualization |
-| `nuxtjs/apex` | Vue 3 wrapper for ApexCharts                 |
+| Package                | Role                                                |
+| ---------------------- | --------------------------------------------------- |
+| `nuxt` (4.6.1)         | Nuxt 4 framework (Vue 3, SSR disabled)              |
+| `vue3-apexcharts`      | Vue 3 wrapper for ApexCharts                        |
+| `apexcharts`           | Chart library for trace/metric visualization         |
+| `pinia` / `@pinia/nuxt`| Authentication and services stores                  |
+| `axios`                | HTTP client for non-queued API calls                |
+| `marked` / `dompurify` | Markdown rendering, sanitized before `v-html`       |
+| `jwt-decode`           | Client-side JWT expiry/role/scope inspection        |
+| `@vueuse/core`         | Vue composition utilities                           |
+| `mitt`                 | Event bus for UI notifications                      |
+| `@picocss/pico`        | Base CSS framework                                  |
+| `bootstrap-icons`      | Icon set used by the navigation and cards           |
 
 ## Configuration
 
@@ -250,6 +262,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS`    | `12`                                        | Hours before minute-level compression          |
 | `METRICS_COMPRESS_HOUR_THRESHOLD_DAYS`       | `7`                                         | Days before hour-level compression             |
 | `CACHE_REFRESH_MINUTES`                      | `10`                                        | Analytics cache refresh interval               |
+| `METRICS_SELF_REFRESH_MINUTES`               | `10`                                        | Refresh interval for the self-metrics gauges   |
 | `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`       | `10000`                                     | Metrics query result limit (applied by `AnalyticsUtilsInit`) |
 | `ANALYTICS_STATS_SAMPLE_CAP`                 | `20000`                                     | Max traces sampled for traces-stats percentiles |
 | `ANALYTICS_STATS_CACHE_TTL_SECONDS`          | `30`                                        | Traces-stats response cache TTL (0 = off)      |
@@ -259,6 +272,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `LLM_MODEL`                                  | `deepseek-chat`                             | Model name                                     |
 | `LLM_THINKING_MODE`                          | `disabled`                                  | `disabled`/`enabled`/`omit` (see gotcha below) |
 | `LLM_RECOMMENDATION_SCHEDULE_CRON`           | `20 0 * * *`                                | Daily recommendation generation                |
+| `LLM_RECOMMENDATION_PERIOD_HOURS`            | `24`                                        | Hours of telemetry included in each report     |
 | `LLM_RECOMMENDATION_SAMPLE_CAP`              | `20000`                                     | Max root spans sampled for percentiles         |
 | `LLM_RECOMMENDATION_TIMEOUT_SECONDS`         | `180`                                       | Overall budget for all LLM attempts/retries    |
 | `LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES`   | `2`                                         | Delay before initial recommendation generation |
@@ -268,6 +282,10 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES`   | `25`                                        | Delay before initial most-called-traces report |
 | `SCHEDULED_JOB_JITTER_MINUTES`               | `5`                                         | Random delay after a heavy job's cron fire     |
 | `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES`         | `30`                                        | Wait before skipping an overlapping heavy job  |
+| `NOTIFICATIONS_API`                          | (empty)                                     | Notifications API endpoint; empty = disabled   |
+| `NOTIFICATIONS_TOKEN`                        | (empty)                                     | Notifications API token                        |
+| `ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES`  | `15`                                        | Error alert rule evaluation frequency           |
+| `ERROR_ALERTS_STARTUP_DELAY_MINUTES`         | `1`                                         | Delay before the first error alert evaluation  |
 | `STATIC_REPORT_TOP_N`                        | `30`                                        | Top N traces for static reports                |
 | `STATIC_REPORT_PERIOD_DAYS`                  | `30`                                        | Lookback period for static reports             |
 

@@ -6,6 +6,14 @@ interface QueueItem {
   reject: (reason: unknown) => void;
 }
 
+export interface AnalyticsQueueOptions {
+  maxConcurrent?: number;
+  timeoutMs?: number;
+}
+
+const DEFAULT_MAX_CONCURRENT = 4;
+const DEFAULT_TIMEOUT_MS = 60_000;
+
 /**
  * Bounded-concurrency queue for analytics API requests (traces, logs, metrics).
  * Only 4 requests execute concurrently: enough for metric charts to load in
@@ -15,10 +23,16 @@ interface QueueItem {
  * are released from the active slot immediately so queued requests can
  * proceed.
  */
-class AnalyticsQueue {
+export class AnalyticsQueue {
   private readonly queue: QueueItem[] = [];
   private activeCount = 0;
-  private readonly maxConcurrent = 4;
+  private readonly maxConcurrent: number;
+  private readonly timeoutMs: number;
+
+  constructor(options: AnalyticsQueueOptions = {}) {
+    this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
+    this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  }
 
   enqueue<T>(requestFn: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
@@ -35,14 +49,36 @@ class AnalyticsQueue {
     while (this.activeCount < this.maxConcurrent && this.queue.length > 0) {
       const item = this.queue.shift()!;
       this.activeCount++;
-      item
-        .requestFn()
-        .then((result) => item.resolve(result))
-        .catch((error) => item.reject(error))
-        .finally(() => {
-          this.activeCount--;
-          this.processQueue();
-        });
+
+      const state: {
+        settled: boolean;
+        timer: ReturnType<typeof setTimeout> | null;
+      } = { settled: false, timer: null };
+      const settle = (action: () => void) => {
+        if (state.settled) return;
+        state.settled = true;
+        if (state.timer) {
+          clearTimeout(state.timer);
+        }
+        this.activeCount--;
+        action();
+        this.processQueue();
+      };
+
+      state.timer = setTimeout(() => {
+        settle(() =>
+          item.reject(
+            new Error(
+              `Analytics request timed out after ${this.timeoutMs} ms`,
+            ),
+          ),
+        );
+      }, this.timeoutMs);
+
+      Promise.resolve()
+        .then(() => item.requestFn())
+        .then((result) => settle(() => item.resolve(result)))
+        .catch((error) => settle(() => item.reject(error)));
     }
   }
 }

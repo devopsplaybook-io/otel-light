@@ -111,17 +111,13 @@
         <i class="bi bi-robot card-icon"></i>
         <div v-if="recommendation.analysis" class="rec-section">
           <h4><i class="bi bi-search"></i> Analysis</h4>
-          <div
-            class="rec-content"
-            v-html="renderMarkdown(recommendation.analysis)"
-          ></div>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div class="rec-content" v-html="renderMarkdown(recommendation.analysis)"></div>
         </div>
         <div v-if="recommendation.recommendations" class="rec-section">
           <h4><i class="bi bi-lightbulb"></i> Recommendations</h4>
-          <div
-            class="rec-content"
-            v-html="renderMarkdown(recommendation.recommendations)"
-          ></div>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div class="rec-content" v-html="renderMarkdown(recommendation.recommendations)"></div>
         </div>
         <div
           v-if="!recommendation.analysis && !recommendation.recommendations"

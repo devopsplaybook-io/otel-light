@@ -108,10 +108,12 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | LOGIN_RATE_LIMIT_MAX                                    | Max login attempts per client IP + username per window (0 disables) | 10                          | Config file or environment variable |
 | LOGIN_RATE_LIMIT_WINDOW_SECONDS                         | Login rate-limit window in seconds (clamped to 1–86400) | 60                                    | Config file or environment variable |
 | API_TRUST_PROXY                                         | Trust `X-Forwarded-For` for client IPs (enable only behind a trusted reverse proxy) | false        | Config file or environment variable |
+| CORS_POLICY_ORIGIN                                      | CORS allowed origin (empty = CORS disabled)           | (empty)                                     | Config file or environment variable |
 | METRICS_COMPRESS_MINUTE_THRESHOLD_HOURS                 | Hours before minute-level metrics are compressed      | 12                                          | Config file or environment variable |
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7                                           | Config file or environment variable |
 | MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6                                           | Config file or environment variable |
 | CACHE_REFRESH_MINUTES                                   | Interval (in minutes) to refresh the services cache   | 10                                          | Config file or environment variable |
+| METRICS_SELF_REFRESH_MINUTES                            | Refresh interval (in minutes) for the self-metrics gauges | 10                                      | Config file or environment variable |
 | DATABASE_TYPE                                           | Database type (`sqlite` or `postgres`)                | sqlite                                      | Config file or environment variable |
 | DATABASE_POSTGRES_HOST                                  | PostgreSQL server hostname                            |                                             | Config file or environment variable |
 | DATABASE_POSTGRES_PORT                                  | PostgreSQL server port                                |                                             | Config file or environment variable |
@@ -132,6 +134,8 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | LLM_RECOMMENDATION_TIMEOUT_SECONDS                      | Overall budget for all LLM attempts (including retries and backoff) | 180                            | Config file or environment variable |
 | LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES                | Delay before the initial recommendation generation    | 2                                           | Config file or environment variable |
 | STATIC_REPORT_SCHEDULE_CRON                             | Cron expression for the longest-traces report         | `40 0 * * *`                                | Config file or environment variable |
+| STATIC_REPORT_TOP_N                                     | Top N traces kept in each static report               | 30                                          | Config file or environment variable |
+| STATIC_REPORT_PERIOD_DAYS                               | Lookback period (in days) for the static reports      | 30                                          | Config file or environment variable |
 | MOST_CALLED_TRACES_SCHEDULE_CRON                        | Cron expression for the most-called-traces report     | `0 1 * * *`                                 | Config file or environment variable |
 | LONGEST_TRACES_STARTUP_DELAY_MINUTES                    | Delay before the initial longest-traces report        | 15                                          | Config file or environment variable |
 | MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES                | Delay before the initial most-called-traces report    | 25                                          | Config file or environment variable |

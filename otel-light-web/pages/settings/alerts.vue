@@ -81,6 +81,7 @@ import {
   errorAlertRuleIssues,
   validateErrorAlertRules,
 } from "~~/services/ErrorAlertRules";
+import { UtilsGenerateId } from "~~/services/Utils";
 
 export default {
   data() {
@@ -132,7 +133,7 @@ export default {
     },
     addRule() {
       this.settings.alertRules.push({
-        id: crypto.randomUUID(),
+        id: UtilsGenerateId(),
         serviceName: "",
         threshold: 10,
         periodValue: 24,

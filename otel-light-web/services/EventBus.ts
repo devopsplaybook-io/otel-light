@@ -8,14 +8,52 @@ export enum EventTypes {
   ALERT_MESSAGE = "ALERT_MESSAGE",
 }
 
+/**
+ * Human-readable text for an error alert. Never uses a whole object as text
+ * (which renders as "[object Object]").
+ */
+export function ErrorAlertText(error: any): string {
+  const response = error?.response;
+  const data = response?.data;
+  if (data) {
+    if (typeof data === "string") {
+      return data;
+    }
+    if (typeof data.error === "string" && data.error) {
+      return data.error;
+    }
+    if (typeof data.message === "string" && data.message) {
+      return data.message;
+    }
+    try {
+      const json = JSON.stringify(data);
+      if (json && json !== "{}") {
+        return json;
+      }
+    } catch {
+      // Non-serializable payload: fall through to the status/message.
+    }
+  }
+  if (response?.status) {
+    const statusText = response.statusText ? ` ${response.statusText}` : "";
+    return `HTTP ${response.status}${statusText}`;
+  }
+  if (typeof error?.message === "string" && error.message) {
+    return error.message;
+  }
+  if (typeof error === "string" && error) {
+    return error;
+  }
+  if (typeof error === "number" || typeof error === "boolean") {
+    return String(error);
+  }
+  return "Unknown error";
+}
+
 export function handleError(error: any): void {
   console.error(error);
-  let text = error.response;
-  if (error.response && error.response.data && error.response.data.error) {
-    text = error.response.data.error;
-  }
   EventBus.emit(EventTypes.ALERT_MESSAGE, {
     type: "error",
-    text,
+    text: ErrorAlertText(error),
   });
 }
