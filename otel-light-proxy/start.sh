@@ -6,10 +6,10 @@ cd "${SERVICE_DIR}"
 
 # Dev-only reverse proxy. The pinned binary is verified against the release
 # checksums before use; update the version and SHA256 together.
-TRAEFIK_VERSION="v2.11.60"
+TRAEFIK_VERSION="v2.11.61"
 TRAEFIK_ARCHIVE="traefik_${TRAEFIK_VERSION}_linux_amd64.tar.gz"
 TRAEFIK_URL="https://github.com/traefik/traefik/releases/download/${TRAEFIK_VERSION}/${TRAEFIK_ARCHIVE}"
-TRAEFIK_SHA256="dcfcd1c720db41a21b8ea4597ff8912bbc5f1f4e9cd21b3ee2cebd97bfb1a4d7"
+TRAEFIK_SHA256="71c7a7a04ecd4ee361e43310a2828bc0e81a423bc1f3902750485defc8018cbf"
 
 if [ -x bin/traefik ]; then
     INSTALLED_VERSION="$(./bin/traefik version 2>/dev/null | sed -n 's/^Version: *//p' | head -n1 || true)"

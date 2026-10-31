@@ -144,11 +144,24 @@ describe("Config INGESTION_BODY_LIMIT_BYTES", () => {
     expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(1_024);
   });
 
-  it("falls back to the default for a non-numeric value", async () => {
+  it("rejects the reload for a non-numeric value", async () => {
     process.env.INGESTION_BODY_LIMIT_BYTES = "abc";
     const config = await newConfig();
-    await config.reload();
-    expect(config.INGESTION_BODY_LIMIT_BYTES).toBe(1_048_576);
+    await expect(config.reload()).rejects.toThrow(
+      /Invalid numeric value for INGESTION_BODY_LIMIT_BYTES/,
+    );
+  });
+
+  it("keeps the runtime JWT_KEY when the reload is rejected", async () => {
+    process.env.INGESTION_BODY_LIMIT_BYTES = "abc";
+    try {
+      const config = await newConfig({ JWT_KEY: "dev" });
+      config.JWT_KEY = "db-managed-key";
+      await expect(config.reload()).rejects.toThrow(/Invalid numeric value/);
+      expect(config.JWT_KEY).toBe("db-managed-key");
+    } finally {
+      delete process.env.INGESTION_BODY_LIMIT_BYTES;
+    }
   });
 });
 

@@ -1,6 +1,6 @@
 import * as fse from "fs-extra";
 import * as path from "path";
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { Config } from "../Config";
 import { FileUtilsWriteJsonAtomic } from "../FileUtils";
 import { OTelLogger, OTelTracer } from "../OTelContext";

@@ -9,7 +9,6 @@ jest.mock("../utils-std-ts/DbUtilsNoTelemetry", () => ({
 
 jest.mock("@devopsplaybook.io/common-utils", () => ({
   ...jest.requireActual("@devopsplaybook.io/common-utils"),
-  AuthGetUserSession: jest.fn(),
   AuthHasScope: jest.fn(),
 }));
 
@@ -26,10 +25,7 @@ jest.mock("./AnalyticsUtils", () => ({
 // Imports
 // ---------------------------------------------------------------------------
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import {
-  AuthGetUserSession,
-  AuthHasScope,
-} from "@devopsplaybook.io/common-utils";
+import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { AnalyticsUtilsCompressJson } from "./AnalyticsUtils";
 import { AnalyticsMetricsRoutes } from "./AnalyticsMetricsRoutes";
 
@@ -53,9 +49,6 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: true,
-    });
     (AuthHasScope as jest.Mock).mockResolvedValue(undefined);
     (DbUtilsNoTelemetryQuerySQL as jest.Mock).mockResolvedValue([]);
     (AnalyticsUtilsCompressJson as jest.Mock).mockResolvedValue(
@@ -64,17 +57,24 @@ describe("AnalyticsMetricsRoutes GET /analytics/metrics", () => {
   });
 
   // --- Auth ---
-  it("returns 403 when not authenticated", async () => {
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: false,
-    });
+  it("returns 401 when not authenticated", async () => {
+    (AuthHasScope as jest.Mock).mockImplementation(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      async (_req: unknown, res: any) => {
+        res
+          .status(401)
+          .send({ error: "Authentication Required", code: "UNAUTHENTICATED" });
+        throw new Error("Authentication Required");
+      },
+    );
 
     const res = await fastify.inject({
       method: "GET",
       url: "/analytics/metrics",
     });
 
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe("UNAUTHENTICATED");
     expect(DbUtilsNoTelemetryQuerySQL).not.toHaveBeenCalled();
   });
 

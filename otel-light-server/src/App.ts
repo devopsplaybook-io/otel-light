@@ -58,7 +58,12 @@ Promise.resolve().then(async () => {
   await config.reload();
   watchFile(config.CONFIG_FILE, () => {
     logger.info(`Config updated: ${config.CONFIG_FILE}`);
-    config.reload();
+    // common-utils 2.x rejects reload() on an invalid value: keep serving
+    // with the previous configuration instead of dying on an unhandled
+    // rejection from the file watcher.
+    config.reload().catch((error: Error) => {
+      logger.error(`Config reload failed: ${error.message}`);
+    });
   });
 
   OTelSetTracer(new StandardTracer(config));

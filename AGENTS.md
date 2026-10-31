@@ -11,8 +11,8 @@ The repository is a monorepo with three components:
 | Component           | Technology                           | Port | Role                                                               |
 | ------------------- | ------------------------------------ | ---- | ------------------------------------------------------------------ |
 | `otel-light-server` | Node.js + Fastify + TypeScript       | 8080 | API server: OTLP ingestion, analytics, auth, maintenance           |
-| `otel-light-web`    | Nuxt 4.6.1 (Vue 3)                   | 3000 | Static frontend (pre-rendered, served by the server)               |
-| `otel-light-proxy`  | Traefik v2.11.60 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
+| `otel-light-web`    | Nuxt 4.6.3 (Vue 3)                   | 3000 | Static frontend (pre-rendered, served by the server)               |
+| `otel-light-proxy`  | Traefik v2.11.61 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
 
 In production, all three run inside a single Docker container. The server serves the pre-built web assets via `@fastify/static`, eliminating the need for the proxy. The proxy is only used in local development with PM2.
 
@@ -90,7 +90,7 @@ Ingestion accepts **OTLP/JSON only** (`application/json`): Protobuf payloads are
 **Analytics** (web UI):
 
 ```
-Browser → GET /api/analytics/* → AuthGetUserSession → DbUtilsQuerySQL (with OTel span) → JSON response
+Browser → GET /api/analytics/* → AuthHasScope guard → DbUtilsQuerySQL (with OTel span) → JSON response
 ```
 
 **LLM Recommendation** (scheduled via node-schedule):
@@ -144,7 +144,7 @@ Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0012). The `metada
 - **SQL dual-dialect**: Queries are defined as objects with `sqlite` and `postgres` keys. SQLite uses `?` placeholders and unquoted identifiers; Postgres uses `$1, $2, ...` and double-quoted identifiers. The correct variant is selected at runtime via `DbUtilsGetType()`.
 - **SQL queries co-located**: `SQL_QUERIES` constant at the bottom of each file that uses the database. Each query is a function or object keyed by database type.
 - **Test mocking**: Tests use `jest.mock("../../utils-std-ts/DbUtils")` to mock the re-export modules. The mock file path intercepts all imports through that re-export. `jest.mock("uuid", ...)` is handled globally via `jest.config.js` `moduleNameMapper`.
-- **Auth pattern**: `AuthGetUserSession(req)` for read access (returns session or null). `AuthMustBeAdmin(req, res)` for write access (throws on failure). `AuthHasScope(req, res, scope)` for scoped access.
+- **Auth pattern**: authorization goes through the common-utils guards — `AuthHasScope(req, res, scope)` for scoped reads, `AuthMustBeAdmin(req, res)` for write access, `AuthMustBeAuthenticated(req, res)` plus `AuthGetLiveUser(req)` when several scopes grant access. The guards answer **401 `UNAUTHENTICATED`** when there is no live user and **403 `FORBIDDEN`** when the live user lacks the scope or role; they **send the response and then throw**, so every call site must wrap the guard in `try/catch` and `return` from the catch block. `AuthGetUserSession(req)` returns JWT claims only: display, never authorization (see Gotchas).
 - **common-utils adoption**: `utils-std-ts/` files are thin re-exports from `@devopsplaybook.io/common-utils`. Do not add implementations there — extend the shared library instead.
 
 ## Build and Verification
@@ -153,7 +153,7 @@ Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0012). The `metada
 
 ```bash
 cd otel-light-server
-npm install          # installs @devopsplaybook.io/common-utils from npm (^1.15.1)
+npm install          # installs @devopsplaybook.io/common-utils from npm (^2.4.1)
 npm run build        # tsc → dist/ + type-check of spec files (tsconfig.spec.json --noEmit)
 npm run lint         # oxlint src (recommended preset)
 npm run test         # jest --coverage (@swc/jest transform, v8 coverage provider)
@@ -217,6 +217,7 @@ Both pass `node_app_directories: '["otel-light-server", "otel-light-web"]'` to t
 | `jsonwebtoken`                          | JWT generation and verification                                        |
 | `bcrypt`                                | Password hashing                                                       |
 | `uuid`                                  | UUID v4 generation (ESM — requires mock in tests)                      |
+| `@opentelemetry/sdk-trace`              | `Span` type for the init-span parameter passed through the app         |
 | `fs-extra`                              | Async file operations                                                  |
 | `axios`                                 | HTTP client (LLM API calls)                                            |
 | `node-schedule`                         | Cron scheduling for recommendations, reports and maintenance           |
@@ -226,7 +227,7 @@ Both pass `node_app_directories: '["otel-light-server", "otel-light-web"]'` to t
 
 | Package                | Role                                                |
 | ---------------------- | --------------------------------------------------- |
-| `nuxt` (4.6.1)         | Nuxt 4 framework (Vue 3, SSR disabled)              |
+| `nuxt` (4.6.3)         | Nuxt 4 framework (Vue 3, SSR disabled)              |
 | `vue3-apexcharts`      | Vue 3 wrapper for ApexCharts                        |
 | `apexcharts`           | Chart library for trace/metric visualization         |
 | `pinia` / `@pinia/nuxt`| Authentication and services stores                  |
@@ -292,6 +293,8 @@ Key config fields (in addition to those inherited from ConfigBase):
 ## Known Gotchas
 
 - **ConfigBase VERSION override**: `ConfigBase` reads its own `package.json` for `VERSION`, which returns common-utils' version. The `Config` constructor overrides `VERSION` by reading `otel-light-server/package.json` instead.
+- **ConfigBase rejects invalid values (common-utils 2.x)**: an env/config-file value that does not coerce to the type of its default makes `reload()` reject instead of being applied as a string. `Config.reload()` restores `JWT_KEY` in a `finally` block so a rejected reload can never leave the config-file key in place, and the `watchFile` handler only logs the error: the server keeps running with the configuration it had (partially applied fields included), so a bad `config.json` edit does not crash a running instance.
+- **Live authorization (common-utils 2.x)**: the guards read the user from the database on every request, so a demoted admin, a revoked scope or a deleted user takes effect on the next request. `AuthGetUserSession()` still returns the JWT claims and the web store uses them for the UI only — an authorization decision must always come from a guard or `AuthGetLiveUser()`. Login failures answer 401 `INVALID_CREDENTIALS`, so `SessionRenewalIsAuthError` treats 401 and 403 alike.
 - **OTel collector URL defaults**: `ConfigBase` defaults OTel collector URLs to empty strings. The `Config` subclass overrides them to `http://localhost:8080/v1/*` via field initializers. In dev mode, `ecosystem.config.js` overrides them to `http://localhost:9999/v1/*`.
 - **uuid ESM in tests**: `uuid` v14+ ships ESM. The `jest.config.js` maps `uuid` to `src/__mocks__/uuid.ts` globally. Tests that transitively import uuid work without additional mocking.
 - **SQLite is synchronous**: `better-sqlite3` (used by common-utils) returns values synchronously, not Promises. Consuming code uses `await` which works on both synchronous values and Promises.
