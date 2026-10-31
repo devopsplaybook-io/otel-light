@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import * as util from "util";
 import * as zlib from "zlib";
 import { Config } from "../Config";

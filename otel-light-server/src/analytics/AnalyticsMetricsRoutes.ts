@@ -1,7 +1,7 @@
 import { AnalyticsCacheFilterMetricsNames } from "./AnalyticsCache";
 import { FastifyInstance } from "fastify";
 import { Metric } from "../model/Metric";
-import { AuthGetUserSession, AuthHasScope } from "@devopsplaybook.io/common-utils";
+import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
   AnalyticsUtilsCompressJson,
@@ -28,10 +28,6 @@ export class AnalyticsMetricsRoutes {
         maxPoints?: number;
       };
     }>("/", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "metrics");
       } catch {
@@ -134,10 +130,6 @@ export class AnalyticsMetricsRoutes {
         serviceName?: string;
       };
     }>("/names", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "metrics");
       } catch {

@@ -1,5 +1,5 @@
 import { SpanStatusCode } from "@opentelemetry/api";
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { Config } from "./Config";
 import { Settings } from "./model/Settings";
 import { OTelLogger, OTelTracer } from "./OTelContext";

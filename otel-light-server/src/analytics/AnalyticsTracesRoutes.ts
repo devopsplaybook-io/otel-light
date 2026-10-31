@@ -1,8 +1,5 @@
 import { FastifyInstance } from "fastify";
-import {
-  AuthGetUserSession,
-  AuthHasScope,
-} from "@devopsplaybook.io/common-utils";
+import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
 import { Log } from "../model/Log";
@@ -37,10 +34,6 @@ export class AnalyticsTracesRoutes {
         beforeTraceId?: string;
       };
     }>("/", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "traces");
       } catch {
@@ -184,10 +177,6 @@ export class AnalyticsTracesRoutes {
         traceId: string;
       };
     }>("/:traceId/spans", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "traces");
       } catch {
@@ -211,10 +200,6 @@ export class AnalyticsTracesRoutes {
         traceId: string;
       };
     }>("/:traceId/logs", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "logs");
       } catch {

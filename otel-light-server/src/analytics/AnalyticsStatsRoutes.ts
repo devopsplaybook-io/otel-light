@@ -1,8 +1,5 @@
 import { FastifyInstance } from "fastify";
-import {
-  AuthGetUserSession,
-  AuthHasScope,
-} from "@devopsplaybook.io/common-utils";
+import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
@@ -59,10 +56,6 @@ export class AnalyticsStatsRoutes {
         bucketNs?: number;
       };
     }>("/logs/stats", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "logs");
       } catch {
@@ -184,10 +177,6 @@ export class AnalyticsStatsRoutes {
         includePercentiles?: string;
       };
     }>("/traces/stats", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "traces");
       } catch {

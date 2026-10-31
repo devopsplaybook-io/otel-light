@@ -1,13 +1,15 @@
 // H3 regression: stats, services, reports and recommendation routes must
-// enforce authentication, signal scopes and admin rights. AuthHasScope /
-// AuthMustBeAdmin deny by sending 403 and throwing (common-utils behavior);
-// the mocks below reproduce that contract.
+// enforce authentication, signal scopes and admin rights. The common-utils 2.x
+// guards answer 401 UNAUTHENTICATED when there is no live user and 403 FORBIDDEN
+// when the live user lacks the scope or the admin role; the mocks below
+// reproduce that contract (the live user, not the JWT claims, decides).
 
 import Fastify from "fastify";
 
 jest.mock("@devopsplaybook.io/common-utils", () => ({
   ...jest.requireActual("@devopsplaybook.io/common-utils"),
-  AuthGetUserSession: jest.fn(),
+  AuthGetLiveUser: jest.fn(),
+  AuthMustBeAuthenticated: jest.fn(),
   AuthHasScope: jest.fn(),
   AuthMustBeAdmin: jest.fn(),
 }));
@@ -40,9 +42,10 @@ jest.mock("./reports/Recommendation", () => ({
 }));
 
 import {
-  AuthGetUserSession,
+  AuthGetLiveUser,
   AuthHasScope,
   AuthMustBeAdmin,
+  AuthMustBeAuthenticated,
 } from "@devopsplaybook.io/common-utils";
 import { DbUtilsNoTelemetryQuerySQL } from "./utils-std-ts/DbUtilsNoTelemetry";
 import { AnalyticsCacheGetServices } from "./analytics/AnalyticsCache";
@@ -60,17 +63,58 @@ import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { ReportsRoutes } from "./reports/ReportsRoutes";
 import { RecommendationRoutes } from "./reports/RecommendationRoutes";
 
-const deny = (mock: jest.Mock) =>
-  mock.mockImplementation(
-    async (
-      _req: unknown,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      res: any,
-    ) => {
-      res.status(403).send({ error: "Access Denied" });
-      throw new Error("Access Denied");
+interface MockLiveUser {
+  role: "admin" | "user";
+  scopes: string[];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sendUnauthenticated(res: any): void {
+  res
+    .status(401)
+    .send({ error: "Authentication Required", code: "UNAUTHENTICATED" });
+  throw new Error("Authentication Required");
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function sendForbidden(res: any): void {
+  res.status(403).send({ error: "Access Denied", code: "FORBIDDEN" });
+  throw new Error("Access Denied");
+}
+
+function mockAuthUser(user: MockLiveUser | null): void {
+  (AuthGetLiveUser as jest.Mock).mockResolvedValue(user);
+  (AuthMustBeAuthenticated as jest.Mock).mockImplementation(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (_req: unknown, res: any) => {
+      if (!user) {
+        sendUnauthenticated(res);
+      }
     },
   );
+  (AuthHasScope as jest.Mock).mockImplementation(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (_req: unknown, res: any, scope: string) => {
+      if (!user) {
+        sendUnauthenticated(res);
+      }
+      if (user.role !== "admin" && !user.scopes.includes(scope)) {
+        sendForbidden(res);
+      }
+    },
+  );
+  (AuthMustBeAdmin as jest.Mock).mockImplementation(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    async (_req: unknown, res: any) => {
+      if (!user) {
+        sendUnauthenticated(res);
+      }
+      if (user.role !== "admin") {
+        sendForbidden(res);
+      }
+    },
+  );
+}
 
 describe("Scope enforcement (H3)", () => {
   let fastify: ReturnType<typeof Fastify>;
@@ -96,13 +140,7 @@ describe("Scope enforcement (H3)", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: true,
-      role: "user",
-      scopes: ["traces", "metrics", "logs"],
-    });
-    (AuthHasScope as jest.Mock).mockResolvedValue(undefined);
-    (AuthMustBeAdmin as jest.Mock).mockResolvedValue(undefined);
+    mockAuthUser({ role: "user", scopes: ["traces", "metrics", "logs"] });
     (DbUtilsNoTelemetryQuerySQL as jest.Mock).mockResolvedValue([]);
     (AnalyticsCacheGetServices as jest.Mock).mockReturnValue({
       services: ["svc-a"],
@@ -124,13 +162,15 @@ describe("Scope enforcement (H3)", () => {
     "/api/recommendation",
   ];
 
-  it.each(GET_ENDPOINTS)("returns 403 when not authenticated: %s", async (url) => {
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: false,
-    });
-    const res = await fastify.inject({ method: "GET", url });
-    expect(res.statusCode).toBe(403);
-  });
+  it.each(GET_ENDPOINTS)(
+    "returns 401 when not authenticated: %s",
+    async (url) => {
+      mockAuthUser(null);
+      const res = await fastify.inject({ method: "GET", url });
+      expect(res.statusCode).toBe(401);
+      expect(res.json().code).toBe("UNAUTHENTICATED");
+    },
+  );
 
   it.each([
     ["/api/analytics/logs/stats", "logs"],
@@ -141,7 +181,7 @@ describe("Scope enforcement (H3)", () => {
   ])(
     "returns 403 and asks for the %s scope on %s when it is denied",
     async (url, scope) => {
-      deny(AuthHasScope as jest.Mock);
+      mockAuthUser({ role: "user", scopes: [] });
       const res = await fastify.inject({ method: "GET", url });
       expect(res.statusCode).toBe(403);
       expect(AuthHasScope).toHaveBeenCalledWith(
@@ -164,22 +204,14 @@ describe("Scope enforcement (H3)", () => {
   });
 
   it("grants the service list to any signal scope but 403s without one", async () => {
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: true,
-      role: "user",
-      scopes: [],
-    });
+    mockAuthUser({ role: "user", scopes: [] });
     const denied = await fastify.inject({
       method: "GET",
       url: "/api/analytics/services",
     });
     expect(denied.statusCode).toBe(403);
 
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: true,
-      role: "user",
-      scopes: ["metrics"],
-    });
+    mockAuthUser({ role: "user", scopes: ["metrics"] });
     const allowed = await fastify.inject({
       method: "GET",
       url: "/api/analytics/services",
@@ -189,11 +221,7 @@ describe("Scope enforcement (H3)", () => {
   });
 
   it("grants the service list to admins", async () => {
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: true,
-      role: "admin",
-      scopes: [],
-    });
+    mockAuthUser({ role: "admin", scopes: [] });
     const res = await fastify.inject({
       method: "GET",
       url: "/api/analytics/services",
@@ -203,11 +231,14 @@ describe("Scope enforcement (H3)", () => {
 
   it.each([
     ["/api/reports/longest-traces/regenerate", LongestTracesReportGenerate],
-    ["/api/reports/most-called-traces/regenerate", MostCalledTracesReportGenerate],
+    [
+      "/api/reports/most-called-traces/regenerate",
+      MostCalledTracesReportGenerate,
+    ],
   ])(
     "returns 403 without admin rights on POST %s",
     async (url, generateMock) => {
-      deny(AuthMustBeAdmin as jest.Mock);
+      mockAuthUser({ role: "user", scopes: ["traces", "metrics", "logs"] });
       const res = await fastify.inject({ method: "POST", url });
       expect(res.statusCode).toBe(403);
       expect(generateMock).not.toHaveBeenCalled();
@@ -215,7 +246,7 @@ describe("Scope enforcement (H3)", () => {
   );
 
   it("returns 403 without admin rights on POST /api/recommendation/regenerate", async () => {
-    deny(AuthMustBeAdmin as jest.Mock);
+    mockAuthUser({ role: "user", scopes: ["traces", "metrics", "logs"] });
     const res = await fastify.inject({
       method: "POST",
       url: "/api/recommendation/regenerate",
@@ -224,6 +255,7 @@ describe("Scope enforcement (H3)", () => {
   });
 
   it("regenerates reports for admins", async () => {
+    mockAuthUser({ role: "admin", scopes: [] });
     const res = await fastify.inject({
       method: "POST",
       url: "/api/reports/longest-traces/regenerate",
@@ -235,10 +267,14 @@ describe("Scope enforcement (H3)", () => {
 
   it.each([
     ["/api/reports/longest-traces/regenerate", LongestTracesReportGenerate],
-    ["/api/reports/most-called-traces/regenerate", MostCalledTracesReportGenerate],
+    [
+      "/api/reports/most-called-traces/regenerate",
+      MostCalledTracesReportGenerate,
+    ],
   ])(
     "accepts %s without waiting for the background generation",
     async (url, generateMock) => {
+      mockAuthUser({ role: "admin", scopes: [] });
       // A generation that never settles proves the route returns immediately
       // (202) instead of blocking the HTTP request on the full report scan.
       (generateMock as jest.Mock).mockReturnValue(new Promise(() => undefined));

@@ -6,7 +6,6 @@ jest.mock("../utils-std-ts/DbUtilsNoTelemetry", () => ({
 
 jest.mock("@devopsplaybook.io/common-utils", () => ({
   ...jest.requireActual("@devopsplaybook.io/common-utils"),
-  AuthGetUserSession: jest.fn(),
   AuthHasScope: jest.fn(),
 }));
 
@@ -15,10 +14,7 @@ jest.mock("../utils-std-ts/DbUtils", () => ({
 }));
 
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
-import {
-  AuthGetUserSession,
-  AuthHasScope,
-} from "@devopsplaybook.io/common-utils";
+import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { AnalyticsTracesRoutes } from "./AnalyticsTracesRoutes";
 
 const deny = (
@@ -26,8 +22,19 @@ const deny = (
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 ) =>
   mock.mockImplementation(async (_req: unknown, res: any) => {
-    res.status(403).send({ error: "Access Denied" });
+    res.status(403).send({ error: "Access Denied", code: "FORBIDDEN" });
     throw new Error("Access Denied");
+  });
+
+const denyUnauthenticated = (
+  mock: jest.Mock,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+) =>
+  mock.mockImplementation(async (_req: unknown, res: any) => {
+    res
+      .status(401)
+      .send({ error: "Authentication Required", code: "UNAUTHENTICATED" });
+    throw new Error("Authentication Required");
   });
 
 describe("AnalyticsTracesRoutes trace logs", () => {
@@ -47,24 +54,20 @@ describe("AnalyticsTracesRoutes trace logs", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: true,
-    });
     (AuthHasScope as jest.Mock).mockResolvedValue(undefined);
     (DbUtilsNoTelemetryQuerySQL as jest.Mock).mockResolvedValue([]);
   });
 
-  it("returns 403 when not authenticated", async () => {
-    (AuthGetUserSession as jest.Mock).mockResolvedValue({
-      isAuthenticated: false,
-    });
+  it("returns 401 when not authenticated", async () => {
+    denyUnauthenticated(AuthHasScope as jest.Mock);
 
     const res = await fastify.inject({
       method: "GET",
       url: "/api/analytics/traces/t-1/logs",
     });
 
-    expect(res.statusCode).toBe(403);
+    expect(res.statusCode).toBe(401);
+    expect(res.json().code).toBe("UNAUTHENTICATED");
     expect(DbUtilsNoTelemetryQuerySQL).not.toHaveBeenCalled();
   });
 

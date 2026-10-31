@@ -1,5 +1,9 @@
 import { FastifyInstance } from "fastify";
-import { AuthGetUserSession } from "@devopsplaybook.io/common-utils";
+import {
+  AUTH_ERROR_CODE_FORBIDDEN,
+  AuthGetLiveUser,
+  AuthMustBeAuthenticated,
+} from "@devopsplaybook.io/common-utils";
 import { AnalyticsCacheGetServices } from "./AnalyticsCache";
 
 export interface ServiceVersionEntry {
@@ -12,20 +16,23 @@ export class AnalyticsServicesRoutes {
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
     fastify.get("/", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
+      try {
+        await AuthMustBeAuthenticated(req, res);
+      } catch {
+        return;
       }
       // Service list is derived from traces, metrics and logs: any signal
-      // scope grants access (admins always allowed).
-      if (userSession.role !== "admin") {
-        const scopes = userSession.scopes || [];
-        const hasSignalScope = ["traces", "metrics", "logs"].some((scope) =>
-          scopes.includes(scope),
-        );
-        if (!hasSignalScope) {
-          return res.status(403).send({ error: "Access Denied" });
-        }
+      // scope grants access (admins always allowed). The live user is
+      // authoritative — the JWT role/scopes claims are not.
+      const user = await AuthGetLiveUser(req);
+      const scopes = user?.scopes || [];
+      const hasSignalScope =
+        user?.role === "admin" ||
+        ["traces", "metrics", "logs"].some((scope) => scopes.includes(scope));
+      if (!hasSignalScope) {
+        return res
+          .status(403)
+          .send({ error: "Access Denied", code: AUTH_ERROR_CODE_FORBIDDEN });
       }
 
       const cached = AnalyticsCacheGetServices();

@@ -1,6 +1,5 @@
 import { FastifyInstance } from "fastify";
 import {
-  AuthGetUserSession,
   AuthHasScope,
   AuthMustBeAdmin,
 } from "@devopsplaybook.io/common-utils";
@@ -22,10 +21,6 @@ export class ReportsRoutes {
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
     //
     fastify.get("/reports/longest-traces", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "traces");
       } catch {
@@ -59,10 +54,6 @@ export class ReportsRoutes {
     });
 
     fastify.get("/reports/most-called-traces", async (req, res) => {
-      const userSession = await AuthGetUserSession(req);
-      if (!userSession.isAuthenticated) {
-        return res.status(403).send({ error: "Access Denied" });
-      }
       try {
         await AuthHasScope(req, res, "traces");
       } catch {

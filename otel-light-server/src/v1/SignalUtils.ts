@@ -1,5 +1,5 @@
 import { timingSafeEqual } from "crypto";
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { Config, ConfigClampIngestionBodyLimit } from "../Config";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 

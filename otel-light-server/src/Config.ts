@@ -178,9 +178,14 @@ export class Config extends ConfigBase {
     // in the DB metadata table). A config-file/env reload must never clobber
     // it back to a committed config value like "dev" — otherwise forged
     // admin JWTs signed with the public default would be accepted.
+    // common-utils 2.x rejects reload() on an invalid numeric/boolean value,
+    // so the key is restored in a finally block.
     const jwtKey = this.JWT_KEY;
-    await super.reload((message: string) => logger.info(message));
-    this.JWT_KEY = jwtKey;
+    try {
+      await super.reload((message: string) => logger.info(message));
+    } finally {
+      this.JWT_KEY = jwtKey;
+    }
     this.warnIfDefaultJWTKey();
 
     const requestedBodyLimit = this.INGESTION_BODY_LIMIT_BYTES;

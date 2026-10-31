@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/sdk-trace-base";
+import { Span } from "@opentelemetry/sdk-trace";
 import { Config } from "../Config";
 import { OTelLogger, OTelMeter, OTelTracer } from "../OTelContext";
 import { SignalRollupsGetAllCounts } from "../SignalRollups";
