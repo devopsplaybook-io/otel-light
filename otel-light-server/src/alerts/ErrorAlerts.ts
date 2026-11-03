@@ -318,10 +318,10 @@ const SQL_QUERIES = {
   },
   COUNT_ERRORS: (serviceName: string | null) => ({
     postgres:
-      'SELECT COUNT(*) AS count FROM logs WHERE "time" >= $1 AND "time" < $2 AND LOWER("severity") = \'error\'' +
+      'SELECT COUNT(*) AS count FROM logs WHERE "time" >= $1 AND "time" < $2 AND "severity" = \'ERROR\'' +
       (serviceName ? ' AND "serviceName" = $3' : ""),
     sqlite:
-      "SELECT COUNT(*) AS count FROM logs WHERE time >= ? AND time < ? AND LOWER(severity) = 'error'" +
+      "SELECT COUNT(*) AS count FROM logs WHERE time >= ? AND time < ? AND severity = 'ERROR'" +
       (serviceName ? " AND serviceName = ?" : ""),
   }),
   GET_MAINTENANCE_STATE: {

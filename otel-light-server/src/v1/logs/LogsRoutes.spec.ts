@@ -454,4 +454,184 @@ describe("LogsRoutes POST /v1/logs", () => {
     expect(rows[1][0]).toBe("my-svc");
     expect(rows[1][1]).toBe("1.0.0");
   });
+
+  // --- Severity normalization (H2) ---
+  const storedRow = (index = 0) =>
+    (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2][index];
+
+  it.each([
+    ["ERROR", "ERROR"],
+    ["error", "ERROR"],
+    [" warning ", "WARN"],
+    ["WARNING2", "WARN"],
+    ["custom", "CUSTOM"],
+    ["ERROR\u0000", "ERROR"],
+  ])("stores canonical severity for %p", async (input, expected) => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([mockLogRecord({ severityText: input })]),
+    });
+
+    expect(storedRow()[5]).toBe(expected);
+  });
+
+  it("derives severity from severityNumber when severityText is absent", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ severityText: undefined, severityNumber: 13 }),
+      ]),
+    });
+
+    expect(storedRow()[5]).toBe("WARN");
+  });
+
+  it("stores an empty severity when both severity fields are absent", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([mockLogRecord({ severityText: undefined })]),
+    });
+
+    expect(storedRow()[5]).toBe("");
+  });
+
+  it("prefers severityText over severityNumber", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ severityText: "info", severityNumber: 17 }),
+      ]),
+    });
+
+    expect(storedRow()[5]).toBe("INFO");
+  });
+
+  // --- Time handling (M1) ---
+  it("falls back to the ingestion time when timeUnixNano is missing", async () => {
+    const before = Date.now() * 1_000_000;
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([mockLogRecord({ timeUnixNano: undefined })]),
+    });
+    const after = Date.now() * 1_000_000;
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({});
+    expect(storedRow()[4]).toBeGreaterThanOrEqual(before);
+    expect(storedRow()[4]).toBeLessThanOrEqual(after);
+  });
+
+  it.each(["abc", "0", "-1", "1e30", 1.5])(
+    "rejects only the record with an invalid time (%p)",
+    async (timeUnixNano) => {
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/logs",
+        payload: buildBody([
+          mockLogRecord({ timeUnixNano }),
+          mockLogRecord({
+            timeUnixNano: 2_000_000_000,
+            body: { stringValue: "valid" },
+          }),
+        ]),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        partialSuccess: {
+          rejectedLogRecords: "1",
+          errorMessage: expect.any(String),
+        },
+      });
+      const rows = (DbUtilsNoTelemetryBatchInsert as jest.Mock).mock.calls[0][2];
+      expect(rows).toHaveLength(1);
+      expect(rows[0][4]).toBe(2_000_000_000);
+      expect(rows[0][6]).toBe("valid");
+      const [, entries] = (SignalRollupsRecordSignalInsert as jest.Mock).mock
+        .calls[0];
+      expect(entries).toEqual([
+        { serviceName: "my-svc", serviceVersion: "1.0.0", time: 2_000_000_000 },
+      ]);
+    },
+  );
+
+  it("does not insert or record rollups when every record is rejected", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ timeUnixNano: "abc" }),
+        mockLogRecord({ timeUnixNano: 0 }),
+      ]),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({
+      partialSuccess: {
+        rejectedLogRecords: "2",
+        errorMessage: expect.any(String),
+      },
+    });
+    expect(DbUtilsNoTelemetryBatchInsert).not.toHaveBeenCalled();
+    expect(SignalRollupsRecordSignalInsert).toHaveBeenCalledWith("logs", []);
+  });
+
+  // --- Row content limits (M1, L10) ---
+  it("truncates oversized ids and drops non-string ids", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ traceId: "t".repeat(60), spanId: 123 }),
+      ]),
+    });
+
+    const row = storedRow();
+    expect(row[2]).toHaveLength(50);
+    expect(row[2]).toBe("t".repeat(50));
+    expect(row[3]).toBeNull();
+  });
+
+  it("caps logText at 65,536 characters", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({ body: { stringValue: "x".repeat(70_000) } }),
+      ]),
+    });
+
+    expect(storedRow()[6]).toHaveLength(65_536);
+  });
+
+  it("strips NUL characters and truncates service values", async () => {
+    const longService = "s".repeat(2_100);
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/logs",
+      payload: buildBody([
+        mockLogRecord({
+          severityText: "ERROR\u0000",
+          body: { stringValue: "a\u0000b" },
+          attributes: [
+            {
+              key: "service.name",
+              value: { stringValue: `${longService}\u0000` },
+            },
+          ],
+        }),
+      ]),
+    });
+
+    const row = storedRow();
+    expect(row[0]).toHaveLength(2_000);
+    expect(row[0]).not.toContain("\u0000");
+    expect(row[5]).toBe("ERROR");
+    expect(row[6]).toBe("ab");
+  });
 });

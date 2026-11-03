@@ -112,6 +112,26 @@ describe("SignalUtilsGetServiceName", () => {
     expect(SignalUtilsGetServiceName(null)).toBe("unknown");
     expect(SignalUtilsGetServiceName(undefined)).toBe("unknown");
   });
+
+  it.each([
+    ["a string", "nope"],
+    ["an object", { "service.name": "svc" }],
+    ["a number", 42],
+    ["an attributes object", { attributes: { key: "service.name" } }],
+  ])("should return 'unknown' when attributes is %s", (_label, resource) => {
+    expect(SignalUtilsGetServiceName(resource)).toBe("unknown");
+  });
+
+  it("should ignore null/undefined attribute entries", () => {
+    const resource = {
+      attributes: [
+        null,
+        undefined,
+        { key: "service.name", value: { stringValue: "my-service" } },
+      ],
+    };
+    expect(SignalUtilsGetServiceName(resource)).toBe("my-service");
+  });
 });
 
 describe("SignalUtilsGetServiceVersion", () => {
@@ -131,6 +151,12 @@ describe("SignalUtilsGetServiceVersion", () => {
 
   it("should return 'unknown' when resource is null", () => {
     expect(SignalUtilsGetServiceVersion(null)).toBe("unknown");
+  });
+
+  it("should return 'unknown' when attributes is not an array", () => {
+    expect(
+      SignalUtilsGetServiceVersion({ attributes: "service.version=1.0" }),
+    ).toBe("unknown");
   });
 });
 

@@ -166,6 +166,18 @@ describe("ErrorAlerts", () => {
     expect(String(calls[1][1])).not.toContain("serviceName");
   });
 
+  it("counts the canonical uppercase severity without LOWER()", async () => {
+    rulesInSettings = [
+      { id: "r1", serviceName: "", threshold: 0, periodHours: 1, enabled: true },
+    ];
+
+    await ErrorAlertsEvaluate();
+
+    const [call] = countQueryCalls();
+    expect(String(call[1])).toContain("severity = 'ERROR'");
+    expect(String(call[1])).not.toMatch(/LOWER\s*\(\s*"?severity"?\s*\)/i);
+  });
+
   it("skips disabled rules without querying or recording an outcome", async () => {
     rulesInSettings = [
       { id: "r1", serviceName: "", threshold: 0, periodHours: 1, enabled: false },
