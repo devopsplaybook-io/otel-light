@@ -1,5 +1,14 @@
 export const HOME_OVERVIEW_WINDOW_SECONDS = 24 * 60 * 60;
 
+// The recommendation payload (and its LLM text) is derived from both traces
+// and logs, so the server requires both scopes.
+export function HomeOverviewCanAccessRecommendation(
+  hasTracesScope: boolean,
+  hasLogsScope: boolean,
+): boolean {
+  return !!(hasTracesScope && hasLogsScope);
+}
+
 export interface HomeOverviewJobHealth {
   label: string;
   generatedAt: string | null;

@@ -1,14 +1,17 @@
 import * as fs from "fs-extra";
 import * as path from "path";
 
-// The common-utils migration runner reads `Number(MAX(value))` from
-// metadata.type='db_version' and re-applies on every boot every init file
-// whose version is above it. In Postgres `value` is VARCHAR, so once
-// two-digit versions exist MAX('1'..'9','10','11') is lexicographically '9':
-// all files from init-0010 onwards are re-executed at every startup. They
-// must therefore stay re-runnable no matter how often they are applied.
-// (SQLite stores the same values with INTEGER affinity, so its MAX is
-// numeric and its files are applied only once - not covered by this guard.)
+// The common-utils migration runner (>= 2.4.1) reads
+// `MAX(CAST(value AS INTEGER))` from metadata.type='db_version' in both
+// dialects, so versions are compared numerically and every init file is
+// normally applied exactly once. Older common-utils releases used a plain
+// MAX(value); in Postgres `value` is VARCHAR, so MAX('1'..'9','10','11') was
+// lexicographically '9' and every file from init-0010 onwards was re-executed
+// at each startup. The guard below stays as defence in depth: a future
+// dependency downgrade or a new runner must not turn a non-idempotent file
+// into a startup failure (an un-runnable migration takes the whole server
+// down), and PostgreSQL-only statements must remain re-runnable for the same
+// reason.
 const FIRST_REAPPLIED_VERSION = 10;
 
 const stripSqlComments = (sql: string): string =>

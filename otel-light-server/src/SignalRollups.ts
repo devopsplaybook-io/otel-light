@@ -269,6 +269,165 @@ export async function SignalRollupsRecordMetricNameDeletion(
   await DbUtilsNoTelemetryExecSQL(SQL.DELETE_EMPTY_METRIC_NAMES[dbType], []);
 }
 
+// ── Reconciliation ────────────────────────────────────────────────────────────
+
+export interface SignalRollupReconcileResult {
+  serviceRowsDrift: number;
+  metricNameRowsDrift: number;
+  repaired: boolean;
+}
+
+interface RollupDrift {
+  rows: number;
+  maxDelta: number;
+  examples: string[];
+}
+
+// Compare the incremental rollups with the authoritative counts computed from
+// the raw tables. Drift is logged (log-only by design: no new OTel metric) and
+// repaired with a full recount. This covers drift a crash between the delete
+// and the rollup decrement can leave behind.
+export async function SignalRollupsReconcile(
+  context: Span,
+): Promise<SignalRollupReconcileResult> {
+  const span = OTelTracer().startSpan("SignalRollupsReconcile", context);
+  try {
+    const dbType = DbUtilsGetType();
+    const [
+      tracesRows,
+      metricsRows,
+      logsRows,
+      metricNamesRows,
+      currentServiceRows,
+      currentMetricNameRows,
+    ] = await Promise.all([
+      DbUtilsNoTelemetryQuerySQL(SQL.SELECT_TRACES_COUNTS[dbType], []),
+      DbUtilsNoTelemetryQuerySQL(SQL.SELECT_METRICS_COUNTS[dbType], []),
+      DbUtilsNoTelemetryQuerySQL(SQL.SELECT_LOGS_COUNTS[dbType], []),
+      DbUtilsNoTelemetryQuerySQL(SQL.SELECT_METRIC_NAMES_COUNTS[dbType], []),
+      DbUtilsNoTelemetryQuerySQL(SQL.GET_ALL_COUNTS, []),
+      DbUtilsNoTelemetryQuerySQL(SQL.GET_ALL_METRIC_NAMES_COUNTS, []),
+    ]);
+
+    const expectedServices = new Map<string, number>();
+    const addExpectedServices = (
+      signalType: SignalType,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      rows: any[],
+    ): void => {
+      for (const row of rows) {
+        const key = `${signalType}\u0000${row.serviceName}\u0000${row.serviceVersion}`;
+        expectedServices.set(key, Number(row.cnt));
+      }
+    };
+    addExpectedServices("traces", tracesRows);
+    addExpectedServices("metrics", metricsRows);
+    addExpectedServices("logs", logsRows);
+
+    const currentServices = new Map<string, number>();
+    for (const row of currentServiceRows) {
+      currentServices.set(
+        `${row.signalType}\u0000${row.serviceName}\u0000${row.serviceVersion}`,
+        Number(row.count),
+      );
+    }
+
+    const expectedNames = new Map<string, number>();
+    for (const row of metricNamesRows) {
+      expectedNames.set(
+        `${row.serviceName}\u0000${row.name}\u0000${row.type}`,
+        Number(row.cnt),
+      );
+    }
+    const currentNames = new Map<string, number>();
+    for (const row of currentMetricNameRows) {
+      currentNames.set(
+        `${row.serviceName}\u0000${row.name}\u0000${row.type}`,
+        Number(row.count),
+      );
+    }
+
+    const serviceDrift = diffCounts(expectedServices, currentServices);
+    const nameDrift = diffCounts(expectedNames, currentNames);
+
+    if (serviceDrift.rows === 0 && nameDrift.rows === 0) {
+      logger.info("Signal rollups are consistent with the raw tables", span);
+      return {
+        serviceRowsDrift: 0,
+        metricNameRowsDrift: 0,
+        repaired: false,
+      };
+    }
+
+    const examples = [...serviceDrift.examples, ...nameDrift.examples].slice(
+      0,
+      10,
+    );
+    const maxDelta = Math.max(serviceDrift.maxDelta, nameDrift.maxDelta);
+    logger.warn(
+      `Signal rollup drift detected: ${serviceDrift.rows} service rows, ` +
+        `${nameDrift.rows} metric-name rows (max delta ${maxDelta})` +
+        (examples.length > 0 ? `; e.g. ${examples.join("; ")}` : ""),
+      span,
+    );
+
+    await recount(span);
+    rollupsReady = true;
+    logger.info("Signal rollup recount repaired drift", span);
+    return {
+      serviceRowsDrift: serviceDrift.rows,
+      metricNameRowsDrift: nameDrift.rows,
+      repaired: true,
+    };
+  } catch (err) {
+    logger.error(
+      `Failed to reconcile signal rollups: ${err.message}`,
+      err,
+      span,
+    );
+    throw err;
+  } finally {
+    span.end();
+  }
+}
+
+function diffCounts(
+  expected: Map<string, number>,
+  current: Map<string, number>,
+): RollupDrift {
+  let rows = 0;
+  let maxDelta = 0;
+  const examples: string[] = [];
+  const keys = new Set([...expected.keys(), ...current.keys()]);
+  for (const key of keys) {
+    const expectedCount = expected.get(key) ?? 0;
+    const currentCount = current.get(key) ?? 0;
+    if (expectedCount === currentCount) {
+      continue;
+    }
+    rows++;
+    maxDelta = Math.max(maxDelta, Math.abs(expectedCount - currentCount));
+    if (examples.length < 5) {
+      examples.push(
+        // eslint-disable-next-line no-control-regex
+        `${sanitizeDriftIdentifier(key.replace(/\u0000/g, "/"))} expected ${expectedCount} actual ${currentCount}`,
+      );
+    }
+  }
+  return { rows, maxDelta, examples };
+}
+
+// Telemetry-derived identifiers go into a log line: strip control characters
+// and bound the length so a malicious service name cannot forge log entries.
+function sanitizeDriftIdentifier(value: string): string {
+  return value
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\u0000-\u001f\u007f-\u009f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 100);
+}
+
 // ── Reads (O(1) rollup reads replacing full-table scans) ──────────────────────
 
 export async function SignalRollupsGetAllCounts(): Promise<
@@ -524,6 +683,8 @@ const SQL = {
   },
   GET_ALL_COUNTS:
     'SELECT "signalType", "serviceName", "serviceVersion", "count" FROM signal_service_counts WHERE "count" > 0',
+  GET_ALL_METRIC_NAMES_COUNTS:
+    'SELECT "serviceName", "name", "type", "count" FROM signal_metric_names WHERE "count" > 0',
   GET_SERVICES:
     'SELECT DISTINCT "serviceName" FROM signal_service_counts WHERE "count" > 0 ORDER BY "serviceName"',
   GET_SERVICE_VERSIONS:

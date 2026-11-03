@@ -8,7 +8,9 @@ import {
   RecommendationGetCached,
 } from "./Recommendation";
 
-// The recommendation is derived from traces: the `traces` scope grants access.
+// The cached payload and the LLM text include log totals, per-severity
+// counts and top error messages: both the `traces` and `logs` scopes are
+// required (the logs endpoints grant the same data only with `logs`).
 export class RecommendationRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -16,6 +18,7 @@ export class RecommendationRoutes {
     fastify.get("/", async (req, res) => {
       try {
         await AuthHasScope(req, res, "traces");
+        await AuthHasScope(req, res, "logs");
       } catch {
         return;
       }

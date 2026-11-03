@@ -2,8 +2,22 @@ import { describe, expect, it } from "vitest";
 import {
   HOME_OVERVIEW_WINDOW_SECONDS,
   HomeOverviewBuildModel,
+  HomeOverviewCanAccessRecommendation,
   HomeOverviewWindowNs,
 } from "../services/HomeOverview";
+
+describe("HomeOverviewCanAccessRecommendation", () => {
+  it.each([
+    [true, true, true],
+    [true, false, false],
+    [false, true, false],
+    [false, false, false],
+  ])("traces=%p logs=%p -> %p", (hasTraces, hasLogs, expected) => {
+    expect(HomeOverviewCanAccessRecommendation(hasTraces, hasLogs)).toBe(
+      expected
+    );
+  });
+});
 
 describe("HomeOverviewWindowNs", () => {
   it("returns a 24h window ending at now, in nanoseconds", () => {

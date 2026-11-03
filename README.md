@@ -88,6 +88,7 @@ See [`docs/deployments`](docs/deployments) for additional deployment options.
 - **Reverse proxies**: buckets are keyed on the client IP. Set `API_TRUST_PROXY=true` only when a trusted reverse proxy overwrites `X-Forwarded-For`; on a directly exposed server, trusting the header lets clients spoof their IP and evade the limits.
 - **Admin-only data**: reading and writing `/api/settings/:category` and `GET /api/alerts/status` require the admin role.
 - **Trace logs**: `/api/analytics/traces/:traceId/logs` requires the `logs` scope; the trace pages hide/skip the log panel for users without it.
+- **Recommendation data**: `GET /api/recommendation` returns log-derived statistics (totals, per-severity counts, top error messages), so it requires **both** the `traces` and `logs` scopes. The home page hides the card for users lacking either scope.
 - **CSV export**: exported log values that start with `=`, `+`, `-`, `@`, tab, CR or LF are prefixed with an apostrophe so spreadsheets treat them as text instead of formulas.
 - **Browser tokens**: the web UI keeps its JWT in `localStorage`, so any XSS on the app origin could read it (markdown is sanitized before rendering). Tokens without a numeric `exp` claim are rejected. API tokens can be revoked immediately and their permissions are re-checked on every request. This is an accepted tradeoff of the SPA; do not host untrusted scripts on the same origin.
 
@@ -113,7 +114,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | METRICS_COMPRESS_HOUR_THRESHOLD_DAYS                    | Days before hour-level metrics are compressed         | 7                                           | Config file or environment variable |
 | MAINTENANCE_FREQUENCY_HOURS                             | Frequency of execution of maintenance rule (in hours) | 6                                           | Config file or environment variable |
 | CACHE_REFRESH_MINUTES                                   | Interval (in minutes) to refresh the services cache   | 10                                          | Config file or environment variable |
-| METRICS_SELF_REFRESH_MINUTES                            | Refresh interval (in minutes) for the self-metrics gauges | 10                                      | Config file or environment variable |
+| METRICS_SELF_REFRESH_MINUTES                            | Refresh interval (in minutes) for the self-metrics gauges (clamped to 1–1440) | 10                        | Config file or environment variable |
 | DATABASE_TYPE                                           | Database type (`sqlite` or `postgres`)                | sqlite                                      | Config file or environment variable |
 | DATABASE_POSTGRES_HOST                                  | PostgreSQL server hostname                            |                                             | Config file or environment variable |
 | DATABASE_POSTGRES_PORT                                  | PostgreSQL server port                                |                                             | Config file or environment variable |
@@ -130,7 +131,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | LLM_THINKING_MODE                                       | Thinking mode for reasoning LLMs (`disabled`, `enabled` or `omit`) | `disabled`                                  | Config file or environment variable |
 | LLM_RECOMMENDATION_SCHEDULE_CRON                        | Cron expression for daily recommendation generation   | `20 0 * * *`                                | Config file or environment variable |
 | LLM_RECOMMENDATION_PERIOD_HOURS                         | Hours of telemetry data to include in each report     | 24                                          | Config file or environment variable |
-| LLM_RECOMMENDATION_SAMPLE_CAP                           | Max root spans randomly sampled for percentiles       | 20000                                       | Config file or environment variable |
+| LLM_RECOMMENDATION_SAMPLE_CAP                           | Max root spans deterministically sampled for percentiles | 20000                                     | Config file or environment variable |
 | LLM_RECOMMENDATION_TIMEOUT_SECONDS                      | Overall budget for all LLM attempts (including retries and backoff) | 180                            | Config file or environment variable |
 | LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES                | Delay before the initial recommendation generation    | 2                                           | Config file or environment variable |
 | STATIC_REPORT_SCHEDULE_CRON                             | Cron expression for the longest-traces report         | `40 0 * * *`                                | Config file or environment variable |
@@ -168,9 +169,9 @@ When `LLM_API_KEY` is configured, OTel Light automatically generates a daily tel
 ### How it works
 
 1. **Statistics collection**: At the scheduled time, the server queries the database for the last N hours (configurable via `LLM_RECOMMENDATION_PERIOD_HOURS`, default 24h) and gathers:
-   - **Logs** — total count, error count, per-service breakdown with error rates, per-severity distribution
-   - **Traces** — total count, traces with errors, per-service breakdown, top 5 trace types by cumulative duration with per-service breakdown (count, total/avg duration, errors)
-   - **Metrics** — total data points, per-service breakdown
+   - **Logs** — total count, error count, per-service breakdown with error rates, per-severity distribution, top error messages
+   - **Traces** — total count, traces with errors, per-service breakdown, HTTP status classes on root spans, and four trace-type rankings (count, errors, cumulative duration, average duration) with P50/P95/P99 durations from a bounded deterministic sample
+   Telemetry-derived text is bounded and sanitized, and the whole data block is wrapped in `<untrusted_telemetry_data>` tags: the system prompt instructs the model to treat it strictly as data and ignore any instructions embedded in service names, trace names, log messages or attributes.
 2. **LLM analysis**: The collected statistics are sent to the configured LLM, which returns:
    - **Analysis** — overall system health assessment, notable patterns, anomalies, and trends
    - **Recommendations** — actionable, prioritized bullet points for improvement
@@ -178,7 +179,7 @@ When `LLM_API_KEY` is configured, OTel Light automatically generates a daily tel
 
 ### API
 
-- `GET /api/recommendation` — Returns the latest cached recommendation (analysis + recommendations + raw statistics)
+- `GET /api/recommendation` — Returns the latest cached recommendation (analysis + recommendations + raw statistics). Requires both the `traces` and `logs` scopes because the payload includes log-derived statistics.
 
 ### Frontend
 

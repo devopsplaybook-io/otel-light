@@ -78,10 +78,14 @@ Promise.resolve().then(async () => {
   await SignalUtilsInit(span, config);
   await AnalyticsUtilsInit(span, config);
   await AnalyticsStatsInit(span, config);
+  const migrationsStartedAt = Date.now();
   await DbUtilsInit(
     span,
     config,
     path.join(__dirname, `../sql/${config.DATABASE_TYPE}`),
+  );
+  logger.info(
+    `Database migrations completed in ${Date.now() - migrationsStartedAt} ms (type=${config.DATABASE_TYPE})`,
   );
   AuthSetOTel(OTelTracer());
   UsersDataSetOTel(OTelTracer());

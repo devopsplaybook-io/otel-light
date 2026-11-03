@@ -76,11 +76,24 @@ export async function SelfMetricsInit(context: Span, configIn: Config) {
   );
 
   SelfMetricsRefreshMetrics();
-  setInterval(() => {
-    SelfMetricsRefreshMetrics();
-  }, config.METRICS_SELF_REFRESH_MINUTES * 60_000);
+  // unref: this refresh must not keep the process alive on its own (the HTTP
+  // listener does); also avoids pinning test runners open.
+  const timer = setInterval(
+    () => {
+      SelfMetricsRefreshMetrics();
+    },
+    SelfMetricsGetRefreshIntervalMs(config.METRICS_SELF_REFRESH_MINUTES),
+  );
+  timer.unref();
 
   span.end();
+}
+
+// Guard against a 0/negative/invalid interval (which would schedule a ~1 ms
+// loop): fall back to 10 minutes, never below one minute. Config.reload()
+// already clamps the field to 1-1440, this protects direct callers.
+export function SelfMetricsGetRefreshIntervalMs(minutes: unknown): number {
+  return Math.max(Number(minutes) || 10, 1) * 60_000;
 }
 
 // Private Functions

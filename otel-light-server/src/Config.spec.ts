@@ -238,3 +238,67 @@ describe("Config scheduled work and analytics stats defaults (M8/M10)", () => {
     expect(tooLow.LLM_RECOMMENDATION_TIMEOUT_SECONDS).toBe(0.001);
   });
 });
+
+describe("Config background refresh and LLM sampling caps (M5/M7)", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "otel-light-config-"));
+    jest.clearAllMocks();
+  });
+
+  afterEach(async () => {
+    await fs.remove(tmpDir);
+  });
+
+  const newConfig = async (configContent?: object): Promise<Config> => {
+    const configFile = path.join(tmpDir, "config.json");
+    if (configContent) {
+      await fs.writeJson(configFile, configContent);
+    }
+    const config = new Config();
+    config.CONFIG_FILE = configFile;
+    return config;
+  };
+
+  it("defaults the self-metrics refresh to 10 minutes", async () => {
+    const config = await newConfig();
+    await config.reload();
+    expect(config.METRICS_SELF_REFRESH_MINUTES).toBe(10);
+    expect(config.LLM_RECOMMENDATION_SAMPLE_CAP).toBe(20000);
+  });
+
+  it("reads the refresh interval from the config file", async () => {
+    const config = await newConfig({ METRICS_SELF_REFRESH_MINUTES: 30 });
+    await config.reload();
+    expect(config.METRICS_SELF_REFRESH_MINUTES).toBe(30);
+  });
+
+  it("clamps a zero or negative refresh interval so no hot loop is possible", async () => {
+    const zero = await newConfig({ METRICS_SELF_REFRESH_MINUTES: 0 });
+    await zero.reload();
+    expect(zero.METRICS_SELF_REFRESH_MINUTES).toBe(1);
+
+    const negative = await newConfig({ METRICS_SELF_REFRESH_MINUTES: -5 });
+    await negative.reload();
+    expect(negative.METRICS_SELF_REFRESH_MINUTES).toBe(1);
+  });
+
+  it("clamps the refresh interval above the maximum", async () => {
+    const config = await newConfig({ METRICS_SELF_REFRESH_MINUTES: 999_999 });
+    await config.reload();
+    expect(config.METRICS_SELF_REFRESH_MINUTES).toBe(1440);
+  });
+
+  it("clamps the LLM sample cap to a sane range", async () => {
+    const low = await newConfig({ LLM_RECOMMENDATION_SAMPLE_CAP: 0 });
+    await low.reload();
+    expect(low.LLM_RECOMMENDATION_SAMPLE_CAP).toBe(1);
+
+    const high = await newConfig({
+      LLM_RECOMMENDATION_SAMPLE_CAP: 5_000_000,
+    });
+    await high.reload();
+    expect(high.LLM_RECOMMENDATION_SAMPLE_CAP).toBe(1_000_000);
+  });
+});
