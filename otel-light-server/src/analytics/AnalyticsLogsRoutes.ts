@@ -3,10 +3,12 @@ import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { Log } from "../model/Log";
 import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import {
+  AnalyticsUtilsEscapeLike,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
+  AnalyticsUtilsParseOffset,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { SignalNormalizationSeverity } from "../SignalNormalization";
@@ -37,6 +39,10 @@ export class AnalyticsLogsRoutes {
       } catch {
         return;
       }
+      const parsedOffset = AnalyticsUtilsParseOffset(req.query.offset);
+      if (parsedOffset === null) {
+        return res.status(400).send({ error: "Invalid offset" });
+      }
       const dbType = DbUtilsGetType();
       const sqlParams = [];
       const varAt = (index: number) =>
@@ -45,7 +51,7 @@ export class AnalyticsLogsRoutes {
       const hasBefore = req.query.before !== undefined;
       // Keyset pagination: when `before` is provided, use cursor instead of OFFSET.
       // This avoids the O(n) scan cost of large OFFSET values on big tables.
-      const offset = isRefresh || hasBefore ? 0 : req.query.offset || 0;
+      const offset = isRefresh || hasBefore ? 0 : parsedOffset;
 
       const fromTime = req.query.from || AnalyticsUtilsGetDefaultFromTime();
       let sqlWhere =
@@ -95,8 +101,10 @@ export class AnalyticsLogsRoutes {
       }
       if (req.query.keywords?.trim()) {
         sqlWhere +=
-          " AND keywords LIKE " + varAt(sqlParams.length + 1);
-        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+          " AND keywords LIKE " + varAt(sqlParams.length + 1) + " ESCAPE '\\'";
+        sqlParams.push(
+          `%${AnalyticsUtilsEscapeLike(req.query.keywords.toLowerCase().trim())}%`,
+        );
       }
       const severity = SignalNormalizationSeverity(req.query.severity);
       if (severity) {
@@ -115,8 +123,11 @@ export class AnalyticsLogsRoutes {
         sqlParams.push(String(req.query.serviceVersion).trim());
       }
 
+      const limitVar = varAt(sqlParams.length + 1);
+      const offsetVar = varAt(sqlParams.length + 2);
+      sqlParams.push(PAGE_SIZE, offset);
       const rawLogs = await DbUtilsNoTelemetryQuerySQL(
-        SQL_QUERIES.GET_LOGS(sqlWhere, PAGE_SIZE, offset)[dbType],
+        SQL_QUERIES.GET_LOGS(sqlWhere, limitVar, offsetVar)[dbType],
         sqlParams,
       );
       const logs = [];
@@ -137,8 +148,8 @@ export class AnalyticsLogsRoutes {
 // SQL
 
 const SQL_QUERIES = {
-  GET_LOGS: (sqlWhere: string, limit: number, offset: number) => ({
-    postgres: `SELECT "time", "severity", "serviceName", "serviceVersion", "traceId", "spanId", "logText", "attributes", "recordId" FROM logs ${sqlWhere} ORDER BY "time" DESC, "recordId" DESC LIMIT ${limit} OFFSET ${offset}`,
-    sqlite: `SELECT time, severity, serviceName, serviceVersion, traceId, spanId, logText, attributes, recordId FROM logs ${sqlWhere} ORDER BY time DESC, recordId DESC LIMIT ${limit} OFFSET ${offset}`,
+  GET_LOGS: (sqlWhere: string, limitVar: string, offsetVar: string) => ({
+    postgres: `SELECT "time", "severity", "serviceName", "serviceVersion", "traceId", "spanId", "logText", "attributes", "recordId" FROM logs ${sqlWhere} ORDER BY "time" DESC, "recordId" DESC LIMIT ${limitVar} OFFSET ${offsetVar}`,
+    sqlite: `SELECT time, severity, serviceName, serviceVersion, traceId, spanId, logText, attributes, recordId FROM logs ${sqlWhere} ORDER BY time DESC, recordId DESC LIMIT ${limitVar} OFFSET ${offsetVar}`,
   }),
 };

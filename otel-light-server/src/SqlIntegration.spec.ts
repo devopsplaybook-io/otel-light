@@ -695,6 +695,32 @@ describe("SQL-level integration (sqlite)", () => {
         "rec-b",
       ]);
     });
+
+    it("accepts a valid offset", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs?from=0&to=${to}&serviceName=log-svc&offset=1`,
+      });
+      expect(res.statusCode).toBe(200);
+      const logs = await decodeB64Json(res.json().logs);
+      expect(logs.map((log: Loose) => log.recordId)).toEqual([
+        "rec-c",
+        "rec-b",
+        "rec-a",
+      ]);
+    });
+
+    it.each(["-1", "abc", "1.5", "(SELECT 1)", "1000001"])(
+      "rejects an invalid offset %p with 400",
+      async (offset) => {
+        const res = await fastify.inject({
+          method: "GET",
+          url: `/api/analytics/logs?from=0&to=${to}&serviceName=log-svc&offset=${encodeURIComponent(offset)}`,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toBe("Invalid offset");
+      },
+    );
   });
 
   // =========================================================================
@@ -799,6 +825,62 @@ describe("SQL-level integration (sqlite)", () => {
       expect(traces.map((trace: Loose) => trace.traceId)).toEqual(["tr-a"]);
     });
 
+    it("filters by exact root span name and combines with the other filters", async () => {
+      const byName = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces?from=${from}&to=${to}&serviceName=trace-svc&name=op-a`,
+      });
+      expect(byName.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(byName.json().traces)).map(
+          (trace: Loose) => trace.traceId,
+        ),
+      ).toEqual(["tr-a"]);
+
+      const byKeywords = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces?from=${from}&to=${to}&serviceName=trace-svc&keywords=op-a`,
+      });
+      expect(byKeywords.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(byKeywords.json().traces)).map(
+          (trace: Loose) => trace.traceId,
+        ),
+      ).toEqual(["tr-a"]);
+
+      const noErrorMatch = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces?from=${from}&to=${to}&serviceName=trace-svc&name=op-b&errorsOnly=true`,
+      });
+      expect(noErrorMatch.statusCode).toBe(200);
+      expect(await decodeB64Json(noErrorMatch.json().traces)).toEqual([]);
+    });
+
+    it.each(["-1", "abc", "1.5", "(SELECT 1)", "1000001"])(
+      "rejects an invalid offset %p with 400",
+      async (offset) => {
+        const res = await fastify.inject({
+          method: "GET",
+          url: `/api/analytics/traces?from=${from}&to=${to}&offset=${encodeURIComponent(offset)}`,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toBe("Invalid offset");
+      },
+    );
+
+    it("accepts a valid offset", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces?from=${from}&to=${to}&offset=1`,
+      });
+      expect(res.statusCode).toBe(200);
+      const traces = await decodeB64Json(res.json().traces);
+      expect(traces.map((trace: Loose) => trace.traceId)).toEqual([
+        "tr-b",
+        "tr-a",
+      ]);
+    });
+
     it("returns the spans of a trace ordered by start time", async () => {
       const res = await fastify.inject({
         method: "GET",
@@ -810,6 +892,12 @@ describe("SQL-level integration (sqlite)", () => {
         "s-a1",
         "s-a2",
       ]);
+      // L9: no duplicated attribute payload, raw JSON is still available.
+      for (const span of spans) {
+        expect(span).not.toHaveProperty("attributes");
+        expect(span).not.toHaveProperty("keywords");
+        expect(typeof span.rawSpan).toBe("object");
+      }
     });
   });
 
@@ -887,6 +975,257 @@ describe("SQL-level integration (sqlite)", () => {
       expect(res.statusCode).toBe(200);
       const body = res.json();
       expect(body.totalCount).toBe(3);
+    });
+  });
+
+  describe("Analytics logs stats bounds", () => {
+    const nowNs = Date.now() * 1_000_000;
+    const HOUR_NS = 3_600_000_000_000;
+    const defaultWindowService = "default-window-svc";
+
+    beforeAll(async () => {
+      await insertLog(
+        defaultWindowService,
+        "1.0",
+        "INFO",
+        nowNs - 48 * HOUR_NS,
+        "old",
+        `${defaultWindowService}:1.0 default-window old`,
+        "default-window-old",
+      );
+      await insertLog(
+        defaultWindowService,
+        "1.0",
+        "INFO",
+        nowNs - HOUR_NS,
+        "recent",
+        `${defaultWindowService}:1.0 default-window recent`,
+        "default-window-recent",
+      );
+    });
+
+    it.each(["1", "0", "-1", "abc", "1.5"])(
+      "rejects an invalid bucket width %p with 400",
+      async (bucketNs) => {
+        const res = await fastify.inject({
+          method: "GET",
+          url: `/api/analytics/logs/stats?bucketNs=${encodeURIComponent(bucketNs)}`,
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toBe("Invalid bucketNs");
+      },
+    );
+
+    it("rejects a bucket count above the maximum with 400", async () => {
+      const from = nowNs - 24 * HOUR_NS;
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?from=${from}&to=${nowNs}&bucketNs=1000000000`,
+      });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toBe("Bucket range too large");
+    });
+
+    it("accepts a 1 h window with a 1 h bucket", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?from=${nowNs - HOUR_NS}&to=${nowNs}&bucketNs=${HOUR_NS}`,
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it("defaults the window to the last 24 h", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?serviceName=${defaultWindowService}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().totalCount).toBe(1);
+      expect(res.json().severityCounts).toEqual({ INFO: 1 });
+    });
+  });
+
+  // =========================================================================
+  // Analytics traces stats
+  // =========================================================================
+  describe("Analytics LIKE literal filters", () => {
+    const T5 = Date.now() * 1_000_000 - 7_200_000_000_000;
+    const from = T5 - 1_000_000_000;
+    const to = T5 + 1_000_000_000;
+    const logService = "like-log-svc";
+    const traceService = "like-trace-svc";
+
+    beforeAll(async () => {
+      await insertLog(
+        logService,
+        "1.0",
+        "INFO",
+        T5,
+        "a",
+        `${logService}:1.0 lit%eral`,
+        "like-a",
+      );
+      await insertLog(
+        logService,
+        "1.0",
+        "INFO",
+        T5,
+        "b",
+        `${logService}:1.0 litXeral`,
+        "like-b",
+      );
+      await insertLog(
+        logService,
+        "1.0",
+        "INFO",
+        T5,
+        "c",
+        `${logService}:1.0 under_score`,
+        "like-c",
+      );
+      await insertLog(
+        logService,
+        "1.0",
+        "INFO",
+        T5,
+        "d",
+        `${logService}:1.0 underXscore`,
+        "like-d",
+      );
+      await insertTrace(
+        "lt-a",
+        "lt-a1",
+        null,
+        "op-lit%eral",
+        T5,
+        T5 + 1_000_000_000,
+        0,
+        traceService,
+        "1.0",
+        `${traceService}:1.0 lit%eral lt-a`,
+      );
+      await insertTrace(
+        "lt-b",
+        "lt-b1",
+        null,
+        "op-litXeral",
+        T5,
+        T5 + 1_000_000_000,
+        0,
+        traceService,
+        "1.0",
+        `${traceService}:1.0 litXeral lt-b`,
+      );
+      await insertTrace(
+        "lt-c",
+        "lt-c1",
+        null,
+        "op-under_score",
+        T5,
+        T5 + 1_000_000_000,
+        0,
+        traceService,
+        "1.0",
+        `${traceService}:1.0 under_score lt-c`,
+      );
+      await insertTrace(
+        "lt-d",
+        "lt-d1",
+        null,
+        "op-underXscore",
+        T5,
+        T5 + 1_000_000_000,
+        0,
+        traceService,
+        "1.0",
+        `${traceService}:1.0 underXscore lt-d`,
+      );
+    });
+
+    it("treats % literally in the logs list and logs stats", async () => {
+      const list = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs?from=${from}&to=${to}&serviceName=${logService}&keywords=${encodeURIComponent("lit%eral")}`,
+      });
+      expect(list.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(list.json().logs)).map(
+          (log: Loose) => log.recordId,
+        ),
+      ).toEqual(["like-a"]);
+
+      const stats = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?from=${from}&to=${to}&serviceName=${logService}&keywords=${encodeURIComponent("lit%eral")}`,
+      });
+      expect(stats.statusCode).toBe(200);
+      expect(stats.json().totalCount).toBe(1);
+    });
+
+    it("treats _ literally in the logs list and logs stats", async () => {
+      const list = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs?from=${from}&to=${to}&serviceName=${logService}&keywords=${encodeURIComponent("under_score")}`,
+      });
+      expect(list.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(list.json().logs)).map(
+          (log: Loose) => log.recordId,
+        ),
+      ).toEqual(["like-c"]);
+
+      const stats = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?from=${from}&to=${to}&serviceName=${logService}&keywords=${encodeURIComponent("under_score")}`,
+      });
+      expect(stats.statusCode).toBe(200);
+      expect(stats.json().totalCount).toBe(1);
+    });
+
+    it("treats % and _ literally in the traces list and traces stats", async () => {
+      const listPercent = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces?from=${from}&to=${to}&serviceName=${traceService}&keywords=${encodeURIComponent("lit%eral")}`,
+      });
+      expect(listPercent.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(listPercent.json().traces)).map(
+          (trace: Loose) => trace.traceId,
+        ),
+      ).toEqual(["lt-a"]);
+
+      const listUnderscore = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces?from=${from}&to=${to}&serviceName=${traceService}&keywords=${encodeURIComponent("under_score")}`,
+      });
+      expect(listUnderscore.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(listUnderscore.json().traces)).map(
+          (trace: Loose) => trace.traceId,
+        ),
+      ).toEqual(["lt-c"]);
+
+      const stats = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/stats?from=${from}&to=${to}&serviceName=${traceService}&keywords=${encodeURIComponent("lit%eral")}`,
+      });
+      expect(stats.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(stats.json().groups)).map(
+          (group: Loose) => group.name,
+        ),
+      ).toEqual(["op-lit%eral"]);
+
+      const statsUnderscore = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/stats?from=${from}&to=${to}&serviceName=${traceService}&keywords=${encodeURIComponent("under_score")}`,
+      });
+      expect(statsUnderscore.statusCode).toBe(200);
+      expect(
+        (await decodeB64Json(statsUnderscore.json().groups)).map(
+          (group: Loose) => group.name,
+        ),
+      ).toEqual(["op-under_score"]);
     });
   });
 
@@ -972,6 +1311,29 @@ describe("SQL-level integration (sqlite)", () => {
       expect(groupB.avgDuration).toBe(10_000_000_000);
       expect(groupB.p90).toBe(10_000_000_000);
       expect(groupB.p95).toBe(10_000_000_000);
+    });
+
+    it("applies keywords and errorsOnly filters to the groups", async () => {
+      const byKeywords = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/stats?from=${from}&to=${to}&serviceName=stats-trace-svc&keywords=st-op-a`,
+      });
+      expect(byKeywords.statusCode).toBe(200);
+      const keywordGroups = await decodeB64Json(byKeywords.json().groups);
+      expect(keywordGroups.map((group: Loose) => group.name)).toEqual([
+        "st-op-a",
+      ]);
+
+      const byErrors = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/stats?from=${from}&to=${to}&serviceName=stats-trace-svc&errorsOnly=true`,
+      });
+      expect(byErrors.statusCode).toBe(200);
+      const errorGroups = await decodeB64Json(byErrors.json().groups);
+      expect(errorGroups.map((group: Loose) => group.name)).toEqual([
+        "st-op-a",
+      ]);
+      expect(errorGroups[0].nbErrors).toBe(1);
     });
 
     it("computes percentiles over several traces", async () => {
@@ -1125,6 +1487,45 @@ describe("SQL-level integration (sqlite)", () => {
       });
       const freshGroup = (await decodeB64Json(fresh.json().groups))[0];
       expect(freshGroup.traceCount).toBe(110);
+    });
+
+    it("keeps keywords and errorsOnly in the cache key", async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 60,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 5,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      try {
+        const filtered = await fastify.inject({
+          method: "GET",
+          url: statsUrl(benchService, "&keywords=does-not-exist"),
+        });
+        expect(filtered.statusCode).toBe(200);
+        expect(await decodeB64Json(filtered.json().groups)).toEqual([]);
+
+        const unfiltered = await fastify.inject({
+          method: "GET",
+          url: statsUrl(benchService),
+        });
+        expect(unfiltered.statusCode).toBe(200);
+        const unfilteredGroups = await decodeB64Json(unfiltered.json().groups);
+        expect(unfilteredGroups[0].traceCount).toBe(110);
+
+        const errorsOnly = await fastify.inject({
+          method: "GET",
+          url: statsUrl(benchService, "&errorsOnly=true"),
+        });
+        expect(errorsOnly.statusCode).toBe(200);
+        expect(await decodeB64Json(errorsOnly.json().groups)).toEqual([]);
+      } finally {
+        await AnalyticsStatsInit(testSpan(), {
+          ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+          ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+          ANALYTICS_STATS_SAMPLE_CAP: 5,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      }
     });
 
     it("stays bounded in time on a large table", async () => {
@@ -1785,16 +2186,18 @@ describe("SQL-level integration (sqlite)", () => {
     );
 
     it("agrees with logs stats labels and the severity filter", async () => {
+      const nowNs = Date.now() * 1_000_000;
+      const fromNs = nowNs - 24 * 3_600_000_000_000;
       const all = await fastify.inject({
         method: "GET",
-        url: `/api/analytics/logs/stats?from=0&serviceName=${SERVICE}`,
+        url: `/api/analytics/logs/stats?from=${fromNs}&to=${nowNs}&serviceName=${SERVICE}`,
       });
       expect(all.statusCode).toBe(200);
       expect(all.json().severityCounts).toEqual({ ERROR: 1, INFO: 1, WARN: 2 });
 
       const filtered = await fastify.inject({
         method: "GET",
-        url: `/api/analytics/logs/stats?from=0&serviceName=${SERVICE}&severity=ERROR`,
+        url: `/api/analytics/logs/stats?from=${fromNs}&to=${nowNs}&serviceName=${SERVICE}&severity=ERROR`,
       });
       expect(filtered.statusCode).toBe(200);
       expect(filtered.json().totalCount).toBe(1);

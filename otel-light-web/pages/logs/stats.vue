@@ -57,6 +57,7 @@ import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 
 const TARGET_BUCKETS = 50;
+const DEFAULT_WINDOW_NS = 24 * 60 * 60 * 1_000_000_000;
 const REDRAW_INTERVAL_MS = 250;
 
 const SEVERITY_ORDER = ["FATAL", "ERROR", "WARN", "INFO", "DEBUG", "TRACE"];
@@ -168,9 +169,12 @@ export default {
       // Extract from/to from queryString (in nanoseconds, per SearchOptions).
       // `to` is omitted by SearchOptions when the user picked "now" — default to
       // the current time so buckets span the real filter window rather than
-      // only the first page's timestamps.
+      // only the first page's timestamps. `from` defaults to the server's
+      // bounded 24 h window so the computed bucket width matches it.
       const params = new URLSearchParams(this.filter.queryString || "");
-      const fromNs = params.get("from") ? Number(params.get("from")) : null;
+      const fromNs = params.get("from")
+        ? Number(params.get("from"))
+        : Date.now() * 1_000_000 - DEFAULT_WINDOW_NS;
       const toNs = params.get("to")
         ? Number(params.get("to"))
         : Date.now() * 1_000_000;

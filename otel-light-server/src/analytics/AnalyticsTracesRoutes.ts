@@ -7,8 +7,10 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsEscapeLike,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
+  AnalyticsUtilsParseOffset,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 
@@ -27,6 +29,7 @@ export class AnalyticsTracesRoutes {
         errorsOnly?: string;
         serviceName?: string;
         serviceVersion?: string;
+        name?: string;
         offset?: number;
         afterTime?: number;
         afterTraceId?: string;
@@ -40,12 +43,15 @@ export class AnalyticsTracesRoutes {
         return;
       }
 
+      const parsedOffset = AnalyticsUtilsParseOffset(req.query.offset);
+      if (parsedOffset === null) {
+        return res.status(400).send({ error: "Invalid offset" });
+      }
       const isRefresh = req.query.afterTime !== undefined;
-      const offset = isRefresh ? 0 : req.query.offset || 0;
       const hasBefore = req.query.before !== undefined;
       // Keyset pagination: when `before` is provided, use cursor instead of OFFSET.
       // This avoids the O(n) scan cost of large OFFSET values on big tables.
-      const effectiveOffset = isRefresh || hasBefore ? 0 : offset;
+      const effectiveOffset = isRefresh || hasBefore ? 0 : parsedOffset;
       const errorsOnly = req.query.errorsOnly === "true";
       const dbType = DbUtilsGetType();
       // Quote an identifier for the target DB: PostgreSQL needs double-quotes
@@ -118,8 +124,12 @@ export class AnalyticsTracesRoutes {
 
       if (req.query.keywords?.trim()) {
         rootsWhere +=
-          ` AND ${q("keywords")} LIKE ` + varAt(rootsParams.length + 1);
-        rootsParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+          ` AND ${q("keywords")} LIKE ` +
+          varAt(rootsParams.length + 1) +
+          " ESCAPE '\\'";
+        rootsParams.push(
+          `%${AnalyticsUtilsEscapeLike(req.query.keywords.toLowerCase().trim())}%`,
+        );
       }
 
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
@@ -134,6 +144,12 @@ export class AnalyticsTracesRoutes {
         rootsParams.push(String(req.query.serviceVersion).trim());
       }
 
+      if (req.query.name && String(req.query.name).trim()) {
+        rootsWhere +=
+          ` AND ${q("name")} = ` + varAt(rootsParams.length + 1);
+        rootsParams.push(String(req.query.name).trim());
+      }
+
       // errorsOnly must filter BEFORE the LIMIT (in the roots CTE), otherwise
       // a page can come back short and hasMore/pagination become inconsistent.
       // EXISTS covers the root span itself and any child span of the trace.
@@ -145,16 +161,24 @@ export class AnalyticsTracesRoutes {
       }
 
       // Outer query: aggregates only the traces found by the roots CTE.
-      // $statusCode variable index = rootsParams.length + 1 (1-based).
-      const statusCodeVarIdx = rootsParams.length + 1;
+      // Bound parameters follow the SQL text: rootsWhere, then LIMIT/OFFSET
+      // inside the CTE, then the outer $statusCode variable.
+      const limitVarIdx = rootsParams.length + 1;
+      const offsetVarIdx = rootsParams.length + 2;
+      const statusCodeVarIdx = rootsParams.length + 3;
 
-      const allParams = [...rootsParams, SpanStatusCode.ERROR];
+      const allParams = [
+        ...rootsParams,
+        PAGE_SIZE,
+        effectiveOffset,
+        SpanStatusCode.ERROR,
+      ];
 
       const rawTraces = await DbUtilsNoTelemetryQuerySQL(
         SQL_QUERIES.GET_TRACES_CTE(
           rootsWhere,
-          PAGE_SIZE,
-          effectiveOffset,
+          varAt(limitVarIdx),
+          varAt(offsetVarIdx),
           statusCodeVarIdx,
         )[dbType],
         allParams,
@@ -230,8 +254,8 @@ const SQL_QUERIES = {
   // the keyset cursors — so equal startTimes cannot skip or duplicate traces.
   GET_TRACES_CTE: (
     rootsWhere: string,
-    limit: number,
-    offset: number,
+    limitVar: string,
+    offsetVar: string,
     statusCodeVarIdx: number,
   ) => ({
     postgres: `
@@ -240,7 +264,7 @@ const SQL_QUERIES = {
         FROM traces
         WHERE ${rootsWhere}
         ORDER BY "startTime" DESC, "traceId" DESC
-        LIMIT ${limit} OFFSET ${offset}
+        LIMIT ${limitVar} OFFSET ${offsetVar}
       )
       SELECT  MIN(t."startTime") AS "startTime",
               MAX(t."endTime") AS "endTime",
@@ -260,7 +284,7 @@ const SQL_QUERIES = {
         FROM traces
         WHERE ${rootsWhere}
         ORDER BY startTime DESC, traceId DESC
-        LIMIT ${limit} OFFSET ${offset}
+        LIMIT ${limitVar} OFFSET ${offsetVar}
       )
       SELECT  MIN(t.startTime) AS startTime,
               MAX(t.endTime) AS endTime,
@@ -276,8 +300,8 @@ const SQL_QUERIES = {
       ORDER BY r.startTime DESC, t.traceId DESC`,
   }),
   GET_TRACE_SPANS: {
-    postgres: `SELECT * FROM traces WHERE "traceId" = $1 ORDER BY "startTime"`,
-    sqlite: `SELECT * FROM traces WHERE traceId = ? ORDER BY startTime`,
+    postgres: `SELECT "traceId", "spanId", "parentSpanId", "name", "serviceName", "serviceVersion", "startTime", "endTime", "statusCode", "rawSpan" FROM traces WHERE "traceId" = $1 ORDER BY "startTime"`,
+    sqlite: `SELECT traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, rawSpan FROM traces WHERE traceId = ? ORDER BY startTime`,
   },
   GET_TRACE_LOGS: {
     postgres: `SELECT * FROM logs WHERE "traceId" = $1`,

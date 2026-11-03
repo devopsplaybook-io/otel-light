@@ -62,6 +62,11 @@ import { ExportTraceJson, ExportDownloadFile } from "~~/services/ExportService";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import {
+  TraceApiLogsUrl,
+  TraceApiSpansUrl,
+  TraceApiSummaryUrl,
+} from "~~/services/TraceLinks";
 
 export default {
   components: { TabNavigation, Loading, Trace, TraceSpan },
@@ -98,17 +103,17 @@ export default {
         const authHeader = await AuthService.getAuthHeader();
         const logsRequest = AuthenticationStore().hasLogsScope
           ? analyticsGet(
-              `${SERVER_URL}/analytics/traces/${this.traceId}/logs`,
+              TraceApiLogsUrl(SERVER_URL, this.traceId),
               authHeader
             )
           : Promise.resolve({ data: { logs: [] } });
         const [summaryResponse, spansResponse, logsResponse] = await Promise.all([
           analyticsGet(
-            `${SERVER_URL}/analytics/traces?traceId=${this.traceId}`,
+            TraceApiSummaryUrl(SERVER_URL, this.traceId),
             authHeader
           ),
           analyticsGet(
-            `${SERVER_URL}/analytics/traces/${this.traceId}/spans`,
+            TraceApiSpansUrl(SERVER_URL, this.traceId),
             authHeader
           ),
           logsRequest,
