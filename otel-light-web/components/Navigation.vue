@@ -164,8 +164,7 @@ export default {
         this.scheduleRenewal();
       } catch (error) {
         if (SessionRenewalIsAuthError(error)) {
-          AuthService.removeToken();
-          await AuthenticationStore().ensureAuthenticated();
+          AuthenticationStore().signOut();
           EventBus.emit(EventTypes.ALERT_MESSAGE, {
             type: "error",
             text: "Your session has expired. Please sign in again.",

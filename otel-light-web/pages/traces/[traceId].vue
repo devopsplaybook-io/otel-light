@@ -3,6 +3,10 @@
     <TabNavigation :tabs="tracesTabs" />
     <div id="trace-detail" class="signals-scroll">
       <Loading v-if="isLoading" />
+      <div v-else-if="loadError" class="empty-state">
+        Could not load trace details: {{ loadError }}
+        <button class="secondary" @click="fetchTrace()">Retry</button>
+      </div>
       <div v-else-if="!trace" class="empty-state">
         Trace not found
         <div class="empty-state-hint">
@@ -61,7 +65,7 @@ import { UtilsDecompressJson, getDurationText } from "~/services/Utils";
 import { ExportTraceJson, ExportDownloadFile } from "~~/services/ExportService";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
+import { handleError, ErrorAlertText, EventBus, EventTypes } from "~~/services/EventBus";
 import {
   TraceApiLogsUrl,
   TraceApiSpansUrl,
@@ -77,6 +81,7 @@ export default {
       traceSpans: [],
       traceLogs: [],
       isLoading: true,
+      loadError: null,
     };
   },
   computed: {
@@ -99,6 +104,10 @@ export default {
   methods: {
     async fetchTrace() {
       this.isLoading = true;
+      this.loadError = null;
+      this.trace = null;
+      this.traceSpans = [];
+      this.traceLogs = [];
       try {
         const authHeader = await AuthService.getAuthHeader();
         const logsRequest = AuthenticationStore().hasLogsScope
@@ -120,9 +129,18 @@ export default {
         ]);
         const traces = await UtilsDecompressJson(summaryResponse.data.traces);
         this.trace = traces && traces.length === 1 ? traces[0] : null;
-        this.traceSpans = spansResponse.data.spans || [];
-        this.traceLogs = logsResponse.data.logs || [];
+        const spans = spansResponse?.data?.spans;
+        const logs = logsResponse?.data?.logs;
+        if (!Array.isArray(spans) || !Array.isArray(logs)) {
+          throw new Error("Malformed trace details response");
+        }
+        this.traceSpans = spans;
+        this.traceLogs = logs;
       } catch (err) {
+        this.trace = null;
+        this.traceSpans = [];
+        this.traceLogs = [];
+        this.loadError = ErrorAlertText(err);
         handleError(err);
       } finally {
         this.isLoading = false;
@@ -197,5 +215,8 @@ export default {
 }
 .trace-detail-spans {
   padding: 1rem 0;
+}
+.empty-state button {
+  margin-top: 0.5rem;
 }
 </style>

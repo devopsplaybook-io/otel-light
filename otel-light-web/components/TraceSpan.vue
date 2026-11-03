@@ -21,8 +21,8 @@
         ></i>
         <kbd
           v-if="
-            trace.serviceName != span.serviceName ||
-            trace.serviceVersion != span.serviceVersion
+            trace?.serviceName != span.serviceName ||
+            trace?.serviceVersion != span.serviceVersion
           "
           class="span-service"
           >{{ span.serviceName }}:{{ span.serviceVersion }}</kbd
@@ -47,30 +47,20 @@
       <article>
         <header>Span Details</header>
         <section>
-          <kbd>trace.id: {{ spanSelected.rawSpan.traceId }}</kbd>
-          <kbd>span.id: {{ spanSelected.rawSpan.spanId }}</kbd>
+          <kbd>trace.id: {{ spanSelected.rawSpan?.traceId }}</kbd>
+          <kbd>span.id: {{ spanSelected.rawSpan?.spanId }}</kbd>
           <kbd
-            v-for="attribute of spanSelected.rawSpan.attributes"
-            :key="attribute.key"
-            >{{ attribute.key }}:
-            {{
-              attribute.value.stringValue
-                ? attribute.value.stringValue
-                : attribute.value.intValue
-                  ? attribute.value.intValue
-                  : ""
-            }}</kbd
+            v-for="(attribute, attributeIndex) of getSpanAttributes(
+              spanSelected,
+            )"
+            :key="attributeIndex"
+            >{{ attribute?.key }}: {{ formatAttributeValue(attribute) }}</kbd
           >
-          <p
-            v-if="
-              spanSelected.rawSpan.events &&
-              spanSelected.rawSpan.events.length > 0
-            "
-          >
+          <p v-if="getSpanEvents(spanSelected).length > 0">
             Events for Span:
           </p>
           <pre
-            v-for="(event, index) in spanSelected.rawSpan.events"
+            v-for="(event, index) in getSpanEvents(spanSelected)"
             :key="index"
             >{{ getSpanEventText(event) }}</pre
           >
@@ -200,24 +190,55 @@ export default {
       }
       this.spanSelected = null;
     },
+    getSpanAttributes(span) {
+      const attributes = span?.rawSpan?.attributes;
+      return Array.isArray(attributes) ? attributes : [];
+    },
+    getSpanEvents(span) {
+      const events = span?.rawSpan?.events;
+      return Array.isArray(events) ? events : [];
+    },
+    formatAttributeValue(attribute) {
+      const value = attribute?.value;
+      if (!value || typeof value !== "object") return "";
+      for (const key of [
+        "stringValue",
+        "intValue",
+        "doubleValue",
+        "boolValue",
+        "bytesValue",
+      ]) {
+        if (value[key] !== undefined && value[key] !== null) {
+          return String(value[key]);
+        }
+      }
+      if (value.arrayValue !== undefined) return JSON.stringify(value.arrayValue);
+      if (value.kvlistValue !== undefined) {
+        return JSON.stringify(value.kvlistValue);
+      }
+      return "";
+    },
     getSpanEventText(event) {
-      let text = event.name + "\n";
-      for (const attribute of event.attributes) {
-        text += `  ${attribute.key}: ${attribute.value.stringValue}\n`;
+      let text = (event?.name ?? "") + "\n";
+      const attributes = Array.isArray(event?.attributes)
+        ? event.attributes
+        : [];
+      for (const attribute of attributes) {
+        text += `  ${attribute?.key}: ${this.formatAttributeValue(attribute)}\n`;
       }
       return text;
     },
     getSpanLogText(span) {
+      if (!Array.isArray(this.traceLogs)) return "";
       let text = "";
       for (const log of this.traceLogs) {
-        if (log.spanId !== span.spanId) {
+        if (!log || log.spanId !== span?.spanId) {
           continue;
         }
-        text +=
-          new Date(log.time / 1_000_000).toISOString() +
-          ": " +
-          log.logText +
-          "\n";
+        const timeText = Number.isFinite(log.time)
+          ? new Date(log.time / 1_000_000).toISOString()
+          : "unknown time";
+        text += `${timeText}: ${log.logText ?? ""}\n`;
       }
       return text;
     },

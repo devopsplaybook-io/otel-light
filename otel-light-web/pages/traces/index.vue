@@ -40,6 +40,12 @@
           :class="traceSpans[trace.traceId] ? 'trace-span-expanded' : ''"
           hydrate-on-visible
         />
+        <div v-if="traceErrors[trace.traceId]" class="trace-detail-error">
+          Could not load trace details: {{ traceErrors[trace.traceId] }}
+          <button class="secondary" @click="toggleTrace(trace.traceId)">
+            Retry
+          </button>
+        </div>
       </div>
       <div id="traces-sentinel" ref="sentinel"></div>
       <div class="load-status">
@@ -73,7 +79,7 @@ import { TracesTabs } from "~~/services/TracesTabs";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError } from "~~/services/EventBus";
+import { handleError, ErrorAlertText } from "~~/services/EventBus";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import {
   SignalCursorMax,
@@ -96,6 +102,7 @@ export default {
       refreshIntervalValue: RefreshIntervalService.get(),
       traceSpans: {},
       traceLogs: {},
+      traceErrors: {},
       filter: {
         queryString: "",
       },
@@ -186,33 +193,48 @@ export default {
       this.fetchTraces();
     },
     async getTraceSpans(traceId) {
-      return await analyticsGet(
+      const response = await analyticsGet(
         `${SERVER_URL}/analytics/traces/${traceId}/spans`,
         await AuthService.getAuthHeader(),
-      ).then((response) => {
-        return response.data.spans;
-      });
+      );
+      const spans = response?.data?.spans;
+      if (!Array.isArray(spans)) {
+        throw new Error("Malformed spans response");
+      }
+      return spans;
     },
     async getTraceLogs(traceId) {
       if (!AuthenticationStore().hasLogsScope) {
         return [];
       }
-      return await analyticsGet(
+      const response = await analyticsGet(
         `${SERVER_URL}/analytics/traces/${traceId}/logs`,
         await AuthService.getAuthHeader(),
-      ).then((response) => {
-        return response.data.logs;
-      });
+      );
+      const logs = response?.data?.logs;
+      if (!Array.isArray(logs)) {
+        throw new Error("Malformed logs response");
+      }
+      return logs;
     },
     async toggleTrace(traceId) {
       if (this.traceSpans[traceId]) {
         delete this.traceSpans[traceId];
         delete this.traceLogs[traceId];
-      } else {
-        if (!this.traceSpans[traceId]) {
-          this.traceSpans[traceId] = await this.getTraceSpans(traceId);
-          this.traceLogs[traceId] = await this.getTraceLogs(traceId);
-        }
+        delete this.traceErrors[traceId];
+        return;
+      }
+      try {
+        const spans = await this.getTraceSpans(traceId);
+        const logs = await this.getTraceLogs(traceId);
+        this.traceSpans[traceId] = spans;
+        this.traceLogs[traceId] = logs;
+        delete this.traceErrors[traceId];
+      } catch (err) {
+        delete this.traceSpans[traceId];
+        delete this.traceLogs[traceId];
+        this.traceErrors[traceId] = ErrorAlertText(err);
+        handleError(err);
       }
     },
     async fetchTraces() {
@@ -345,5 +367,16 @@ export default {
 
 #traces-sentinel {
   height: 1px;
+}
+
+.trace-detail-error {
+  padding: 0.5rem 1rem;
+  color: var(--pico-del-color);
+  font-size: 0.9em;
+}
+.trace-detail-error button {
+  margin-left: 0.5rem;
+  padding: 0.2em 0.6em;
+  font-size: 0.85em;
 }
 </style>

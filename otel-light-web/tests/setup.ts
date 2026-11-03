@@ -1,3 +1,10 @@
+// Nuxt auto-imports these Pinia helpers into the app; store modules reference
+// them directly, so expose them on the global scope for Vitest as well.
+import { acceptHMRUpdate, defineStore } from "pinia";
+
+(globalThis as any).defineStore = defineStore;
+(globalThis as any).acceptHMRUpdate = acceptHMRUpdate;
+
 // Test-environment workaround for happy-dom issue #1810:
 // DOMPurify caches `Node.prototype.nodeName`'s getter at module load and calls
 // it unapplied to read node names. happy-dom v20's `Node.prototype.nodeName`

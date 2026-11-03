@@ -101,6 +101,18 @@ export const ServicesStore = defineStore("ServicesStore", {
         this._intervalId = null;
       }
     },
+
+    clear(): void {
+      this.services = [];
+      this.serviceVersions = [];
+      this.lastFetchedAt = 0;
+      try {
+        localStorage.removeItem(CACHE_KEY);
+      } catch {
+        // ignore
+      }
+      this.stopAutoRefresh();
+    },
   },
 });
 

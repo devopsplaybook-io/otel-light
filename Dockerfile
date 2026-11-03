@@ -32,9 +32,9 @@ COPY otel-light-server/config.json /opt/app/otel-light/config.json
 COPY otel-light-server/sql /opt/app/otel-light/sql
 COPY package.json /opt/app/otel-light/package.json
 
-# The entrypoint rewrites web/manifest.webmanifest with sed -i, which needs
-# write access to the file's directory; everything else just needs to be
-# readable by the non-root user below.
+# The entrypoint rewrites web/manifest.webmanifest (parsed and re-serialized by
+# node), which needs write access to the file's directory; everything else just
+# needs to be readable by the non-root user below.
 RUN chown -R node:node /opt/app/otel-light
 
 WORKDIR /opt/app/otel-light

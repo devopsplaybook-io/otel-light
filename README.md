@@ -56,6 +56,7 @@ docker run --name otel-light -p 8080:8080 -v "$(pwd)/data:/data" -d devopsplaybo
 - Docker image: [`devopsplaybookio/otel-light`](https://hub.docker.com/r/devopsplaybookio/otel-light)
 - Exposes port: `8080`
 - Data volume: `/data`
+- Application title: set `APPLICATION_TITLE` to rename the installed PWA, e.g. `docker run -e APPLICATION_TITLE="R&D / Ops" -p 8080:8080 -v "$(pwd)/data:/data" -d devopsplaybookio/otel-light`. Any value (including `/`, `&`, `\`, quotes and non-ASCII) is safe: the entrypoint parses and re-serializes the web manifest instead of string-substituting it.
 
 ### Kubernetes
 
@@ -147,6 +148,17 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | NOTIFICATIONS_TOKEN                                     | Notifications API token                               | (empty)                                     | Config file or environment variable |
 | ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES               | Interval (in minutes) between error alert rule evaluations | 15                                     | Config file or environment variable |
 | ERROR_ALERTS_STARTUP_DELAY_MINUTES                      | Delay before the first error alert evaluation         | 1                                           | Config file or environment variable |
+
+### Settings applied at startup
+
+Most settings from `config.json` are re-read when the file changes (and environment variables are read at startup). The settings below are captured once, while Fastify routes/plugins are registered, init functions run or timers/schedulers are created, so **changing them requires a server restart (or a container rollout)**:
+
+- Ingestion and request handling: `INGESTION_BODY_LIMIT_BYTES`, `INGESTION_RATE_LIMIT_MAX`, `INGESTION_RATE_LIMIT_WINDOW_SECONDS`, `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, `API_TRUST_PROXY`, `CORS_POLICY_ORIGIN`.
+- Database: `DATABASE_TYPE` and the `DATABASE_POSTGRES_*` settings.
+- Analytics: `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`, `ANALYTICS_STATS_SAMPLE_CAP`, `ANALYTICS_STATS_CACHE_TTL_SECONDS`, `ANALYTICS_STATS_CACHE_MAX_ENTRIES`.
+- Scheduled work and refresh intervals: `CACHE_REFRESH_MINUTES`, `METRICS_SELF_REFRESH_MINUTES`, `NOTIFICATIONS_API`, `NOTIFICATIONS_TOKEN`, `LLM_API_KEY` (enables/disables the recommendation scheduler), `LLM_RECOMMENDATION_SCHEDULE_CRON`, `LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES`, `STATIC_REPORT_SCHEDULE_CRON`, `MOST_CALLED_TRACES_SCHEDULE_CRON`, `LONGEST_TRACES_STARTUP_DELAY_MINUTES`, `MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES`, `ERROR_ALERTS_STARTUP_DELAY_MINUTES`, `SCHEDULED_JOB_JITTER_MINUTES`, `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES`.
+
+Rate-limit counters are in-memory and per process, so a restart also resets them.
 
 ## Signal Cleanup and Metric Compression
 
