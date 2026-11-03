@@ -100,7 +100,7 @@
     </NuxtLink>
 
     <article
-      v-if="recommendation"
+      v-if="hasRecommendationAccess && recommendation"
       id="page-recommendation"
       class="recommendation-card"
     >
@@ -153,6 +153,7 @@ import { renderMarkdown } from "~~/services/Markdown";
 import { UtilsDecompressJson, UtilsRelativeTime } from "~~/services/Utils";
 import {
   HomeOverviewBuildModel,
+  HomeOverviewCanAccessRecommendation,
   HomeOverviewWindowNs,
 } from "~~/services/HomeOverview";
 
@@ -177,6 +178,12 @@ export default {
     },
     hasLogsScope() {
       return AuthenticationStore().hasLogsScope;
+    },
+    hasRecommendationAccess() {
+      return HomeOverviewCanAccessRecommendation(
+        this.hasTracesScope,
+        this.hasLogsScope,
+      );
     },
   },
   async created() {
@@ -265,6 +272,13 @@ export default {
       }
     },
     async fetchRecommendation() {
+      // The server requires both scopes: calling without them only yields a
+      // silent 403.
+      if (!this.hasRecommendationAccess) {
+        this.recommendation = null;
+        this.recommendationGeneratedAt = null;
+        return;
+      }
       try {
         const url = `${SERVER_URL}/recommendation`;
         const response = await axios.get(

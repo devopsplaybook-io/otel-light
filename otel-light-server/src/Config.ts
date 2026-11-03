@@ -82,8 +82,8 @@ export class Config extends ConfigBase {
   public LLM_THINKING_MODE = "disabled";
   public LLM_RECOMMENDATION_SCHEDULE_CRON = "20 0 * * *";
   public LLM_RECOMMENDATION_PERIOD_HOURS = 24;
-  // Max root spans randomly sampled for duration percentiles (exact counts
-  // are computed SQL-side regardless of this cap).
+  // Max root spans deterministically sampled for duration percentiles (exact
+  // counts are computed SQL-side regardless of this cap).
   public LLM_RECOMMENDATION_SAMPLE_CAP = 20000;
   // Overall budget for all LLM attempts (including retries and backoff).
   public LLM_RECOMMENDATION_TIMEOUT_SECONDS = 180;
@@ -263,6 +263,19 @@ export class Config extends ConfigBase {
       100,
       1,
       10000,
+    );
+    // A 0/negative value would turn the self-metrics refresh into a hot loop.
+    this.METRICS_SELF_REFRESH_MINUTES = ConfigClampNumber(
+      this.METRICS_SELF_REFRESH_MINUTES,
+      10,
+      1,
+      1440,
+    );
+    this.LLM_RECOMMENDATION_SAMPLE_CAP = ConfigClampNumber(
+      this.LLM_RECOMMENDATION_SAMPLE_CAP,
+      20000,
+      1,
+      1_000_000,
     );
   }
 

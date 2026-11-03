@@ -177,7 +177,6 @@ describe("Scope enforcement (H3)", () => {
     ["/api/analytics/traces/stats", "traces"],
     ["/api/reports/longest-traces", "traces"],
     ["/api/reports/most-called-traces", "traces"],
-    ["/api/recommendation", "traces"],
   ])(
     "returns 403 and asks for the %s scope on %s when it is denied",
     async (url, scope) => {
@@ -197,10 +196,59 @@ describe("Scope enforcement (H3)", () => {
     ["/api/analytics/traces/stats"],
     ["/api/reports/longest-traces"],
     ["/api/reports/most-called-traces"],
-    ["/api/recommendation"],
   ])("passes through when the scope is granted: %s", async (url) => {
     const res = await fastify.inject({ method: "GET", url });
     expect(res.statusCode).toBe(200);
+  });
+
+  describe("GET /api/recommendation requires both traces and logs scopes", () => {
+    it("denies a traces-only user and asks for the logs scope", async () => {
+      mockAuthUser({ role: "user", scopes: ["traces"] });
+      const res = await fastify.inject({
+        method: "GET",
+        url: "/api/recommendation",
+      });
+      expect(res.statusCode).toBe(403);
+      expect(
+        (AuthHasScope as jest.Mock).mock.calls.map((call) => call[2]),
+      ).toEqual(["traces", "logs"]);
+      expect(RecommendationGetCached).not.toHaveBeenCalled();
+    });
+
+    it("denies a logs-only user before reading the recommendation", async () => {
+      mockAuthUser({ role: "user", scopes: ["logs"] });
+      const res = await fastify.inject({
+        method: "GET",
+        url: "/api/recommendation",
+      });
+      expect(res.statusCode).toBe(403);
+      expect(
+        (AuthHasScope as jest.Mock).mock.calls.map((call) => call[2]),
+      ).toEqual(["traces"]);
+      expect(RecommendationGetCached).not.toHaveBeenCalled();
+    });
+
+    it("grants a user holding both scopes", async () => {
+      mockAuthUser({ role: "user", scopes: ["traces", "logs"] });
+      const res = await fastify.inject({
+        method: "GET",
+        url: "/api/recommendation",
+      });
+      expect(res.statusCode).toBe(200);
+      expect(
+        (AuthHasScope as jest.Mock).mock.calls.map((call) => call[2]),
+      ).toEqual(["traces", "logs"]);
+      expect(RecommendationGetCached).toHaveBeenCalled();
+    });
+
+    it("grants admins without explicit scopes", async () => {
+      mockAuthUser({ role: "admin", scopes: [] });
+      const res = await fastify.inject({
+        method: "GET",
+        url: "/api/recommendation",
+      });
+      expect(res.statusCode).toBe(200);
+    });
   });
 
   it("grants the service list to any signal scope but 403s without one", async () => {

@@ -5,6 +5,7 @@ import { Settings } from "./model/Settings";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 import {
   SignalRollupsEnsureInitialized,
+  SignalRollupsReconcile,
   SignalRollupsRecordMetricNameDeletion,
   SignalRollupsRecordSignalDeletion,
   SignalServiceCountsDelta,
@@ -29,6 +30,12 @@ const METRICS_COMPRESS_HOUR_CHUNK_NS = 30 * 24 * 3600 * 1_000_000_000; // 30d of
 const METRICS_COMPRESS_HOUR_MAX_CHUNKS = 4; // ≤ 120 days of history per run
 const METRICS_COMPRESS_MINUTE_STATE_KEY = "metrics-compress-minute-hwm";
 const METRICS_COMPRESS_HOUR_STATE_KEY = "metrics-compress-hour-hwm";
+
+// Rollup reconciliation: compare the incremental rollups with the raw tables
+// and repair them when they drifted. Runs at most once a day (log-only; no
+// OpenTelemetry metric) so a rare inconsistency cannot persist forever.
+const ROLLUP_RECONCILE_INTERVAL_HOURS = 24;
+const ROLLUP_RECONCILE_STATE_KEY = "signal-rollups-reconcile-last-run";
 
 export async function MaintenanceInit(context: Span, configIn: Config) {
   const span = OTelTracer().startSpan("MaintenanceInit", context);
@@ -114,6 +121,45 @@ async function MaintenancePerformJobs(span: Span): Promise<void> {
   } catch (err) {
     logger.error("Error during hour-bucket metrics compression", err, span);
   }
+
+  // Reconcile rollups with the raw tables at most once a day. The state is
+  // only written on success so a failure is retried on the next run.
+  try {
+    const lastRun = await MaintenanceStateGet(
+      span,
+      ROLLUP_RECONCILE_STATE_KEY,
+    );
+    if (MaintenanceRollupReconcileDue(lastRun, Date.now())) {
+      await SignalRollupsReconcile(span);
+      await MaintenanceStateSet(
+        span,
+        ROLLUP_RECONCILE_STATE_KEY,
+        new Date().toISOString(),
+      );
+    }
+  } catch (err) {
+    logger.error("Error during signal rollup reconciliation", err, span);
+  }
+}
+
+// Returns true when the last reconciliation is missing/unreadable or older
+// than the interval. A future timestamp (clock skew) is never due.
+export function MaintenanceRollupReconcileDue(
+  lastRunIso: string | null,
+  nowMs: number,
+  intervalHours = ROLLUP_RECONCILE_INTERVAL_HOURS,
+): boolean {
+  if (lastRunIso === null || lastRunIso === undefined) {
+    return true;
+  }
+  const lastRunMs = Date.parse(lastRunIso);
+  if (!Number.isFinite(lastRunMs)) {
+    return true;
+  }
+  if (lastRunMs > nowMs) {
+    return false;
+  }
+  return nowMs - lastRunMs >= intervalHours * 3_600_000;
 }
 
 // Signal cleanup rules (settings "signal-cleanup-rules"). Rollup counts are
@@ -206,41 +252,46 @@ async function ApplyCleanupRule(
     : [deleteTimestamp, pattern];
 
   if (deleteRule.signalType === "traces") {
-    const deltas = await DbUtilsQuerySQL(
+    const result = await MaintenanceAtomicDelete(
       span,
-      SQL_QUERIES.GET_TRACES_DELETE_DELTAS(serviceName)[dbType],
+      dbType,
+      {
+        postgresDeleteReturning: SQL_QUERIES.DELETE_TRACES_RETURN_DELTAS(
+          serviceName,
+        ),
+        sqliteSelectDeltas: SQL_QUERIES.GET_TRACES_DELETE_DELTAS(serviceName),
+        sqliteDelete: SQL_QUERIES.DELETE_TRACES(serviceName),
+      },
       params,
     );
-    if (deltas.length > 0) {
-      nbRows += await DbUtilsExecSQL(
-        span,
-        SQL_QUERIES.DELETE_TRACES(serviceName)[dbType],
-        params,
-      );
+    nbRows += result.deletedRows;
+    if (result.deletedRows > 0) {
       await SignalRollupsRecordSignalDeletion(
         "traces",
-        toServiceCountDeltas(deltas),
+        toServiceCountDeltas(result.rows),
       );
     }
   } else if (deleteRule.signalType === "metrics") {
-    const deltas = await DbUtilsQuerySQL(
+    const result = await MaintenanceAtomicDelete(
       span,
-      SQL_QUERIES.GET_METRICS_DELETE_DELTAS(serviceName)[dbType],
+      dbType,
+      {
+        postgresDeleteReturning:
+          SQL_QUERIES.DELETE_METRICS_RETURN_DELTAS(serviceName),
+        sqliteSelectDeltas: SQL_QUERIES.GET_METRICS_DELETE_DELTAS(serviceName),
+        sqliteDelete: SQL_QUERIES.DELETE_SIGNALS("metrics", serviceName),
+      },
       params,
     );
-    if (deltas.length > 0) {
-      nbRows += await DbUtilsExecSQL(
-        span,
-        SQL_QUERIES.DELETE_SIGNALS("metrics", serviceName)[dbType],
-        params,
-      );
+    nbRows += result.deletedRows;
+    if (result.deletedRows > 0) {
       await SignalRollupsRecordSignalDeletion(
         "metrics",
-        toServiceCountDeltas(deltas),
+        toServiceCountDeltas(result.rows),
       );
       await SignalRollupsRecordMetricNameDeletion(
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        deltas.map((row: any) => ({
+        result.rows.map((row: any) => ({
           serviceName: row.serviceName,
           name: row.name,
           type: row.type,
@@ -250,20 +301,22 @@ async function ApplyCleanupRule(
     }
   } else {
     // logs
-    const deltas = await DbUtilsQuerySQL(
+    const result = await MaintenanceAtomicDelete(
       span,
-      SQL_QUERIES.GET_LOGS_DELETE_DELTAS(serviceName)[dbType],
+      dbType,
+      {
+        postgresDeleteReturning:
+          SQL_QUERIES.DELETE_LOGS_RETURN_DELTAS(serviceName),
+        sqliteSelectDeltas: SQL_QUERIES.GET_LOGS_DELETE_DELTAS(serviceName),
+        sqliteDelete: SQL_QUERIES.DELETE_SIGNALS("logs", serviceName),
+      },
       params,
     );
-    if (deltas.length > 0) {
-      nbRows += await DbUtilsExecSQL(
-        span,
-        SQL_QUERIES.DELETE_SIGNALS("logs", serviceName)[dbType],
-        params,
-      );
+    nbRows += result.deletedRows;
+    if (result.deletedRows > 0) {
       await SignalRollupsRecordSignalDeletion(
         "logs",
-        toServiceCountDeltas(deltas),
+        toServiceCountDeltas(result.rows),
       );
     }
   }
@@ -286,25 +339,25 @@ async function MaintenanceDeleteOrphanTraces(span: Span): Promise<void> {
   );
   const lookbackStart = (Date.now() - lookbackHours * 3_600_000) * 1_000_000;
   const params = [lookbackStart, graceEnd];
-  const deltas = await DbUtilsQuerySQL(
+  const result = await MaintenanceAtomicDelete(
     span,
-    SQL_QUERIES.GET_ORPHAN_TRACES_DELTAS[dbType],
+    dbType,
+    {
+      postgresDeleteReturning: SQL_QUERIES.DELETE_ORPHAN_TRACES_RETURN_DELTAS,
+      sqliteSelectDeltas: SQL_QUERIES.GET_ORPHAN_TRACES_DELTAS,
+      sqliteDelete: SQL_QUERIES.DELETE_ORPHAN_TRACES,
+    },
     params,
   );
-  if (deltas.length === 0) {
+  if (result.deletedRows === 0) {
     logger.info("Traces: No orphan traces to delete", span);
     return;
   }
-  const nbRows = await DbUtilsExecSQL(
-    span,
-    SQL_QUERIES.DELETE_ORPHAN_TRACES[dbType],
-    params,
-  );
   await SignalRollupsRecordSignalDeletion(
     "traces",
-    toServiceCountDeltas(deltas),
+    toServiceCountDeltas(result.rows),
   );
-  logger.info(`Traces: Deleted ${nbRows} orphan traces`, span);
+  logger.info(`Traces: Deleted ${result.deletedRows} orphan traces`, span);
 }
 
 // Chunked duplicate-metric compression: walks forward from a persisted
@@ -362,23 +415,23 @@ async function MaintenanceMetricsCompress(
           ? [cursor, chunkEnd, timeGroup]
           : [cursor, chunkEnd, cursor, chunkEnd, timeGroup];
 
-      const deltas = await DbUtilsQuerySQL(
+      const result = await MaintenanceAtomicDelete(
         span,
-        SQL_QUERIES.METRICS_COMPRESS_DELTAS[dbType],
+        dbType,
+        {
+          postgresDeleteReturning:
+            SQL_QUERIES.DELETE_DUPLICATE_METRICS_RETURN_DELTAS,
+          sqliteSelectDeltas: SQL_QUERIES.METRICS_COMPRESS_DELTAS,
+          sqliteDelete: SQL_QUERIES.DELETE_DUPLICATE_METRICS,
+        },
         chunkParams,
       );
-      const deletedRows = await DbUtilsExecSQL(
-        span,
-        SQL_QUERIES.DELETE_DUPLICATE_METRICS[dbType],
-        chunkParams,
-      );
-      if (deletedRows > 0) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const serviceDeltas = toServiceCountDeltas(deltas);
+      if (result.deletedRows > 0) {
+        const serviceDeltas = toServiceCountDeltas(result.rows);
         await SignalRollupsRecordSignalDeletion("metrics", serviceDeltas);
         await SignalRollupsRecordMetricNameDeletion(
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          deltas.map((row: any) => ({
+          result.rows.map((row: any) => ({
             serviceName: row.serviceName,
             name: row.name,
             type: row.type,
@@ -386,7 +439,7 @@ async function MaintenanceMetricsCompress(
           })),
         );
         logger.info(
-          `Compression per ${timeGroup / 1_000_000_000} seconds: deleted ${deletedRows} duplicate metric entries`,
+          `Compression per ${timeGroup / 1_000_000_000} seconds: deleted ${result.deletedRows} duplicate metric entries`,
           span,
         );
       }
@@ -426,6 +479,65 @@ function toServiceCountDeltas(rows: any[]): SignalServiceCountsDelta[] {
   return Array.from(map.values());
 }
 
+// Deletes rows and returns the exact per-group deltas in one atomic operation
+// so ingestion happening between a separate delta SELECT and DELETE can no
+// longer skew the rollups:
+//   - PostgreSQL: one `DELETE ... RETURNING` data-modifying CTE.
+//   - SQLite: the grouped SELECT and the DELETE run inside one IMMEDIATE
+//     transaction (better-sqlite3 is synchronous and common-utils exposes no
+//     transaction helper).
+async function MaintenanceAtomicDelete(
+  span: Span,
+  dbType: "sqlite" | "postgres",
+  queries: {
+    postgresDeleteReturning: string;
+    sqliteSelectDeltas: string;
+    sqliteDelete: string;
+  },
+  params: unknown[],
+): Promise<{
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rows: any[];
+  deletedRows: number;
+}> {
+  if (dbType === "postgres") {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = await DbUtilsQuerySQL(
+      span,
+      queries.postgresDeleteReturning,
+      params,
+    );
+    const deletedRows = rows.reduce(
+      (sum, row) => sum + Number(row.cnt || 0),
+      0,
+    );
+    return { rows, deletedRows };
+  }
+
+  await DbUtilsExecSQL(span, "BEGIN IMMEDIATE");
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: any[] = await DbUtilsQuerySQL(
+      span,
+      queries.sqliteSelectDeltas,
+      params,
+    );
+    const deletedRows = Number(
+      await DbUtilsExecSQL(span, queries.sqliteDelete, params),
+    );
+    await DbUtilsExecSQL(span, "COMMIT");
+    return { rows, deletedRows };
+  } catch (err) {
+    try {
+      await DbUtilsExecSQL(span, "ROLLBACK");
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    } catch (_rollbackErr) {
+      // best effort: the original error is the one that matters
+    }
+    throw err;
+  }
+}
+
 async function MaintenanceStateGet(
   span: Span,
   stateKey: string,
@@ -457,118 +569,98 @@ const SQL_QUERIES = {
     postgres: 'SELECT * FROM settings WHERE "category" = $1',
     sqlite: "SELECT * FROM settings WHERE category = ?",
   },
-  DELETE_TRACES: (serviceName: string | null) => ({
-    postgres:
-      `DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
-      (serviceName ? ' AND "serviceName" = $3' : ""),
-    sqlite:
-      "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ? ESCAPE '\\'" +
-      (serviceName ? " AND serviceName = ?" : ""),
-  }),
-  GET_TRACES_DELETE_DELTAS: (serviceName: string | null) => ({
-    postgres:
-      `SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
-      (serviceName ? ' AND "serviceName" = $3' : "") +
-      ' GROUP BY "serviceName", "serviceVersion"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE startTime < ? AND keywords LIKE ? ESCAPE '\\'" +
-      (serviceName ? " AND serviceName = ?" : "") +
-      " GROUP BY serviceName, serviceVersion",
-  }),
-  DELETE_SIGNALS: (tableName: string, serviceName: string | null) => ({
-    postgres:
-      `DELETE FROM ${tableName} WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
-      (serviceName ? ' AND "serviceName" = $3' : ""),
-    sqlite:
-      `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ? ESCAPE '\\'` +
-      (serviceName ? " AND serviceName = ?" : ""),
-  }),
-  GET_METRICS_DELETE_DELTAS: (serviceName: string | null) => ({
-    postgres:
-      `SELECT "serviceName", "serviceVersion", "name", "type", COUNT(*) AS cnt FROM metrics WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
-      (serviceName ? ' AND "serviceName" = $3' : "") +
-      ' GROUP BY "serviceName", "serviceVersion", "name", "type"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics WHERE time < ? AND keywords LIKE ? ESCAPE '\\'" +
-      (serviceName ? " AND serviceName = ?" : "") +
-      " GROUP BY serviceName, serviceVersion, name, type",
-  }),
-  GET_LOGS_DELETE_DELTAS: (serviceName: string | null) => ({
-    postgres:
-      `SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM logs WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
-      (serviceName ? ' AND "serviceName" = $3' : "") +
-      ' GROUP BY "serviceName", "serviceVersion"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM logs WHERE time < ? AND keywords LIKE ? ESCAPE '\\'" +
-      (serviceName ? " AND serviceName = ?" : "") +
-      " GROUP BY serviceName, serviceVersion",
-  }),
-  DELETE_ORPHAN_TRACES: {
-    postgres:
-      'DELETE FROM traces WHERE "traceId" IN (' +
-      'SELECT "traceId" FROM traces WHERE "startTime" >= $1 GROUP BY "traceId"' +
-      ' HAVING SUM(CASE WHEN "parentSpanId" IS NULL THEN 1 ELSE 0 END) = 0' +
-      ' AND MAX("startTime") < $2)',
-    sqlite:
-      "DELETE FROM traces WHERE traceId IN (" +
-      "SELECT traceId FROM traces WHERE startTime >= ? GROUP BY traceId" +
-      "  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0" +
-      "         AND MAX(startTime) < ?)",
-  },
-  GET_ORPHAN_TRACES_DELTAS: {
-    postgres:
-      'SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM traces WHERE "traceId" IN (' +
-      'SELECT "traceId" FROM traces WHERE "startTime" >= $1 GROUP BY "traceId"' +
-      ' HAVING SUM(CASE WHEN "parentSpanId" IS NULL THEN 1 ELSE 0 END) = 0' +
-      ' AND MAX("startTime") < $2) GROUP BY "serviceName", "serviceVersion"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE traceId IN (" +
-      "SELECT traceId FROM traces WHERE startTime >= ? GROUP BY traceId" +
-      "  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0" +
-      "         AND MAX(startTime) < ?) GROUP BY serviceName, serviceVersion",
-  },
+  // SQLite: the grouped-delta SELECT and the DELETE run inside one IMMEDIATE
+  // transaction (see MaintenanceAtomicDelete).
+  DELETE_TRACES: (serviceName: string | null) =>
+    "DELETE FROM traces WHERE startTime < ? AND keywords LIKE ? ESCAPE '\\'" +
+    (serviceName ? " AND serviceName = ?" : ""),
+  GET_TRACES_DELETE_DELTAS: (serviceName: string | null) =>
+    "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE startTime < ? AND keywords LIKE ? ESCAPE '\\'" +
+    (serviceName ? " AND serviceName = ?" : "") +
+    " GROUP BY serviceName, serviceVersion",
+  DELETE_SIGNALS: (tableName: string, serviceName: string | null) =>
+    `DELETE FROM ${tableName} WHERE time < ? AND keywords LIKE ? ESCAPE '\\'` +
+    (serviceName ? " AND serviceName = ?" : ""),
+  GET_METRICS_DELETE_DELTAS: (serviceName: string | null) =>
+    "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics WHERE time < ? AND keywords LIKE ? ESCAPE '\\'" +
+    (serviceName ? " AND serviceName = ?" : "") +
+    " GROUP BY serviceName, serviceVersion, name, type",
+  GET_LOGS_DELETE_DELTAS: (serviceName: string | null) =>
+    "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM logs WHERE time < ? AND keywords LIKE ? ESCAPE '\\'" +
+    (serviceName ? " AND serviceName = ?" : "") +
+    " GROUP BY serviceName, serviceVersion",
+  DELETE_ORPHAN_TRACES:
+    "DELETE FROM traces WHERE traceId IN (" +
+    "SELECT traceId FROM traces WHERE startTime >= ? GROUP BY traceId" +
+    "  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0" +
+    "         AND MAX(startTime) < ?)",
+  GET_ORPHAN_TRACES_DELTAS:
+    "SELECT serviceName, serviceVersion, COUNT(*) AS cnt FROM traces WHERE traceId IN (" +
+    "SELECT traceId FROM traces WHERE startTime >= ? GROUP BY traceId" +
+    "  HAVING SUM(CASE WHEN parentSpanId IS NULL THEN 1 ELSE 0 END) = 0" +
+    "         AND MAX(startTime) < ?) GROUP BY serviceName, serviceVersion",
+  // PostgreSQL: one data-modifying CTE returns exactly the deleted rows, so
+  // the deltas cannot drift from concurrent ingestion.
+  DELETE_TRACES_RETURN_DELTAS: (serviceName: string | null) =>
+    `WITH deleted AS (` +
+    `DELETE FROM traces WHERE "startTime" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
+    (serviceName ? ' AND "serviceName" = $3' : "") +
+    ` RETURNING "serviceName", "serviceVersion")` +
+    ` SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM deleted` +
+    ` GROUP BY "serviceName", "serviceVersion"`,
+  DELETE_METRICS_RETURN_DELTAS: (serviceName: string | null) =>
+    `WITH deleted AS (` +
+    `DELETE FROM metrics WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
+    (serviceName ? ' AND "serviceName" = $3' : "") +
+    ` RETURNING "serviceName", "serviceVersion", "name", "type")` +
+    ` SELECT "serviceName", "serviceVersion", "name", "type", COUNT(*) AS cnt FROM deleted` +
+    ` GROUP BY "serviceName", "serviceVersion", "name", "type"`,
+  DELETE_LOGS_RETURN_DELTAS: (serviceName: string | null) =>
+    `WITH deleted AS (` +
+    `DELETE FROM logs WHERE "time" < $1 AND "keywords" LIKE $2 ESCAPE '\\'` +
+    (serviceName ? ' AND "serviceName" = $3' : "") +
+    ` RETURNING "serviceName", "serviceVersion")` +
+    ` SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM deleted` +
+    ` GROUP BY "serviceName", "serviceVersion"`,
+  DELETE_ORPHAN_TRACES_RETURN_DELTAS:
+    'WITH deleted AS (' +
+    'DELETE FROM traces WHERE "traceId" IN (' +
+    'SELECT "traceId" FROM traces WHERE "startTime" >= $1 GROUP BY "traceId"' +
+    ' HAVING SUM(CASE WHEN "parentSpanId" IS NULL THEN 1 ELSE 0 END) = 0' +
+    ' AND MAX("startTime") < $2)' +
+    ' RETURNING "serviceName", "serviceVersion")' +
+    ' SELECT "serviceName", "serviceVersion", COUNT(*) AS cnt FROM deleted' +
+    ' GROUP BY "serviceName", "serviceVersion"',
+  DELETE_DUPLICATE_METRICS_RETURN_DELTAS: `WITH deleted AS (
+    DELETE FROM metrics a
+      USING metrics b
+      WHERE a."name" = b."name"
+        AND a."serviceName" = b."serviceName"
+        AND a."serviceVersion" = b."serviceVersion"
+        AND a."type" = b."type"
+        AND a."attributes" = b."attributes"
+        AND CAST(a."time" / $3 AS INTEGER) = CAST(b."time" / $3 AS INTEGER)
+        AND a."time" >= $1 AND a."time" < $2
+        AND b."time" >= $1 AND b."time" < $2
+        AND a.ctid < b.ctid
+      RETURNING a."serviceName", a."serviceVersion", a."name", a."type")
+    SELECT "serviceName", "serviceVersion", "name", "type", COUNT(*) AS cnt FROM deleted
+    GROUP BY "serviceName", "serviceVersion", "name", "type"`,
   SELECT_MIN_METRIC_TIME: {
     postgres: 'SELECT MIN("time") AS "minTime" FROM metrics',
     sqlite: "SELECT MIN(time) AS minTime FROM metrics",
   },
-  METRICS_COMPRESS_DELTAS: {
-    postgres:
-      'SELECT a."serviceName", a."serviceVersion", a."name", a."type", COUNT(*) AS cnt FROM metrics a' +
-      ' WHERE a."time" >= $1 AND a."time" < $2' +
-      '   AND EXISTS (' +
-      '     SELECT 1 FROM metrics b' +
-      '     WHERE b."name" = a."name" AND b."serviceName" = a."serviceName"' +
-      '       AND b."serviceVersion" = a."serviceVersion" AND b."type" = a."type"' +
-      '       AND b."attributes" = a."attributes"' +
-      '       AND CAST(b."time" / $3 AS INTEGER) = CAST(a."time" / $3 AS INTEGER)' +
-      '       AND b."time" >= $1 AND b."time" < $2' +
-      '       AND b.ctid > a.ctid)' +
-      ' GROUP BY a."serviceName", a."serviceVersion", a."name", a."type"',
-    sqlite:
-      "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics" +
-      " WHERE time >= ? AND time < ? AND rowid NOT IN (" +
-      "   SELECT MAX(rowid) FROM metrics WHERE time >= ? AND time < ?" +
-      "   GROUP BY name, serviceName, serviceVersion, type, attributes, CAST(time / ? AS INTEGER))" +
-      " GROUP BY serviceName, serviceVersion, name, type",
-  },
-  DELETE_DUPLICATE_METRICS: {
-    postgres: `DELETE FROM metrics a
-       USING metrics b
-       WHERE a."name" = b."name"
-         AND a."serviceName" = b."serviceName"
-         AND a."serviceVersion" = b."serviceVersion"
-         AND a."type" = b."type"
-         AND a."attributes" = b."attributes"
-         AND CAST(a."time" / $3 AS INTEGER) = CAST(b."time" / $3 AS INTEGER)
-         AND a."time" >= $1 AND a."time" < $2
-         AND b."time" >= $1 AND b."time" < $2
-         AND a.ctid < b.ctid`,
-    sqlite:
-      "DELETE FROM metrics" +
-      " WHERE time >= ? AND time < ? AND rowid NOT IN (" +
-      "   SELECT MAX(rowid) FROM metrics WHERE time >= ? AND time < ?" +
-      "   GROUP BY name, serviceName, serviceVersion, type, attributes, CAST(time / ? AS INTEGER))",
-  },
+  METRICS_COMPRESS_DELTAS:
+    "SELECT serviceName, serviceVersion, name, type, COUNT(*) AS cnt FROM metrics" +
+    " WHERE time >= ? AND time < ? AND rowid NOT IN (" +
+    "   SELECT MAX(rowid) FROM metrics WHERE time >= ? AND time < ?" +
+    "   GROUP BY name, serviceName, serviceVersion, type, attributes, CAST(time / ? AS INTEGER))" +
+    " GROUP BY serviceName, serviceVersion, name, type",
+  DELETE_DUPLICATE_METRICS:
+    "DELETE FROM metrics" +
+    " WHERE time >= ? AND time < ? AND rowid NOT IN (" +
+    "   SELECT MAX(rowid) FROM metrics WHERE time >= ? AND time < ?" +
+    "   GROUP BY name, serviceName, serviceVersion, type, attributes, CAST(time / ? AS INTEGER))",
   GET_MAINTENANCE_STATE: {
     postgres:
       'SELECT "stateValue" FROM maintenance_state WHERE "stateKey" = $1',

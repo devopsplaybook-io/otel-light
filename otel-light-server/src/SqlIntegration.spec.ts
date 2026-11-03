@@ -89,11 +89,16 @@ import {
   SignalRollupsGetAllCounts,
   SignalRollupsGetMetricNames,
   SignalRollupsGetServicesAndVersions,
+  SignalRollupsReconcile,
   SignalRollupsRecordMetricNameDeletion,
   SignalRollupsRecordMetricNamesInsert,
   SignalRollupsRecordSignalDeletion,
   SignalRollupsRecordSignalInsert,
 } from "./SignalRollups";
+import {
+  RecommendationCollectStats,
+  RecommendationInit,
+} from "./reports/Recommendation";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -162,6 +167,7 @@ const insertTrace = (
   serviceName = "trace-svc",
   serviceVersion = "1.0",
   keywords = "",
+  attributesJson = "[]",
 ) =>
   runSql(
     'INSERT INTO traces ("traceId", "spanId", "parentSpanId", "name", "serviceName", "serviceVersion", "startTime", "endTime", "statusCode", "attributes", "rawSpan", "keywords") VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
@@ -175,7 +181,7 @@ const insertTrace = (
       startTime,
       endTime,
       statusCode,
-      "[]",
+      attributesJson,
       "{}",
       keywords ||
         `${serviceName}:${serviceVersion} ${name} ${traceId} ${spanId} ${parentSpanId}`.toLowerCase(),
@@ -2391,9 +2397,19 @@ describe("SQL-level integration (sqlite)", () => {
   // Restart: migrations re-run on an up-to-date database
   // =========================================================================
   describe("Restart with an up-to-date database", () => {
-    it("re-runs the migrations (second boot) without throwing and keeps the data", async () => {
+    it("does not re-apply migrations on the second boot and keeps the data", async () => {
       const logsBefore = await query("SELECT COUNT(*) AS c FROM logs", []);
       expect(Number(logsBefore[0].c)).toBeGreaterThan(0);
+      const versionsBefore = await query(
+        "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
+        [],
+      );
+      expect(Number(versionsBefore[0].v)).toBe(13);
+
+      // Migrations are logged through the shared module logger mock.
+      const migrationLogger = OTelLogger().createModuleLogger("RestartProbe");
+      const migrationInfo = migrationLogger.info as unknown as jest.Mock;
+      migrationInfo.mockClear();
 
       await DbUtilsInit(
         testSpan(),
@@ -2405,11 +2421,183 @@ describe("SQL-level integration (sqlite)", () => {
 
       const logsAfter = await query("SELECT COUNT(*) AS c FROM logs", []);
       expect(Number(logsAfter[0].c)).toBe(Number(logsBefore[0].c));
-      const versionRows = await query(
-        "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
+      const versionsAfter = await query(
+        "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(13);
+      // Neither the version rows nor their maximum changed: no init file was
+      // re-executed on an up-to-date database.
+      expect(Number(versionsAfter[0].c)).toBe(Number(versionsBefore[0].c));
+      expect(Number(versionsAfter[0].v)).toBe(13);
+      const migrationInfoCalls = migrationInfo.mock.calls
+        .map((call: unknown[]) => String(call[0]))
+        .filter((message) => message.includes("Loading init file"));
+      expect(migrationInfoCalls).toEqual([]);
+    });
+  });
+
+  // =========================================================================
+  // Signal rollup reconciliation (M4)
+  // =========================================================================
+  describe("Signal rollup reconciliation", () => {
+    // Last on purpose: it recounts every rollup from the raw tables, which is
+    // exactly what earlier blocks have drifted on purpose (raw inserts).
+    it("repairs drift, then reports consistency on the next run", async () => {
+      const reconTime = 2_100_000_000_000_000_000;
+      await insertTrace(
+        "recon-trace",
+        "recon-root",
+        null,
+        "recon-op",
+        reconTime,
+        reconTime + 1_000_000_000,
+        0,
+        "recon-svc",
+      );
+      await runSql(
+        'INSERT INTO signal_service_counts ("signalType", "serviceName", "serviceVersion", "count", "firstSeen", "lastSeen") VALUES (?,?,?,?,?,?) ON CONFLICT ("signalType", "serviceName", "serviceVersion") DO UPDATE SET "count" = excluded."count"',
+        ["traces", "recon-svc", "1.0", 5, reconTime, reconTime],
+      );
+
+      const first = await SignalRollupsReconcile(testSpan());
+      expect(first.repaired).toBe(true);
+      expect(first.serviceRowsDrift).toBeGreaterThan(0);
+      expect(first.metricNameRowsDrift).toBeGreaterThanOrEqual(0);
+
+      const counts = await SignalRollupsGetAllCounts();
+      expect(
+        counts.find(
+          (row) =>
+            row.signalType === "traces" && row.serviceName === "recon-svc",
+        )?.count,
+      ).toBe(1);
+
+      const second = await SignalRollupsReconcile(testSpan());
+      expect(second).toEqual({
+        serviceRowsDrift: 0,
+        metricNameRowsDrift: 0,
+        repaired: false,
+      });
+    });
+  });
+
+  // =========================================================================
+  // LLM recommendation statistics (M7): bounded sampling, safe status parsing
+  // =========================================================================
+  describe("Recommendation statistics", () => {
+    const recService = "rec-stats-svc";
+    const recStart = 2_200_000_000_000_000_000;
+    const hourNs = 3_600_000_000_000;
+    const recEnd = recStart + hourNs;
+
+    const statusAttribute = (value: Record<string, unknown>): string =>
+      JSON.stringify([
+        { key: "http.status_code", value: { ...value } },
+      ]);
+
+    beforeAll(async () => {
+      await RecommendationInit(testSpan(), {
+        DATA_DIR: dataDir,
+        LLM_API_KEY: "",
+        LLM_RECOMMENDATION_SAMPLE_CAP: 1,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      await insertTrace(
+        "rec-tr-1",
+        "rec-root-1",
+        null,
+        "GET /orders",
+        recStart,
+        recStart + 100_000_000,
+        0,
+        recService,
+        "1.0",
+        "",
+        statusAttribute({ intValue: 200 }),
+      );
+      await insertTrace(
+        "rec-tr-2",
+        "rec-root-2",
+        null,
+        "GET /orders",
+        recStart + 10_000_000,
+        recStart + 150_000_000,
+        0,
+        recService,
+        "1.0",
+        "",
+        statusAttribute({ stringValue: "503" }),
+      );
+      // Non-numeric status attribute: skipped, never fatal.
+      await insertTrace(
+        "rec-tr-3",
+        "rec-root-3",
+        null,
+        "GET /orders",
+        recStart + 20_000_000,
+        recStart + 250_000_000,
+        0,
+        recService,
+        "1.0",
+        "",
+        statusAttribute({ stringValue: "abc" }),
+      );
+    });
+
+    it("builds the HTTP breakdown from int and string values, skipping invalid codes", async () => {
+      const stats = await RecommendationCollectStats(
+        testSpan(),
+        recStart,
+        recEnd,
+        1,
+      );
+
+      const breakdown = stats.traces.httpStatusBreakdown.filter(
+        (entry) => entry.serviceName === recService,
+      );
+      expect(
+        breakdown
+          .map((entry) => [entry.statusRange, entry.count])
+          .sort((a, b) => String(a[0]).localeCompare(String(b[0]))),
+      ).toEqual([
+        ["2xx", 1],
+        ["5xx", 1],
+      ]);
+
+      const top = stats.traces.topByCount.find(
+        (entry) => entry.name === "GET /orders",
+      );
+      expect(top?.count).toBe(3);
+      expect(top?.errorCount).toBe(0);
+      expect(stats.services).toContain(recService);
+    });
+
+    it("produces identical percentiles for identical data", async () => {
+      const first = await RecommendationCollectStats(
+        testSpan(),
+        recStart,
+        recEnd,
+        1,
+      );
+      const second = await RecommendationCollectStats(
+        testSpan(),
+        recStart,
+        recEnd,
+        1,
+      );
+
+      const firstTop = first.traces.topByCount.find(
+        (entry) => entry.name === "GET /orders",
+      );
+      const secondTop = second.traces.topByCount.find(
+        (entry) => entry.name === "GET /orders",
+      );
+      expect(firstTop).toBeDefined();
+      expect(secondTop).toEqual(firstTop);
+      expect(secondTop?.p50DurationMs).toBe(firstTop?.p50DurationMs);
+      expect(secondTop?.p95DurationMs).toBe(firstTop?.p95DurationMs);
+      expect(secondTop?.p99DurationMs).toBe(firstTop?.p99DurationMs);
     });
   });
 });
