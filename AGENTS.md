@@ -32,8 +32,8 @@ otel-light/
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
-│   │   ├── sqlite/init-0000..0012.sql  # 13 migration files (CREATE tables, indexes, ALTER columns)
-│   │   └── postgres/init-0000..0012.sql # Parallel migrations for PostgreSQL
+│   │   ├── sqlite/init-0000..0013.sql  # 14 migration files (CREATE tables, indexes, ALTER columns, data backfills)
+│   │   └── postgres/init-0000..0013.sql # Parallel migrations for PostgreSQL
 │   └── src/
 │       ├── App.ts                      # Entry point: config init, OTel setup, DB init, Fastify routes
 │       ├── Config.ts                   # Extends ConfigBase from common-utils
@@ -131,7 +131,7 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 | `metrics`  | name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords                                                  | Ingested metric data points      |
 | `logs`     | serviceName, serviceVersion, severity, time, logText, attributes, keywords, traceId, spanId                                     | Ingested log records             |
 
-Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0012). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
+Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0013). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
 ## Key Conventions
 
@@ -311,3 +311,5 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **Single-container production**: In production, the server serves pre-built web assets via `@fastify/static`. The Traefik proxy is NOT used. Only `dist/`, `node_modules/`, `sql/`, `config.json`, and `web/` are copied into the Docker image.
 - **Test mocks intercept re-exports**: Tests mock `../../utils-std-ts/DbUtils` etc., which are now re-export files. Jest intercepts the import at the re-export file path, so mocks work without changes. Do not mock `@devopsplaybook.io/common-utils` directly.
 - **LLM thinking mode**: Reasoning/thinking models (e.g. DeepSeek `-flash`/`-pro` variants) spend `max_tokens` on their internal chain-of-thought, which can leave `content` empty and trigger "LLM returned an empty response." `Recommendation.ts` sends `thinking.type=disabled` by default; set `LLM_THINKING_MODE=enabled` only when chain-of-thought is wanted (also raises the request timeout). `LLM_THINKING_MODE=omit` leaves the DeepSeek-specific `thinking` field out entirely for strict OpenAI-compatible providers.
+- **Canonical log severity**: `logs.severity` stores the uppercase OTLP set (`TRACE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`), normalized at ingestion by `SignalNormalization.ts` (alias + `severityNumber` fallback). Filters, logs stats and error alerts compare that exact value; lowercase query input is canonicalized by the route. `init-0013` backfills legacy rows and re-runs on PostgreSQL, so it must stay UPDATE-only and re-runnable.
+- **Ingestion normalization and limits**: Traces/logs routes normalize ids (50 chars), names/service values (2000), keywords (4000) and log text (65,536) before binding, reject non-finite/out-of-range timestamps and report rejects in `partialSuccess` (`rejectedSpans` / `rejectedLogRecords`). `attributes`/`rawSpan`/`rawMetric` stay raw JSON and are bounded only by `INGESTION_BODY_LIMIT_BYTES` and retention. Do not add validation that could throw on a single record and abort the whole batch.

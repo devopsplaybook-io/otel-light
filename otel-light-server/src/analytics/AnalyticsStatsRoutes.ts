@@ -15,6 +15,7 @@ import {
   AnalyticsStatsGetSampleCap,
 } from "./AnalyticsStatsCache";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import { SignalNormalizationSeverity } from "../SignalNormalization";
 
 const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
 const MINUTE_NS = 60 * 1_000_000_000;
@@ -92,12 +93,13 @@ export class AnalyticsStatsRoutes {
         );
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
-      if (req.query.severity?.trim()) {
+      const severity = SignalNormalizationSeverity(req.query.severity);
+      if (severity) {
         appendWhere(
           "severity = " +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(req.query.severity.toLowerCase().trim());
+        sqlParams.push(severity);
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         appendWhere(

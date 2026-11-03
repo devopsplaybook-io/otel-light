@@ -9,6 +9,7 @@ import {
   AnalyticsUtilsGetTimeParam,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import { SignalNormalizationSeverity } from "../SignalNormalization";
 
 const PAGE_SIZE = 200;
 
@@ -97,10 +98,11 @@ export class AnalyticsLogsRoutes {
           " AND keywords LIKE " + varAt(sqlParams.length + 1);
         sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
       }
-      if (req.query.severity?.trim()) {
+      const severity = SignalNormalizationSeverity(req.query.severity);
+      if (severity) {
         sqlWhere +=
           " AND severity = " + varAt(sqlParams.length + 1);
-        sqlParams.push(req.query.severity.toLowerCase().trim());
+        sqlParams.push(severity);
       }
       if (req.query.serviceName && String(req.query.serviceName).trim()) {
         sqlWhere +=

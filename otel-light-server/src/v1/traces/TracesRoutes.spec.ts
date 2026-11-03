@@ -480,4 +480,106 @@ describe("TracesRoutes POST /v1/traces", () => {
     expect(rows[1][4]).toBe("my-svc");
     expect(rows[1][5]).toBe("1.0.0");
   });
+
+  // --- Row content limits and validation (M1) ---
+  const storedRows = () =>
+    (SignalIngestionInsertTracesIgnoreDuplicates as jest.Mock).mock.calls[0][2];
+
+  it("truncates oversized ids to 50 characters", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/traces",
+      payload: buildBody([
+        mockSpan({
+          traceId: "t".repeat(60),
+          spanId: "s".repeat(60),
+          parentSpanId: "p".repeat(60),
+        }),
+      ]),
+    });
+
+    const row = storedRows()[0];
+    expect(row[0]).toBe("t".repeat(50));
+    expect(row[1]).toBe("s".repeat(50));
+    expect(row[2]).toBe("p".repeat(50));
+  });
+
+  it("rejects non-string and empty ids", async () => {
+    const res = await fastify.inject({
+      method: "POST",
+      url: "/v1/traces",
+      payload: buildBody([
+        mockSpan({ traceId: 123 }),
+        mockSpan({ spanId: "" }),
+        mockSpan({ traceId: "  " }),
+      ]),
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().partialSuccess.rejectedSpans).toBe("3");
+    expect(SignalIngestionInsertTracesIgnoreDuplicates).not.toHaveBeenCalled();
+  });
+
+  it.each(["abc", 0, -1, 1.5, "1e30"])(
+    "rejects only the span with an invalid start/end time (%p)",
+    async (invalidTime) => {
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/traces",
+        payload: buildBody([
+          mockSpan({ startTimeUnixNano: invalidTime }),
+          mockSpan({ endTimeUnixNano: invalidTime }),
+          mockSpan({ traceId: "valid-trace", spanId: "valid-span" }),
+        ]),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().partialSuccess.rejectedSpans).toBe("2");
+      const rows = storedRows();
+      expect(rows).toHaveLength(1);
+      expect(rows[0][0]).toBe("valid-trace");
+      expect(rows[0][6]).toBe(1_000_000_000);
+      expect(rows[0][7]).toBe(2_000_000_000);
+    },
+  );
+
+  it("normalizes status codes to the OTLP 0..2 range", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/traces",
+      payload: buildBody([
+        mockSpan({ traceId: "s1", spanId: "s1", status: { code: "2" } }),
+        mockSpan({ traceId: "s2", spanId: "s2", status: { code: 5 } }),
+        mockSpan({ traceId: "s3", spanId: "s3", status: { code: "abc" } }),
+        mockSpan({ traceId: "s4", spanId: "s4", status: { code: -1 } }),
+      ]),
+    });
+
+    const rows = storedRows();
+    expect(rows.map((row: unknown[]) => row[8])).toEqual([2, 0, 0, 0]);
+  });
+
+  it("truncates names and service values and strips NUL characters", async () => {
+    await fastify.inject({
+      method: "POST",
+      url: "/v1/traces",
+      payload: buildBody([
+        mockSpan({
+          name: `${"n".repeat(2_100)}\u0000`,
+          attributes: [
+            {
+              key: "service.name",
+              value: { stringValue: `${"s".repeat(2_100)}\u0000` },
+            },
+          ],
+        }),
+      ]),
+    });
+
+    const row = storedRows()[0];
+    expect(row[3]).toHaveLength(2_000);
+    expect(row[3]).not.toContain("\u0000");
+    expect(row[4]).toHaveLength(2_000);
+    expect(row[4]).not.toContain("\u0000");
+  });
 });

@@ -21,9 +21,14 @@ export async function SignalUtilsInit(context: Span, configIn: Config) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
+function SignalUtilsGetResourceAttributes(resource: any): any[] {
+  return Array.isArray(resource?.attributes) ? resource.attributes : [];
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function SignalUtilsGetServiceName(resource: any): string {
   return (
-    resource?.attributes?.find(
+    SignalUtilsGetResourceAttributes(resource).find(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (attr: any) => attr?.key === "service.name",
     )?.value?.stringValue || "unknown"
@@ -33,7 +38,7 @@ export function SignalUtilsGetServiceName(resource: any): string {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function SignalUtilsGetServiceVersion(resource: any): string {
   return (
-    resource?.attributes?.find(
+    SignalUtilsGetResourceAttributes(resource).find(
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (attr: any) => attr?.key === "service.version",
     )?.value?.stringValue || "unknown"

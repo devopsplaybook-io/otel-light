@@ -13,6 +13,15 @@ import {
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
+import {
+  SignalNormalizationId,
+  SignalNormalizationSeverity,
+  SignalNormalizationTimeUnixNano,
+  SignalNormalizationTruncate,
+  SIGNAL_KEYWORDS_MAX_LENGTH,
+  SIGNAL_LOG_TEXT_MAX_LENGTH,
+  SIGNAL_NAME_MAX_LENGTH,
+} from "../../SignalNormalization";
 
 const logger = OTelLogger().createModuleLogger("v1/logs");
 
@@ -64,13 +73,16 @@ export class LogsRoutes {
             return res.status(401).send({});
           }
           const rollupEntries: SignalInsertEntry[] = [];
+          let rejectedLogRecords = 0;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           for (const resourceLog of (req.body as any).resourceLogs ?? []) {
-            const resourceServiceName = SignalUtilsGetServiceName(
-              resourceLog.resource,
+            const resourceServiceName = SignalNormalizationTruncate(
+              SignalUtilsGetServiceName(resourceLog.resource),
+              SIGNAL_NAME_MAX_LENGTH,
             );
-            const resourceServiceVersion = SignalUtilsGetServiceVersion(
-              resourceLog.resource,
+            const resourceServiceVersion = SignalNormalizationTruncate(
+              SignalUtilsGetServiceVersion(resourceLog.resource),
+              SIGNAL_NAME_MAX_LENGTH,
             );
             for (const scopeLog of resourceLog.scopeLogs ?? []) {
               const rows = [];
@@ -78,31 +90,52 @@ export class LogsRoutes {
                 const attrs = logRecord.attributes || [];
                 // Per-record override with resource-level fallback: must not
                 // leak into subsequent records of the same resource group.
-                let serviceName =
-                  attrs.find((a) => a?.key === "service.name")?.value
-                    ?.stringValue || resourceServiceName;
-                let serviceVersion =
-                  attrs.find((a) => a?.key === "service.version")?.value
-                    ?.stringValue || resourceServiceVersion;
+                const serviceName =
+                  SignalNormalizationTruncate(
+                    attrs.find((a) => a?.key === "service.name")?.value
+                      ?.stringValue,
+                    SIGNAL_NAME_MAX_LENGTH,
+                  ) || resourceServiceName;
+                const serviceVersion =
+                  SignalNormalizationTruncate(
+                    attrs.find((a) => a?.key === "service.version")?.value
+                      ?.stringValue,
+                    SIGNAL_NAME_MAX_LENGTH,
+                  ) || resourceServiceVersion;
                 // Standard OTLP LogRecord fields win; the trace.id/span.id
                 // attributes are kept as a fallback for older exporters.
                 const traceId =
-                  logRecord.traceId ||
-                  attrs.find((a) => a?.key === "trace.id")?.value
-                    ?.stringValue ||
-                  null;
-                const spanId =
-                  logRecord.spanId ||
-                  attrs.find((a) => a?.key === "span.id")?.value?.stringValue ||
-                  null;
-                if (serviceName) serviceName = serviceName.substring(0, 2000);
-                if (serviceVersion)
-                  serviceVersion = serviceVersion.substring(0, 2000);
-                const keywords =
-                  `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${logRecord.severityText} ${logRecord.body?.stringValue}`.substring(
-                    0,
-                    4000,
+                  SignalNormalizationId(logRecord.traceId) ??
+                  SignalNormalizationId(
+                    attrs.find((a) => a?.key === "trace.id")?.value?.stringValue,
                   );
+                const spanId =
+                  SignalNormalizationId(logRecord.spanId) ??
+                  SignalNormalizationId(
+                    attrs.find((a) => a?.key === "span.id")?.value?.stringValue,
+                  );
+                const severity = SignalNormalizationSeverity(
+                  logRecord.severityText,
+                  logRecord.severityNumber,
+                );
+                // A missing time falls back to the ingestion time; an
+                // explicitly provided but invalid time rejects that record
+                // only, so the rest of the batch is still stored.
+                const parsedTime = SignalNormalizationTimeUnixNano(
+                  logRecord.timeUnixNano,
+                );
+                if (parsedTime.kind === "invalid") {
+                  rejectedLogRecords++;
+                  continue;
+                }
+                const logTime =
+                  parsedTime.kind === "valid"
+                    ? parsedTime.value
+                    : Date.now() * 1_000_000;
+                const keywords = SignalNormalizationTruncate(
+                  `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${severity} ${logRecord.body?.stringValue}`,
+                  SIGNAL_KEYWORDS_MAX_LENGTH,
+                ).toLowerCase();
                 let logText: string;
                 if (logRecord.body?.stringValue) {
                   logText = logRecord.body.stringValue || "";
@@ -117,8 +150,9 @@ export class LogsRoutes {
                   logText =
                     "Log Object: \n" + JSON.stringify(logRecord.body ?? null);
                 }
-                const logTime = Number(
-                  logRecord.timeUnixNano ?? Date.now() * 1_000_000,
+                logText = SignalNormalizationTruncate(
+                  logText,
+                  SIGNAL_LOG_TEXT_MAX_LENGTH,
                 );
                 rollupEntries.push({
                   serviceName,
@@ -131,18 +165,20 @@ export class LogsRoutes {
                   traceId,
                   spanId,
                   logTime,
-                  logRecord.severityText ?? "",
+                  severity,
                   logText,
                   JSON.stringify(attrs),
-                  keywords.toLowerCase(),
+                  keywords,
                   randomUUID(),
                 ]);
               }
-              await DbUtilsNoTelemetryBatchInsert(
-                'INTO logs ("serviceName", "serviceVersion", "traceId", "spanId", "time", "severity", "logText", "attributes", "keywords", "recordId")',
-                10,
-                rows,
-              );
+              if (rows.length > 0) {
+                await DbUtilsNoTelemetryBatchInsert(
+                  'INTO logs ("serviceName", "serviceVersion", "traceId", "spanId", "time", "severity", "logText", "attributes", "keywords", "recordId")',
+                  10,
+                  rows,
+                );
+              }
             }
           }
 
@@ -154,6 +190,15 @@ export class LogsRoutes {
             logger.error("Failed to update log rollups", rollupErr);
           }
 
+          if (rejectedLogRecords > 0) {
+            return res.status(200).send({
+              partialSuccess: {
+                rejectedLogRecords: String(rejectedLogRecords),
+                errorMessage:
+                  "Log records with an invalid timeUnixNano were rejected.",
+              },
+            });
+          }
           return res.status(200).send({});
         } catch (err) {
           logger.error("Error ingesting logs", err);

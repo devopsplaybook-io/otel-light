@@ -254,9 +254,16 @@ The ingestion endpoints accept **OTLP/JSON only** (`application/json`). Protobuf
 
 Any other content type (for example `application/x-protobuf`) is rejected with **HTTP 415** and a message pointing at these settings.
 
-Accepted requests answer **HTTP 200** with an empty JSON object. Trace ingestion may instead return an OTLP `partialSuccess` object (`rejectedSpans`, `errorMessage`) when some spans are missing a `traceId`/`spanId` or a positive start/end time; the valid spans in the same batch are still stored.
+Accepted requests answer **HTTP 200** with an empty JSON object. When some records cannot be stored, ingestion answers **HTTP 200** with an OTLP `partialSuccess` object and still stores the valid records of the batch:
 
-Spans are de-duplicated on `(traceId, spanId)`: replaying a batch (an exporter retry) does not duplicate rows or inflate counts. Logs are stored at-least-once (OTLP has no stable log record ID) and metrics may duplicate on retry.
+- Traces: `partialSuccess.rejectedSpans` counts spans missing a valid `traceId`/`spanId` or a valid positive start/end time.
+- Logs: `partialSuccess.rejectedLogRecords` counts log records with an explicitly provided but invalid `timeUnixNano` (non-numeric, zero, negative, fractional or above `9e18`). A log record without `timeUnixNano` uses the ingestion time instead.
+
+Every ingested value is normalized to what both database backends can store: ids are trimmed to 50 characters, service name/version and span names to 2000, keywords to 4000, and log text to 65,536 characters (NUL characters are stripped). Trace/span ids are kept as opaque strings but an empty or non-string mandatory id rejects the span. Timestamps must be finite positive integers of nanoseconds that fit a signed 64-bit integer. `attributes`, `rawSpan` and `rawMetric` are stored as the original JSON and are therefore not truncated; they are bounded by `INGESTION_BODY_LIMIT_BYTES` and the retention rules instead.
+
+Log severity is canonicalized at ingestion to the uppercase OTLP set (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`): the text is trimmed, uppercased, common aliases are mapped (`WARNING` → `WARN`, `CRITICAL` → `FATAL`, …) and a trailing OTLP numeric suffix is removed (`WARN2` → `WARN`). When `severityText` is missing, the value is derived from `severityNumber` (1–4 `TRACE`, 5–8 `DEBUG`, 9–12 `INFO`, 13–16 `WARN`, 17–20 `ERROR`, 21–24 `FATAL`); custom text is kept uppercased and truncated. The list filter, logs stats and error alerts all compare that exact uppercase value, and the `init-0013` migration backfills existing rows at startup. Filters still accept any casing (`severity=error` matches `ERROR`).
+
+Retry semantics are **at-least-once** for logs and metrics: OTLP has no stable log record or metric identity, so an exporter retry may insert duplicates. Spans are de-duplicated on `(traceId, spanId)`: replaying a trace batch does not duplicate rows or inflate counts.
 
 Requests larger than `INGESTION_BODY_LIMIT_BYTES` are rejected with **HTTP 413**. Request payload compression is not supported.
 

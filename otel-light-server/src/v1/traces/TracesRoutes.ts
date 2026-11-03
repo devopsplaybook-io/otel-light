@@ -15,6 +15,13 @@ import {
   SignalUtilsGetServiceName,
   SignalUtilsGetServiceVersion,
 } from "../SignalUtils";
+import {
+  SignalNormalizationId,
+  SignalNormalizationTimeUnixNano,
+  SignalNormalizationTruncate,
+  SIGNAL_KEYWORDS_MAX_LENGTH,
+  SIGNAL_NAME_MAX_LENGTH,
+} from "../../SignalNormalization";
 
 const logger = OTelLogger().createModuleLogger("v1/traces");
 
@@ -87,54 +94,74 @@ export class TracesRoutes {
               const rows = [];
               const spanEntries: SpanInsertEntry[] = [];
               for (const span of scopeSpan.spans ?? []) {
+                const traceId = SignalNormalizationId(span.traceId);
+                const spanId = SignalNormalizationId(span.spanId);
+                const start = SignalNormalizationTimeUnixNano(
+                  span.startTimeUnixNano,
+                );
+                const end = SignalNormalizationTimeUnixNano(
+                  span.endTimeUnixNano,
+                );
                 if (
-                  !span.traceId ||
-                  !span.spanId ||
-                  !(Number(span.startTimeUnixNano) > 0) ||
-                  !(Number(span.endTimeUnixNano) > 0)
+                  !traceId ||
+                  !spanId ||
+                  start.kind !== "valid" ||
+                  end.kind !== "valid"
                 ) {
                   rejectedSpans++;
                   continue;
                 }
+                const parentSpanId = SignalNormalizationId(span.parentSpanId);
                 const attrs = span.attributes || [];
                 // Per-span override with resource-level fallback: must not
                 // leak into subsequent spans of the same resource group.
-                const serviceName =
+                const serviceName = SignalNormalizationTruncate(
                   attrs.find((a) => a?.key === "service.name")?.value
-                    ?.stringValue || resourceServiceName;
-                const serviceVersion =
+                    ?.stringValue || resourceServiceName,
+                  SIGNAL_NAME_MAX_LENGTH,
+                );
+                const serviceVersion = SignalNormalizationTruncate(
                   attrs.find((a) => a?.key === "service.version")?.value
-                    ?.stringValue || resourceServiceVersion;
-                const name = span.name ? span.name.substring(0, 2000) : "";
+                    ?.stringValue || resourceServiceVersion,
+                  SIGNAL_NAME_MAX_LENGTH,
+                );
+                const name = SignalNormalizationTruncate(
+                  span.name,
+                  SIGNAL_NAME_MAX_LENGTH,
+                );
+                const rawStatusCode = Number(span.status?.code);
+                const statusCode =
+                  Number.isInteger(rawStatusCode) &&
+                  rawStatusCode >= 0 &&
+                  rawStatusCode <= 2
+                    ? rawStatusCode
+                    : 0;
 
-                const keywords =
-                  `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${name} ${span.status?.code} ${span.traceId} ${span.spanId} ${span.parentSpanId}`.substring(
-                    0,
-                    4000,
-                  );
+                const keywords = SignalNormalizationTruncate(
+                  `${serviceName}:${serviceVersion} ${serviceName} ${serviceVersion} ${name} ${statusCode} ${traceId} ${spanId} ${parentSpanId ?? ""}`,
+                  SIGNAL_KEYWORDS_MAX_LENGTH,
+                ).toLowerCase();
                 spanEntries.push({
-                  key: SignalIngestionSpanKey(span.traceId, span.spanId),
+                  key: SignalIngestionSpanKey(traceId, spanId),
                   entry: {
                     serviceName,
                     serviceVersion,
-                    time: Number(span.startTimeUnixNano),
+                    time: start.value,
                   },
                 });
                 rows.push([
-                  span.traceId,
-                  span.spanId,
-                  span.parentSpanId ?? null,
+                  traceId,
+                  spanId,
+                  parentSpanId,
                   name,
-                  serviceName ? serviceName.substring(0, 2000) : serviceName,
-                  serviceVersion
-                    ? serviceVersion.substring(0, 2000)
-                    : serviceVersion,
-                  span.startTimeUnixNano,
-                  span.endTimeUnixNano,
-                  span.status?.code ?? 0,
+                  serviceName,
+                  serviceVersion,
+                  start.value,
+                  end.value,
+                  statusCode,
                   JSON.stringify(attrs),
                   JSON.stringify(span),
-                  keywords.toLowerCase(),
+                  keywords,
                 ]);
               }
               if (rows.length > 0) {

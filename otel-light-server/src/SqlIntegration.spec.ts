@@ -83,6 +83,8 @@ import { MaintenanceFormatRetentionPattern } from "./Maintenance";
 import { AnalyticsStatsInit } from "./analytics/AnalyticsStatsCache";
 import { SignalUtilsInit } from "./v1/SignalUtils";
 import { TracesRoutes } from "./v1/traces/TracesRoutes";
+import { LogsRoutes } from "./v1/logs/LogsRoutes";
+import { SignalNormalizationSeverity } from "./SignalNormalization";
 import {
   SignalRollupsGetAllCounts,
   SignalRollupsGetMetricNames,
@@ -222,6 +224,9 @@ describe("SQL-level integration (sqlite)", () => {
     await fastify.register(new TracesRoutes().getRoutes, {
       prefix: "/v1/traces",
     });
+    await fastify.register(new LogsRoutes().getRoutes, {
+      prefix: "/v1/logs",
+    });
     await fastify.register(new AnalyticsTracesRoutes().getRoutes, {
       prefix: "/api/analytics/traces",
     });
@@ -256,12 +261,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 12 and creates the rollup tables", async () => {
+    it("applies all migrations up to version 13 and creates the rollup tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(12);
+      expect(Number(versionRows[0].maxVersion)).toBe(13);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -609,7 +614,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "log-svc",
         "1.0",
-        "error",
+        "ERROR",
         T,
         "a",
         "log-svc:1.0 log-svc 1.0 error",
@@ -618,7 +623,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "log-svc",
         "1.0",
-        "info",
+        "INFO",
         T,
         "b",
         "log-svc:1.0 log-svc 1.0 info",
@@ -627,7 +632,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "log-svc",
         "1.0",
-        "info",
+        "INFO",
         T,
         "c",
         "log-svc:1.0 log-svc 1.0 info",
@@ -636,7 +641,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "log-svc",
         "1.0",
-        "info",
+        "INFO",
         T + 1_000_000_000,
         "d",
         "log-svc:1.0 log-svc 1.0 info",
@@ -821,7 +826,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "stats-svc",
         "1.0",
-        "error",
+        "ERROR",
         t0,
         "s1",
         "stats-svc:1.0 stats-svc 1.0 statstoken error",
@@ -830,7 +835,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "stats-svc",
         "1.0",
-        "info",
+        "INFO",
         t0,
         "s2",
         "stats-svc:1.0 stats-svc 1.0 statstoken info",
@@ -839,7 +844,7 @@ describe("SQL-level integration (sqlite)", () => {
       await insertLog(
         "stats-svc",
         "1.0",
-        "info",
+        "INFO",
         t0 + bucketNs,
         "s3",
         "stats-svc:1.0 stats-svc 1.0 statstoken info",
@@ -1438,24 +1443,24 @@ describe("SQL-level integration (sqlite)", () => {
     it("counts errors per rule and writes outcomes into maintenance_state", async () => {
       const nowNs = Date.now() * 1_000_000;
       await insertLog(
-        "svc-alerts", "1.0", "error", nowNs - 60_000_000_000, "e1",
+        "svc-alerts", "1.0", "ERROR", nowNs - 60_000_000_000, "e1",
         "svc-alerts:1.0 alerttest", "ea-log-1",
       );
       await insertLog(
-        "svc-alerts", "1.0", "error", nowNs - 50_000_000_000, "e2",
+        "svc-alerts", "1.0", "ERROR", nowNs - 50_000_000_000, "e2",
         "svc-alerts:1.0 alerttest", "ea-log-2",
       );
       await insertLog(
-        "svc-alerts", "1.0", "error", nowNs - 40_000_000_000, "e3",
+        "svc-alerts", "1.0", "ERROR", nowNs - 40_000_000_000, "e3",
         "svc-alerts:1.0 alerttest", "ea-log-3",
       );
       await insertLog(
-        "svc-alerts", "1.0", "info", nowNs - 30_000_000_000, "i1",
+        "svc-alerts", "1.0", "INFO", nowNs - 30_000_000_000, "i1",
         "svc-alerts:1.0 alerttest", "ea-log-4",
       );
       // Outside the 1h window: must not be counted.
       await insertLog(
-        "svc-alerts", "1.0", "error", nowNs - 3 * 3_600_000_000_000, "e-old",
+        "svc-alerts", "1.0", "ERROR", nowNs - 3 * 3_600_000_000_000, "e-old",
         "svc-alerts:1.0 alerttest", "ea-log-5",
       );
 
@@ -1685,6 +1690,298 @@ describe("SQL-level integration (sqlite)", () => {
       );
       expect(Number(rows[0].c)).toBe(1);
     });
+
+    it("normalizes oversized ids and rejects invalid times without a 500", async () => {
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/traces",
+        payload: traceBatch("limits-svc", [
+          span("t".repeat(60), "s".repeat(60)),
+          span("bad-time-trace", "bad-time-span", {
+            startTimeUnixNano: "abc",
+          }),
+        ]),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json().partialSuccess.rejectedSpans).toBe("1");
+
+      const rows = await query(
+        "SELECT traceId, spanId FROM traces WHERE serviceName = ?",
+        ["limits-svc"],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].traceId).toBe("t".repeat(50));
+      expect(rows[0].spanId).toBe("s".repeat(50));
+    });
+  });
+
+  // =========================================================================
+  // Log ingestion end-to-end (severity normalization, hardening)
+  // =========================================================================
+  describe("Log ingestion severity end-to-end", () => {
+    const logBatch = (serviceName: string, logRecords: unknown[]) => ({
+      resourceLogs: [
+        {
+          resource: {
+            attributes: [
+              { key: "service.name", value: { stringValue: serviceName } },
+            ],
+          },
+          scopeLogs: [{ logRecords }],
+        },
+      ],
+    });
+
+    const logRecord = (overrides = {}) => ({
+      timeUnixNano: String(Date.now() * 1_000_000 - 120_000_000_000),
+      body: { stringValue: "sev-op" },
+      attributes: [],
+      ...overrides,
+    });
+
+    const SERVICE = "sev-ingest-svc";
+
+    beforeAll(async () => {
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/logs",
+        payload: logBatch(SERVICE, [
+          logRecord({ severityText: "ERROR" }),
+          logRecord({ severityText: "warn" }),
+          logRecord({ severityText: undefined, severityNumber: 13 }),
+          logRecord({ severityText: "INFO" }),
+        ]),
+      });
+      expect(res.statusCode).toBe(200);
+    });
+
+    it("stores canonical uppercase severity", async () => {
+      const rows = await query(
+        "SELECT severity, COUNT(*) AS c FROM logs WHERE serviceName = ? GROUP BY severity ORDER BY severity",
+        [SERVICE],
+      );
+      expect(
+        rows.map((row: Loose) => [row.severity, Number(row.c)]),
+      ).toEqual([
+        ["ERROR", 1],
+        ["INFO", 1],
+        ["WARN", 2],
+      ]);
+    });
+
+    it.each(["ERROR", "error", "Error"])(
+      "filters ingested logs by severity=%p",
+      async (filter) => {
+        const res = await fastify.inject({
+          method: "GET",
+          url: `/api/analytics/logs?from=0&serviceName=${SERVICE}&severity=${filter}`,
+        });
+        expect(res.statusCode).toBe(200);
+        const logs = await decodeB64Json(res.json().logs);
+        expect(logs).toHaveLength(1);
+        expect(logs[0].severity).toBe("ERROR");
+      },
+    );
+
+    it("agrees with logs stats labels and the severity filter", async () => {
+      const all = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?from=0&serviceName=${SERVICE}`,
+      });
+      expect(all.statusCode).toBe(200);
+      expect(all.json().severityCounts).toEqual({ ERROR: 1, INFO: 1, WARN: 2 });
+
+      const filtered = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/logs/stats?from=0&serviceName=${SERVICE}&severity=ERROR`,
+      });
+      expect(filtered.statusCode).toBe(200);
+      expect(filtered.json().totalCount).toBe(1);
+      expect(filtered.json().severityCounts).toEqual({ ERROR: 1 });
+    });
+
+    it("counts the same ERROR rows in error alerts", async () => {
+      const putRes = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: {
+            alertRules: [
+              {
+                id: "severity-ingest-rule",
+                serviceName: SERVICE,
+                threshold: 0,
+                periodHours: 1,
+                enabled: true,
+              },
+            ],
+          },
+        },
+      });
+      expect(putRes.statusCode).toBe(201);
+
+      await ErrorAlertsEvaluate();
+
+      const rows = await query(
+        "SELECT stateValue FROM maintenance_state WHERE stateKey = ?",
+        ["error-alert-outcome-severity-ingest-rule"],
+      );
+      expect(JSON.parse(rows[0].stateValue)).toMatchObject({
+        count: 1,
+        breached: true,
+      });
+    });
+  });
+
+  describe("Log ingestion hardening", () => {
+    const logBatch = (serviceName: string, logRecords: unknown[]) => ({
+      resourceLogs: [
+        {
+          resource: {
+            attributes: [
+              { key: "service.name", value: { stringValue: serviceName } },
+            ],
+          },
+          scopeLogs: [{ logRecords }],
+        },
+      ],
+    });
+
+    it("rejects only the invalid-time record and reports partial success", async () => {
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/logs",
+        payload: logBatch("hardening-svc", [
+          { timeUnixNano: "abc", body: { stringValue: "bad" } },
+          {
+            timeUnixNano: "1750000000000000000",
+            severityText: "INFO",
+            body: { stringValue: "good" },
+          },
+        ]),
+      });
+
+      expect(res.statusCode).toBe(200);
+      expect(res.json()).toEqual({
+        partialSuccess: {
+          rejectedLogRecords: "1",
+          errorMessage: expect.any(String),
+        },
+      });
+      const rows = await query(
+        "SELECT logText FROM logs WHERE serviceName = ?",
+        ["hardening-svc"],
+      );
+      expect(rows).toHaveLength(1);
+      expect(rows[0].logText).toBe("good");
+    });
+
+    it("stores values within the column widths without a 500", async () => {
+      const res = await fastify.inject({
+        method: "POST",
+        url: "/v1/logs",
+        payload: logBatch("hardening-limits-svc", [
+          {
+            timeUnixNano: "1750000000000000000",
+            traceId: "t".repeat(60),
+            spanId: "s".repeat(60),
+            severityText: "x".repeat(60),
+            body: { stringValue: "y".repeat(70_000) },
+          },
+        ]),
+      });
+
+      expect(res.statusCode).toBe(200);
+      const rows = await query(
+        "SELECT LENGTH(traceId) AS traceLen, LENGTH(spanId) AS spanLen, LENGTH(severity) AS sevLen, LENGTH(logText) AS textLen FROM logs WHERE serviceName = ?",
+        ["hardening-limits-svc"],
+      );
+      expect(rows).toHaveLength(1);
+      expect(Number(rows[0].traceLen)).toBe(50);
+      expect(Number(rows[0].spanLen)).toBe(50);
+      expect(Number(rows[0].sevLen)).toBe(50);
+      expect(Number(rows[0].textLen)).toBe(65_536);
+    });
+  });
+
+  // =========================================================================
+  // Severity backfill migration (idempotent, identical for both dialects)
+  // =========================================================================
+  describe("Severity backfill migration", () => {
+    it("keeps the SQLite and PostgreSQL init-0013 files byte-identical", () => {
+      const sqliteSql = fs.readFileSync(
+        path.join(__dirname, "../sql/sqlite/init-0013.sql"),
+        "utf8",
+      );
+      const postgresSql = fs.readFileSync(
+        path.join(__dirname, "../sql/postgres/init-0013.sql"),
+        "utf8",
+      );
+      expect(postgresSql).toBe(sqliteSql);
+    });
+
+    it("canonicalizes legacy rows and is idempotent", async () => {
+      const legacyValues = [
+        "error",
+        " warning ",
+        "Warning2",
+        "CRITICAL",
+        "emerg",
+        "notice",
+        "warn2",
+        "custom",
+        "x".repeat(60),
+        "",
+      ];
+      for (let index = 0; index < legacyValues.length; index++) {
+        await insertLog(
+          "backfill-svc",
+          "1.0",
+          legacyValues[index],
+          1_750_000_000_000_000_000,
+          `legacy-${index}`,
+          "backfill-svc",
+          `bf-${String(index).padStart(2, "0")}`,
+        );
+      }
+
+      const sql = fs
+        .readFileSync(
+          path.join(__dirname, "../sql/sqlite/init-0013.sql"),
+          "utf8",
+        )
+        .split("\n")
+        .map((line) => line.replace(/--.*$/, ""))
+        .join("\n");
+      const statements = sql
+        .split(";")
+        .map((statement) => statement.trim())
+        .filter((statement) => statement.length > 0);
+      expect(statements.length).toBeGreaterThan(0);
+
+      const runBackfill = async () => {
+        for (const statement of statements) {
+          await runSql(statement);
+        }
+      };
+      const readSeverities = async () => {
+        const rows = await query(
+          'SELECT severity FROM logs WHERE "serviceName" = ? ORDER BY recordId',
+          ["backfill-svc"],
+        );
+        return rows.map((row: Loose) => row.severity);
+      };
+
+      await runBackfill();
+      const expected = legacyValues.map((value) =>
+        SignalNormalizationSeverity(value),
+      );
+      expect(await readSeverities()).toEqual(expected);
+
+      await runBackfill();
+      expect(await readSeverities()).toEqual(expected);
+    });
   });
 
   // =========================================================================
@@ -1709,7 +2006,7 @@ describe("SQL-level integration (sqlite)", () => {
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(12);
+      expect(Number(versionRows[0].maxVersion)).toBe(13);
     });
   });
 });
