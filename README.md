@@ -155,7 +155,11 @@ Periodic metric compression keeps one data point per minute (then per hour) buck
 
 ## Analytics Statistics
 
-`GET /api/analytics/traces/stats` rounds its `from`/`to` window down/up to whole minutes and uses a deterministic sampling stride (capped by `ANALYTICS_STATS_SAMPLE_CAP`) for P90/P95 durations, so repeated identical requests return identical percentiles. Responses are cached for `ANALYTICS_STATS_CACHE_TTL_SECONDS` (up to `ANALYTICS_STATS_CACHE_MAX_ENTRIES` entries). Pass `includePercentiles=false` to skip the percentile computation and payload.
+`GET /api/analytics/traces/stats` rounds its `from`/`to` window down/up to whole minutes and uses a deterministic sampling stride (capped by `ANALYTICS_STATS_SAMPLE_CAP`) for P90/P95 durations, so repeated identical requests return identical percentiles. Responses are cached for `ANALYTICS_STATS_CACHE_TTL_SECONDS` (up to `ANALYTICS_STATS_CACHE_MAX_ENTRIES` entries). Pass `includePercentiles=false` to skip the percentile computation and payload. It accepts the same `keywords` and `errorsOnly` filters as `GET /api/analytics/traces`.
+
+All analytics list endpoints bind and validate their paging parameters: `offset` must be a non-negative integer up to 1,000,000 and a malformed value returns `400`. `GET /api/analytics/logs/stats` requires a bounded window: `from` defaults to 24 hours ago, `bucketNs` must be an integer of at least one second, and the window may not exceed 1,000 buckets (otherwise `400`). Analytics `keywords` filters treat `%`, `_` and `\` literally.
+
+`GET /api/analytics/traces` accepts an exact-match `name` filter on the root span name, which the aggregated traces page uses when expanding a group.
 
 ## LLM Recommendation
 

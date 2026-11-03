@@ -8,6 +8,7 @@ import {
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
+  AnalyticsUtilsParsePositiveInt,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
@@ -76,12 +77,14 @@ export class AnalyticsMetricsRoutes {
       }
 
       const resultLimit =
-        parsePositiveInt(req.query.limit, AnalyticsUtilsResultLimitMetrics) ||
-        AnalyticsUtilsResultLimitMetrics;
+        AnalyticsUtilsParsePositiveInt(
+          req.query.limit,
+          AnalyticsUtilsResultLimitMetrics,
+        ) || AnalyticsUtilsResultLimitMetrics;
       // When maxPoints is set, rows are downsampled server-side (evenly over
       // the time range) so the client receives a bounded payload instead of
       // paginating through the full data set only to downsample it locally.
-      const maxPoints = parsePositiveInt(
+      const maxPoints = AnalyticsUtilsParsePositiveInt(
         req.query.maxPoints,
         AnalyticsUtilsResultLimitMetrics,
       );
@@ -153,14 +156,6 @@ export class AnalyticsMetricsRoutes {
 }
 
 // SQL
-
-function parsePositiveInt(value: unknown, max: number): number | null {
-  const parsed = parseInt(String(value ?? ""), 10);
-  if (isNaN(parsed) || parsed < 1) {
-    return null;
-  }
-  return Math.min(parsed, max);
-}
 
 const SQL_QUERIES = {
   GET_METRICS: (sqlWhere: string, limit: number) => ({

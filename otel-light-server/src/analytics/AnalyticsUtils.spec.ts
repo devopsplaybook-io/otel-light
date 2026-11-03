@@ -9,11 +9,14 @@ jest.mock("../OTelContext", () => ({
 }));
 
 import {
+  AnalyticsUtilsEscapeLike,
   AnalyticsUtilsGetDefaultFromTime,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
   AnalyticsUtilsCompressJson,
   AnalyticsUtilsInit,
+  AnalyticsUtilsParseOffset,
+  AnalyticsUtilsParsePositiveInt,
   AnalyticsUtilsResultLimitMetrics,
 } from "./AnalyticsUtils";
 
@@ -107,6 +110,58 @@ describe("AnalyticsUtilsCompressJson", () => {
     const promisify = await import("util");
     const decompressed = await promisify.promisify(zlib.gunzip)(buffer);
     expect(JSON.parse(decompressed.toString())).toEqual(data);
+  });
+});
+
+describe("AnalyticsUtilsEscapeLike", () => {
+  it("escapes %, _ and \\ so LIKE matches them literally", () => {
+    expect(AnalyticsUtilsEscapeLike("100%")).toBe("100\\%");
+    expect(AnalyticsUtilsEscapeLike("a_b")).toBe("a\\_b");
+    expect(AnalyticsUtilsEscapeLike("a\\b")).toBe("a\\\\b");
+    expect(AnalyticsUtilsEscapeLike("%a\\%b\\_c\\\\d%%")).toBe(
+      "\\%a\\\\\\%b\\\\\\_c\\\\\\\\d\\%\\%",
+    );
+  });
+
+  it("leaves normal text unchanged", () => {
+    expect(AnalyticsUtilsEscapeLike("GET /api v1")).toBe("GET /api v1");
+    expect(AnalyticsUtilsEscapeLike("")).toBe("");
+  });
+});
+
+describe("AnalyticsUtilsParseOffset", () => {
+  it("defaults absent or empty values to 0", () => {
+    expect(AnalyticsUtilsParseOffset(undefined)).toBe(0);
+    expect(AnalyticsUtilsParseOffset(null)).toBe(0);
+    expect(AnalyticsUtilsParseOffset("")).toBe(0);
+  });
+
+  it("accepts non-negative integers up to the bound", () => {
+    expect(AnalyticsUtilsParseOffset("0")).toBe(0);
+    expect(AnalyticsUtilsParseOffset(0)).toBe(0);
+    expect(AnalyticsUtilsParseOffset("200")).toBe(200);
+    expect(AnalyticsUtilsParseOffset(200)).toBe(200);
+    expect(AnalyticsUtilsParseOffset("1000000")).toBe(1000000);
+  });
+
+  it("rejects everything that is not a bounded non-negative integer", () => {
+    expect(AnalyticsUtilsParseOffset("-1")).toBeNull();
+    expect(AnalyticsUtilsParseOffset("abc")).toBeNull();
+    expect(AnalyticsUtilsParseOffset("1.5")).toBeNull();
+    expect(AnalyticsUtilsParseOffset("(SELECT 1)")).toBeNull();
+    expect(AnalyticsUtilsParseOffset("1000001")).toBeNull();
+    expect(AnalyticsUtilsParseOffset(["1", "2"])).toBeNull();
+  });
+});
+
+describe("AnalyticsUtilsParsePositiveInt", () => {
+  it("preserves the metrics limit semantics", () => {
+    expect(AnalyticsUtilsParsePositiveInt("12abc", 100)).toBe(12);
+    expect(AnalyticsUtilsParsePositiveInt("0", 100)).toBeNull();
+    expect(AnalyticsUtilsParsePositiveInt("-3", 100)).toBeNull();
+    expect(AnalyticsUtilsParsePositiveInt("abc", 100)).toBeNull();
+    expect(AnalyticsUtilsParsePositiveInt("500", 100)).toBe(100);
+    expect(AnalyticsUtilsParsePositiveInt(undefined, 100)).toBeNull();
   });
 });
 

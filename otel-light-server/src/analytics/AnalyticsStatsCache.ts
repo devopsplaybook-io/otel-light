@@ -56,14 +56,19 @@ export function AnalyticsStatsCacheBuildKey(
   serviceName: string | undefined,
   serviceVersion: string | undefined,
   includePercentiles: boolean,
+  keywords?: string,
+  errorsOnly?: boolean,
 ): string {
-  return [
+  // JSON.stringify keeps user text (which may contain any separator) unambiguous.
+  return JSON.stringify([
     from,
     to ?? "",
     serviceName ?? "",
     serviceVersion ?? "",
     includePercentiles ? "1" : "0",
-  ].join("|");
+    keywords ?? "",
+    errorsOnly ? "1" : "0",
+  ]);
 }
 
 export function AnalyticsStatsCacheGet(

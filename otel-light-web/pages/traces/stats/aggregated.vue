@@ -91,7 +91,12 @@ import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 import { getDurationText } from "~/services/Utils";
-import { TraceGroupToTracesQuery } from "~~/services/TraceLinks";
+import {
+  TraceApiLogsUrl,
+  TraceApiSpansUrl,
+  TraceGroupToAnalyticsParams,
+  TraceGroupToTracesQuery,
+} from "~~/services/TraceLinks";
 
 export default {
   components: { SearchOptions, Trace, TraceSpan },
@@ -133,7 +138,7 @@ export default {
     },
     async getTraceSpans(traceId) {
       return await analyticsGet(
-        `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+        TraceApiSpansUrl(SERVER_URL, traceId),
         await AuthService.getAuthHeader(),
       ).then((response) => {
         return response.data.spans;
@@ -144,7 +149,7 @@ export default {
         return [];
       }
       return await analyticsGet(
-        `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+        TraceApiLogsUrl(SERVER_URL, traceId),
         await AuthService.getAuthHeader(),
       ).then((response) => {
         return response.data.logs;
@@ -205,9 +210,10 @@ export default {
       const group = this.groups[idx];
       if (!group || this.expandedGroupTraces[group.key]) return;
       this.loadingExpanded = true;
-      const params = new URLSearchParams(this.filter.queryString || "");
-      params.set("serviceName", group.serviceName);
-      params.set("serviceVersion", group.serviceVersion || "");
+      const params = TraceGroupToAnalyticsParams(
+        group,
+        this.filter.queryString,
+      );
       const url = `${SERVER_URL}/analytics/traces?${params.toString()}`;
       analyticsGet(url, await AuthService.getAuthHeader())
         .then(async (response) => {

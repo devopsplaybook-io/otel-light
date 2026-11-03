@@ -61,6 +61,41 @@ describe("Log trace lookup", () => {
     expect(context.traceLogs).toEqual(traceLogs);
   });
 
+  it("encodes a trace id with special characters in every requested URL", async () => {
+    const specialId = "a&b#c/d %";
+    const encodedId = "a%26b%23c%2Fd%20%25";
+    const trace = { traceId: specialId, serviceName: "svc" };
+
+    mockedDecompress.mockResolvedValue([trace] as any);
+    mockedGet
+      .mockResolvedValueOnce({ data: { traces: "compressed-traces" } })
+      .mockResolvedValueOnce({ data: { spans: [] } })
+      .mockResolvedValueOnce({ data: { logs: [] } });
+
+    const context: any = {
+      log: { traceId: specialId, spanId: null, logText: "hello", time: 1 },
+      $refs: { logDialog: { showModal: vi.fn(), close: vi.fn() } },
+      isShowDialog: false,
+      trace: null,
+      traceSpans: [],
+      traceLogs: [],
+      logSpanId: null,
+      traceId: null,
+    };
+
+    await Log.methods.showLogDialog.call(context);
+
+    expect(mockedGet.mock.calls[0][0]).toBe(
+      `/api/analytics/traces?traceId=${encodedId}`,
+    );
+    expect(mockedGet.mock.calls[1][0]).toBe(
+      `/api/analytics/traces/${encodedId}/spans`,
+    );
+    expect(mockedGet.mock.calls[2][0]).toBe(
+      `/api/analytics/traces/${encodedId}/logs`,
+    );
+  });
+
   it("does not query when the log has no top-level trace ID", async () => {
     const context: any = {
       log: { traceId: null, spanId: null, logText: "hello", time: 1 },

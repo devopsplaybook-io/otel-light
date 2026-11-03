@@ -49,6 +49,11 @@ import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
 import { UtilsDecompressJson } from "~/services/Utils";
+import {
+  TraceApiLogsUrl,
+  TraceApiSpansUrl,
+  TraceApiSummaryUrl,
+} from "~~/services/TraceLinks";
 
 export default {
   props: {
@@ -82,21 +87,21 @@ export default {
       }
       const traceId = this.traceId;
       await analyticsGet(
-          `${SERVER_URL}/analytics/traces?traceId=${traceId}`,
+          TraceApiSummaryUrl(SERVER_URL, traceId),
           await AuthService.getAuthHeader(),
         )
         .then(async (response) => {
           const traces = await UtilsDecompressJson(response.data.traces);
           this.trace = traces && traces.length === 1 ? traces[0] : null;
           return analyticsGet(
-            `${SERVER_URL}/analytics/traces/${traceId}/spans`,
+            TraceApiSpansUrl(SERVER_URL, traceId),
             await AuthService.getAuthHeader(),
           );
         })
         .then(async (response) => {
           this.traceSpans = response.data.spans;
           return analyticsGet(
-            `${SERVER_URL}/analytics/traces/${traceId}/logs`,
+            TraceApiLogsUrl(SERVER_URL, traceId),
             await AuthService.getAuthHeader(),
           );
         })

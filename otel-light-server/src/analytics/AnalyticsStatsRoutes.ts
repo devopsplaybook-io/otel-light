@@ -4,6 +4,7 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
+  AnalyticsUtilsEscapeLike,
   AnalyticsUtilsGetDefaultFromTime24h,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
@@ -18,6 +19,8 @@ import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
 import { SignalNormalizationSeverity } from "../SignalNormalization";
 
 const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
+const MIN_LOGS_STATS_BUCKET_NS = 1_000_000_000;
+const MAX_LOGS_STATS_BUCKETS = 1000;
 const MINUTE_NS = 60 * 1_000_000_000;
 
 // Minute-rounded windows keep repeated dashboard loads (a moving `from`) on
@@ -66,32 +69,85 @@ export class AnalyticsStatsRoutes {
       const dbType = DbUtilsGetType();
       const sqlParams: (string | number)[] = [];
 
+      // Bound the scan: default the lower side to the last 24 h and reject a
+      // bucket width/window combination that would produce too many buckets.
+      const fromTime = (() => {
+        const fromParam = req.query.from;
+        if (
+          fromParam === undefined ||
+          fromParam === null ||
+          String(fromParam).trim() === ""
+        ) {
+          return AnalyticsUtilsGetDefaultFromTime24h();
+        }
+        return Number(AnalyticsUtilsGetTimeParam(fromParam));
+      })();
+      if (!Number.isFinite(fromTime)) {
+        return res.status(400).send({ error: "Invalid from/to" });
+      }
+      let toTime: number | undefined;
+      if (
+        req.query.to !== undefined &&
+        req.query.to !== null &&
+        String(req.query.to).trim() !== ""
+      ) {
+        toTime = Number(AnalyticsUtilsGetTimeParam(req.query.to));
+        if (!Number.isFinite(toTime)) {
+          return res.status(400).send({ error: "Invalid from/to" });
+        }
+      }
+
+      let bucketNs = DEFAULT_LOGS_STATS_BUCKET_NS;
+      if (
+        req.query.bucketNs !== undefined &&
+        req.query.bucketNs !== null &&
+        String(req.query.bucketNs).trim() !== ""
+      ) {
+        const parsedBucketNs = Number(req.query.bucketNs);
+        if (
+          !Number.isFinite(parsedBucketNs) ||
+          !Number.isInteger(parsedBucketNs) ||
+          parsedBucketNs < MIN_LOGS_STATS_BUCKET_NS
+        ) {
+          return res.status(400).send({ error: "Invalid bucketNs" });
+        }
+        bucketNs = parsedBucketNs;
+      }
+
+      const windowEndNs =
+        toTime ?? Math.max(fromTime, Date.now() * 1_000_000);
+      const spanNs = Math.max(0, windowEndNs - fromTime);
+      if (Math.ceil(spanNs / bucketNs) > MAX_LOGS_STATS_BUCKETS) {
+        return res.status(400).send({ error: "Bucket range too large" });
+      }
+
       let sqlWhere = "";
       const appendWhere = (condition: string) => {
         sqlWhere += sqlWhere ? " AND " : " WHERE ";
         sqlWhere += condition;
       };
 
-      if (req.query.from) {
-        appendWhere(
-          "time >= " +
-            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
-        );
-        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.from));
-      }
-      if (req.query.to) {
+      appendWhere(
+        "time >= " +
+          AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
+      );
+      sqlParams.push(fromTime);
+      if (toTime !== undefined) {
         appendWhere(
           "time <= " +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(AnalyticsUtilsGetTimeParam(req.query.to));
+        sqlParams.push(toTime);
       }
       if (req.query.keywords?.trim()) {
         appendWhere(
           "keywords LIKE " +
-            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
+            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1) +
+            " ESCAPE '\\'",
         );
-        sqlParams.push(`%${req.query.keywords.toLowerCase().trim()}%`);
+        sqlParams.push(
+          `%${AnalyticsUtilsEscapeLike(req.query.keywords.toLowerCase().trim())}%`,
+        );
       }
       const severity = SignalNormalizationSeverity(req.query.severity);
       if (severity) {
@@ -115,13 +171,6 @@ export class AnalyticsStatsRoutes {
         );
         sqlParams.push(String(req.query.serviceVersion).trim());
       }
-
-      // Default bucket width: 1 hour in nanoseconds if not specified
-      const bucketNsRaw = Number(req.query.bucketNs);
-      const bucketNs =
-        Number.isFinite(bucketNsRaw) && bucketNsRaw > 0
-          ? bucketNsRaw
-          : DEFAULT_LOGS_STATS_BUCKET_NS;
 
       // The bucket size parameter is referenced exactly once (the query
       // returns the bucket *index*; the NS timestamp is computed below).
@@ -174,6 +223,8 @@ export class AnalyticsStatsRoutes {
       Querystring: {
         from?: number;
         to?: number;
+        keywords?: string;
+        errorsOnly?: string;
         serviceName?: string;
         serviceVersion?: string;
         includePercentiles?: string;
@@ -201,6 +252,8 @@ export class AnalyticsStatsRoutes {
       );
       const serviceName = String(req.query.serviceName ?? "").trim();
       const serviceVersion = String(req.query.serviceVersion ?? "").trim();
+      const keywords = String(req.query.keywords ?? "").toLowerCase().trim();
+      const errorsOnly = req.query.errorsOnly === "true";
 
       // Default window: bound the aggregation scan unless the caller asked
       // for an explicit range (the web UI always sends `from`). Windows are
@@ -223,6 +276,8 @@ export class AnalyticsStatsRoutes {
         serviceName || undefined,
         serviceVersion || undefined,
         includePercentiles,
+        keywords || undefined,
+        errorsOnly,
       );
       const cached = AnalyticsStatsCacheGet(cacheKey);
       if (cached) {
@@ -251,6 +306,20 @@ export class AnalyticsStatsRoutes {
           ` AND ${q("serviceVersion")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(serviceVersion);
+      }
+      if (keywords) {
+        rootsWhere +=
+          ` AND ${q("keywords")} LIKE ` +
+          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1) +
+          " ESCAPE '\\'";
+        rootsParams.push(`%${AnalyticsUtilsEscapeLike(keywords)}%`);
+      }
+      // Same semantics as the traces list: any span of the trace is an error.
+      if (errorsOnly) {
+        rootsWhere +=
+          ` AND EXISTS (SELECT 1 FROM traces e WHERE e.${q("traceId")} = traces.${q("traceId")}` +
+          ` AND e.${q("statusCode")} = ${AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1)})`;
+        rootsParams.push(SpanStatusCode.ERROR);
       }
 
       const statusCodeVarIdx = rootsParams.length + 1;
