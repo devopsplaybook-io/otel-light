@@ -221,7 +221,6 @@ Both pass `node_app_directories: '["otel-light-server", "otel-light-web"]'` to t
 | `fs-extra`                              | Async file operations                                                  |
 | `axios`                                 | HTTP client (LLM API calls)                                            |
 | `node-schedule`                         | Cron scheduling for recommendations, reports and maintenance           |
-| `minimatch`                             | Glob pattern matching (maintenance rules)                              |
 
 ### Web
 
@@ -318,3 +317,5 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **Recommendation scopes**: `GET /api/recommendation` requires **both** `traces` and `logs` scopes (the cached payload contains log totals, per-severity counts and top error messages). The home page hides the card unless the user has both (`HomeOverviewCanAccessRecommendation`).
 - **Self-metrics refresh**: `METRICS_SELF_REFRESH_MINUTES` is clamped to `1–1440` by `Config.reload()` and `SelfMetricsGetRefreshIntervalMs` falls back to 10 minutes for `0`/invalid values, never below one minute. The refresh timer is `unref()`'d so it never keeps the process (or a test runner) alive.
 - **Ingestion normalization and limits**: Traces/logs routes normalize ids (50 chars), names/service values (2000), keywords (4000) and log text (65,536) before binding, reject non-finite/out-of-range timestamps and report rejects in `partialSuccess` (`rejectedSpans` / `rejectedLogRecords`). `attributes`/`rawSpan`/`rawMetric` stay raw JSON and are bounded only by `INGESTION_BODY_LIMIT_BYTES` and retention. Do not add validation that could throw on a single record and abort the whole batch.
+- **Restart-only settings**: body limits, rate limits, `API_TRUST_PROXY`, `CORS_POLICY_ORIGIN`, database settings, analytics init values and the scheduled-job/refresh intervals are captured at startup (route registration, `*Init` functions, timers). Changing them in `config.json` has no effect until a restart/rollout. The full list is in the README "Settings applied at startup" section — keep it in sync when adding startup-captured settings.
+- **Shipped dependency audit**: `@fastify/static` pins `glob ^13`, whose `minimatch` advisory is fixed in `glob 14`; `package.json` therefore carries a scoped `overrides` entry `"@fastify/static": { "glob": "^14.0.3" }`. Keep the CI audit gate (`audit_enabled: true`) and re-check `npm audit --omit=dev` when upgrading. Do not add `minimatch` back as a direct dependency (nothing imports it).

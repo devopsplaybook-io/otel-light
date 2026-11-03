@@ -1,17 +1,19 @@
 import axios from "axios";
 
 interface QueueItem {
-  requestFn: () => Promise<unknown>;
+  requestFn: (signal: AbortSignal) => Promise<unknown>;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
 }
 
 export interface AnalyticsQueueOptions {
   maxConcurrent?: number;
+  maxQueued?: number;
   timeoutMs?: number;
 }
 
 const DEFAULT_MAX_CONCURRENT = 4;
+const DEFAULT_MAX_QUEUED = 100;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
@@ -27,14 +29,23 @@ export class AnalyticsQueue {
   private readonly queue: QueueItem[] = [];
   private activeCount = 0;
   private readonly maxConcurrent: number;
+  private readonly maxQueued: number;
   private readonly timeoutMs: number;
 
   constructor(options: AnalyticsQueueOptions = {}) {
     this.maxConcurrent = options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT;
+    this.maxQueued = options.maxQueued ?? DEFAULT_MAX_QUEUED;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  enqueue<T>(requestFn: () => Promise<T>): Promise<T> {
+  enqueue<T>(requestFn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+    if (this.queue.length >= this.maxQueued) {
+      return Promise.reject(
+        new Error(
+          `Analytics queue is full (max ${this.maxQueued} pending requests)`,
+        ),
+      );
+    }
     return new Promise<T>((resolve, reject) => {
       this.queue.push({
         requestFn,
@@ -49,6 +60,7 @@ export class AnalyticsQueue {
     while (this.activeCount < this.maxConcurrent && this.queue.length > 0) {
       const item = this.queue.shift()!;
       this.activeCount++;
+      const controller = new AbortController();
 
       const state: {
         settled: boolean;
@@ -66,6 +78,7 @@ export class AnalyticsQueue {
       };
 
       state.timer = setTimeout(() => {
+        controller.abort();
         settle(() =>
           item.reject(
             new Error(
@@ -76,7 +89,7 @@ export class AnalyticsQueue {
       }, this.timeoutMs);
 
       Promise.resolve()
-        .then(() => item.requestFn())
+        .then(() => item.requestFn(controller.signal))
         .then((result) => settle(() => item.resolve(result)))
         .catch((error) => settle(() => item.reject(error)));
     }
@@ -95,7 +108,9 @@ export function analyticsGet(
   url: string,
   config?: Record<string, unknown>,
 ): Promise<any> {
-  return analyticsQueue.enqueue(() => axios.get(url, config));
+  return analyticsQueue.enqueue((signal) =>
+    axios.get(url, { ...config, signal }),
+  );
 }
 
 /**
@@ -106,5 +121,5 @@ export function analyticsFetch(
   url: string,
   init?: RequestInit,
 ): Promise<Response> {
-  return analyticsQueue.enqueue(() => fetch(url, init));
+  return analyticsQueue.enqueue((signal) => fetch(url, { ...init, signal }));
 }

@@ -1,9 +1,7 @@
 #!/bin/sh
 
-if [ "${APPLICATION_TITLE}" == "" ]; then
-  APPLICATION_TITLE="OTel Light"
-fi
+APPLICATION_TITLE="${APPLICATION_TITLE:-OTel Light}"
 
-sed -i "s/APPLICATION_TITLE/$APPLICATION_TITLE/g" /opt/app/otel-light/web/manifest.webmanifest
+node dist/EntrypointManifest.js /opt/app/otel-light/web/manifest.webmanifest "$APPLICATION_TITLE"
 
 node dist/App.js

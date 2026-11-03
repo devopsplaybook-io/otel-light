@@ -1,4 +1,5 @@
 import { AuthService } from "~~/services/AuthService";
+import { ServicesStore } from "./ServicesStore";
 
 export const AuthenticationStore = defineStore("AuthenticationStore", {
   state: () => ({
@@ -53,6 +54,16 @@ export const AuthenticationStore = defineStore("AuthenticationStore", {
         this.scopes = info.scopes || [];
         this.isAuthenticated = true;
       }
+    },
+
+    signOut(): void {
+      AuthService.removeToken();
+      this.isAuthenticated = false;
+      this.userId = null;
+      this.userName = null;
+      this.role = null;
+      this.scopes = [];
+      ServicesStore().clear();
     },
   },
 });

@@ -262,6 +262,7 @@ import { SERVER_URL } from "~~/services/Config.ts";
 import { AuthService } from "~~/services/AuthService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UserService } from "~~/services/UserService";
+import { ServicesStore } from "~~/stores/ServicesStore";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import {
   PreferencesService,
@@ -340,6 +341,8 @@ export default {
           );
           AuthService.saveToken(res.data.token);
           await AuthenticationStore().refreshFromToken();
+          // Account switch: never show the previous user's cached service list.
+          ServicesStore().clear();
           EventBus.emit(EventTypes.ALERT_MESSAGE, {
             type: "info",
             text: "User Logged In",
@@ -385,11 +388,7 @@ export default {
       }
     },
     async logout() {
-      AuthService.removeToken();
-      AuthenticationStore().isAuthenticated = false;
-      AuthenticationStore().role = null;
-      AuthenticationStore().scopes = [];
-      AuthenticationStore().userName = null;
+      AuthenticationStore().signOut();
       useRouter().push({ path: "/settings/profile" });
     },
     changePasswordStart(enable) {
