@@ -1,6 +1,6 @@
 {
   "name": "otel-light-proxy",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "",
   "scripts": {
     "start": "./start.sh"

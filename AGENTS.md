@@ -11,8 +11,8 @@ The repository is a monorepo with three components:
 | Component           | Technology                           | Port | Role                                                               |
 | ------------------- | ------------------------------------ | ---- | ------------------------------------------------------------------ |
 | `otel-light-server` | Node.js + Fastify + TypeScript       | 8080 | API server: OTLP ingestion, analytics, auth, maintenance           |
-| `otel-light-web`    | Nuxt 4.6.3 (Vue 3)                   | 3000 | Static frontend (pre-rendered, served by the server)               |
-| `otel-light-proxy`  | Traefik v2.11.61 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
+| `otel-light-web`    | Nuxt 4.6.4 (Vue 3)                   | 3000 | Static frontend (pre-rendered, served by the server)               |
+| `otel-light-proxy`  | Traefik v2.11.63 (pre-compiled binary) | 9012 | Dev reverse proxy: routes `/api/` and `/v1/` to server, `/` to web |
 
 In production, all three run inside a single Docker container. The server serves the pre-built web assets via `@fastify/static`, eliminating the need for the proxy. The proxy is only used in local development with PM2.
 
@@ -153,7 +153,7 @@ Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0013). The `metada
 
 ```bash
 cd otel-light-server
-npm install          # installs @devopsplaybook.io/common-utils from npm (^2.4.1)
+npm install          # installs @devopsplaybook.io/common-utils from npm (^2.9.2)
 npm run build        # tsc → dist/ + type-check of spec files (tsconfig.spec.json --noEmit)
 npm run lint         # oxlint src (recommended preset)
 npm run test         # jest --coverage (@swc/jest transform, v8 coverage provider)
@@ -226,7 +226,7 @@ Both pass `node_app_directories: '["otel-light-server", "otel-light-web"]'` to t
 
 | Package                | Role                                                |
 | ---------------------- | --------------------------------------------------- |
-| `nuxt` (4.6.3)         | Nuxt 4 framework (Vue 3, SSR disabled)              |
+| `nuxt` (4.6.4)         | Nuxt 4 framework (Vue 3, SSR disabled)              |
 | `vue3-apexcharts`      | Vue 3 wrapper for ApexCharts                        |
 | `apexcharts`           | Chart library for trace/metric visualization         |
 | `pinia` / `@pinia/nuxt`| Authentication and services stores                  |
@@ -294,6 +294,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **ConfigBase VERSION override**: `ConfigBase` reads its own `package.json` for `VERSION`, which returns common-utils' version. The `Config` constructor overrides `VERSION` by reading `otel-light-server/package.json` instead.
 - **ConfigBase rejects invalid values (common-utils 2.x)**: an env/config-file value that does not coerce to the type of its default makes `reload()` reject instead of being applied as a string. `Config.reload()` restores `JWT_KEY` in a `finally` block so a rejected reload can never leave the config-file key in place, and the `watchFile` handler only logs the error: the server keeps running with the configuration it had (partially applied fields included), so a bad `config.json` edit does not crash a running instance.
 - **Live authorization (common-utils 2.x)**: the guards read the user from the database on every request, so a demoted admin, a revoked scope or a deleted user takes effect on the next request. `AuthGetUserSession()` still returns the JWT claims and the web store uses them for the UI only — an authorization decision must always come from a guard or `AuthGetLiveUser()`. Login failures answer 401 `INVALID_CREDENTIALS`, so `SessionRenewalIsAuthError` treats 401 and 403 alike.
+- **Session lifetime and API-token exchange (common-utils >= 2.6.0)**: access tokens default to **1 hour** (`JWT_VALIDITY_DURATION`) instead of 93 days, capped by the absolute session lifetime `JWT_SESSION_MAX_DURATION` (30 days, `<= 0` disables), and JWTs carry `iss`/`aud` plus a random `jti`. An API token can no longer be exchanged for a JWT: `POST /users/session` and `POST /users/session/refresh` answer 403 `FORBIDDEN` for API-token credentials (API tokens still authenticate every other endpoint directly), so the web UI keeps signing in with name and password and relies on `SessionRenewal` for the hourly refresh. `/users/status/initialization` is now rate limited. From 2.8.0 user names are validated at the request boundary (max 64 chars, `^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$`), so an account whose name is outside that pattern can no longer log in.
 - **OTel collector URL defaults**: `ConfigBase` defaults OTel collector URLs to empty strings. The `Config` subclass overrides them to `http://localhost:8080/v1/*` via field initializers. In dev mode, `ecosystem.config.js` overrides them to `http://localhost:9999/v1/*`.
 - **uuid ESM in tests**: `uuid` v14+ ships ESM. The `jest.config.js` maps `uuid` to `src/__mocks__/uuid.ts` globally. Tests that transitively import uuid work without additional mocking.
 - **SQLite is synchronous**: `better-sqlite3` (used by common-utils) returns values synchronously, not Promises. Consuming code uses `await` which works on both synchronous values and Promises.
