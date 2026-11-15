@@ -64,16 +64,6 @@
           <span class="nav-label">Settings</span></NuxtLink
         >
       </li>
-      <li>
-        <a
-          href="#"
-          class="theme-toggle inactive"
-          @click.prevent="toggleTheme"
-          :title="isDark ? 'Switch to light mode' : 'Switch to dark mode'"
-          ><i class="bi" :class="isDark ? 'bi-sun-fill' : 'bi-moon-fill'"></i>
-          <span class="nav-label">{{ isDark ? "Light" : "Dark" }}</span></a
-        >
-      </li>
     </ul>
   </nav>
 </template>
@@ -104,12 +94,10 @@ export default {
     return {
       activeRoute: "",
       _renewTimer: null,
-      isDark: false,
     };
   },
   async created() {
     this.routeUpdated(this.$route);
-    this.isDark = PreferencesService.isDark();
     if (await AuthenticationStore().ensureAuthenticated()) {
       this.scheduleRenewal();
     }
@@ -136,9 +124,6 @@ export default {
     routeUpdated(newRoute) {
       const segments = newRoute.fullPath.split("?")[0].split("/");
       this.activeRoute = segments.length > 1 ? `/${segments[1]}` : "/";
-    },
-    toggleTheme() {
-      PreferencesService.toggleTheme(this);
     },
     clearRenewal() {
       if (this._renewTimer) {
@@ -210,10 +195,6 @@ export default {
 
 .menu-links i {
   margin-right: 0.5rem;
-}
-
-.theme-toggle {
-  cursor: pointer;
 }
 
 /* Hide nav labels on narrow screens */
