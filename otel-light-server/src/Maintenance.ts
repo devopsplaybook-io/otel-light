@@ -37,6 +37,11 @@ const METRICS_COMPRESS_HOUR_STATE_KEY = "metrics-compress-hour-hwm";
 const ROLLUP_RECONCILE_INTERVAL_HOURS = 24;
 const ROLLUP_RECONCILE_STATE_KEY = "signal-rollups-reconcile-last-run";
 
+// Per-rule outcome of the last cleanup run, persisted as a settings row so the
+// web UI can show what happened without a schema change (settings.content is
+// TEXT, large enough for 60+ rules).
+export const CLEANUP_RUN_STATUS_CATEGORY = "signal-cleanup-rules-status";
+
 export async function MaintenanceInit(context: Span, configIn: Config) {
   const span = OTelTracer().startSpan("MaintenanceInit", context);
 
@@ -164,22 +169,36 @@ export function MaintenanceRollupReconcileDue(
 
 // Signal cleanup rules (settings "signal-cleanup-rules"). Rollup counts are
 // decremented with the pre-delete grouped deltas so they stay exact.
-async function MaintenanceApplyRetentionRules(span: Span): Promise<void> {
+export async function MaintenanceApplyRetentionRules(
+  span: Span,
+): Promise<void> {
   const dbType = DbUtilsGetType();
   const rawSettings = await DbUtilsQuerySQL(
     span,
     SQL_QUERIES.GET_SETTINGS[dbType],
     ["signal-cleanup-rules"],
   );
-  if (!rawSettings || rawSettings.length === 0) {
+  const settings =
+    rawSettings && rawSettings.length > 0 ? new Settings(rawSettings[0]) : null;
+  if (!settings) {
     logger.info("No signal cleanup rules configured; nothing to delete", span);
-    return;
   }
+  const deleteRules = settings?.content?.deleteRules || [];
 
-  const settings = new Settings(rawSettings[0]);
-  for (const deleteRule of settings.content.deleteRules || []) {
+  const runAt = new Date().toISOString();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const outcomes: any[] = [];
+  for (const deleteRule of deleteRules) {
+    const key = MaintenanceCleanupRuleKey(deleteRule);
+    const identity = {
+      key,
+      signalType: String(deleteRule?.signalType ?? ""),
+      pattern: String(deleteRule?.pattern ?? ""),
+      serviceName: String(deleteRule?.serviceName ?? ""),
+    };
     try {
-      await ApplyCleanupRule(span, dbType, deleteRule);
+      const result = await ApplyCleanupRule(span, dbType, deleteRule);
+      outcomes.push({ ...identity, ...result });
     } catch (err) {
       // One failing rule must not stop the remaining ones.
       logger.error(
@@ -187,15 +206,37 @@ async function MaintenanceApplyRetentionRules(span: Span): Promise<void> {
         err,
         span,
       );
+      outcomes.push({
+        ...identity,
+        status: "error",
+        deletedRows: 0,
+        message: err?.message || "unexpected error",
+      });
     }
   }
+
+  await DbUtilsExecSQL(
+    span,
+    SQL_QUERIES.UPSERT_SETTINGS[dbType],
+    [CLEANUP_RUN_STATUS_CATEGORY, JSON.stringify({ runAt, rules: outcomes })],
+  );
 }
 
-interface CleanupRule {
+export interface CleanupRule {
   signalType?: string;
   pattern?: string;
   periodHours?: unknown;
   serviceName?: string;
+}
+
+// Must match the web helper cleanupRuleKey (services/CleanupRules.ts) exactly:
+// the run summary is joined with the rule forms by this identity string.
+export function MaintenanceCleanupRuleKey(rule: CleanupRule): string {
+  return JSON.stringify([
+    String(rule?.signalType ?? ""),
+    String(rule?.pattern ?? ""),
+    String(rule?.serviceName ?? "").trim(),
+  ]);
 }
 
 // Only `*` is a wildcard. User-supplied `%`, `_` and `\` are LIKE
@@ -211,40 +252,62 @@ export function MaintenanceFormatRetentionPattern(patternIn: string): string {
   return ("%" + escaped + "%").replace(/\*/g, "%");
 }
 
+interface CleanupRuleRunResult {
+  status: "deleted" | "skipped";
+  deletedRows: number;
+  message: string | null;
+}
+
 async function ApplyCleanupRule(
   span: Span,
   dbType: "sqlite" | "postgres",
   deleteRule: CleanupRule,
-): Promise<void> {
+): Promise<CleanupRuleRunResult> {
   if (
     deleteRule.signalType !== "traces" &&
     deleteRule.signalType !== "metrics" &&
     deleteRule.signalType !== "logs"
   ) {
-    logger.warn(
-      `Rule (signal=${deleteRule.signalType} ; pattern=${deleteRule.pattern}) skipped: signalType must be traces, metrics or logs`,
+    return skipCleanupRule(
       span,
+      deleteRule,
+      "signalType must be traces, metrics or logs",
     );
-    return;
   }
-  if (!deleteRule.pattern) {
-    logger.warn(
-      `Rule (signal=${deleteRule.signalType}) skipped: pattern must be a non-empty string`,
+  // Reject non-strings and whitespace-only values: a legacy row with a blank
+  // pattern would otherwise match almost every row.
+  if (typeof deleteRule.pattern !== "string" || !deleteRule.pattern.trim()) {
+    return skipCleanupRule(
       span,
+      deleteRule,
+      "pattern must be a non-empty string",
     );
-    return;
   }
   const periodHours = Number(deleteRule.periodHours);
   if (!Number.isFinite(periodHours) || periodHours <= 0) {
-    logger.warn(
-      `Rule (signal=${deleteRule.signalType} ; periodHours=${deleteRule.periodHours}) skipped: periodHours must be a positive number`,
+    return skipCleanupRule(
       span,
+      deleteRule,
+      "periodHours must be a positive number",
     );
-    return;
+  }
+  // "" means "all services" (legacy rows and the UI omit the field); any other
+  // non-string or a whitespace-only value is invalid.
+  const rawServiceName = deleteRule.serviceName;
+  if (
+    rawServiceName !== undefined &&
+    (typeof rawServiceName !== "string" ||
+      (rawServiceName !== "" && !rawServiceName.trim()))
+  ) {
+    return skipCleanupRule(
+      span,
+      deleteRule,
+      "serviceName must be a non-empty string",
+    );
   }
   const retentionMs = periodHours * 60 * 60 * 1000;
   const deleteTimestamp = (Date.now() - retentionMs) * 1_000_000;
-  const serviceName = deleteRule.serviceName?.trim() || null;
+  const serviceName = rawServiceName?.trim() || null;
   let nbRows = 0;
   const pattern = MaintenanceFormatRetentionPattern(deleteRule.pattern);
   const params = serviceName
@@ -324,6 +387,19 @@ async function ApplyCleanupRule(
     `Rule (signal=${deleteRule.signalType} ; age > ${deleteRule.periodHours} hours ; pattern=${deleteRule.pattern} ; serviceName=${serviceName ?? "*"}) deleted ${nbRows} rows`,
     span,
   );
+  return { status: "deleted", deletedRows: nbRows, message: null };
+}
+
+function skipCleanupRule(
+  span: Span,
+  deleteRule: CleanupRule,
+  message: string,
+): CleanupRuleRunResult {
+  logger.warn(
+    `Rule (signal=${deleteRule?.signalType} ; pattern=${deleteRule?.pattern}) skipped: ${message}`,
+    span,
+  );
+  return { status: "skipped", deletedRows: 0, message };
 }
 
 // Orphan traces (no root span ever seen). The scan is bounded to the recent
@@ -673,5 +749,13 @@ const SQL_QUERIES = {
     sqlite:
       "INSERT INTO maintenance_state (stateKey, stateValue) VALUES (?, ?)" +
       " ON CONFLICT(stateKey) DO UPDATE SET stateValue = excluded.stateValue",
+  },
+  UPSERT_SETTINGS: {
+    postgres:
+      'INSERT INTO settings ("category", "content") VALUES ($1, $2)' +
+      ' ON CONFLICT ("category") DO UPDATE SET "content" = EXCLUDED."content"',
+    sqlite:
+      "INSERT INTO settings (category, content) VALUES (?, ?)" +
+      " ON CONFLICT(category) DO UPDATE SET content = excluded.content",
   },
 };

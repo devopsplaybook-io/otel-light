@@ -51,6 +51,42 @@ export function MetricsCardsFormatValue(value: number): string {
   return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
 }
 
+/** How far the server-reported last-seen time may trail the latest point. */
+export const METRICS_CARDS_STALE_TOLERANCE_NS = 60_000_000_000; // 60 s
+
+/**
+ * True only when a latest rendered point is known and the server-reported
+ * last-seen time is more than the tolerance behind it, i.e. the chart shows
+ * older data than what the server already has.
+ */
+export function MetricsCardsIsStale(
+  lastSeenNs: number,
+  latestTimeNs: number | null | undefined,
+  toleranceNs: number = METRICS_CARDS_STALE_TOLERANCE_NS,
+): boolean {
+  if (
+    !Number.isFinite(lastSeenNs) ||
+    latestTimeNs === null ||
+    latestTimeNs === undefined ||
+    !Number.isFinite(latestTimeNs)
+  ) {
+    return false;
+  }
+  return lastSeenNs - latestTimeNs > toleranceNs;
+}
+
+/** True only when both values are finite numbers and next > previous. */
+export function MetricsCardsLastSeenAdvanced(
+  previousNs: unknown,
+  nextNs: unknown,
+): boolean {
+  const previous = Number(previousNs);
+  const next = Number(nextNs);
+  return (
+    Number.isFinite(previous) && Number.isFinite(next) && next > previous
+  );
+}
+
 /**
  * Orders metric cards for display: metrics with auto-load enabled first,
  * metrics the user chose not to load by default last; each group ordered

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  cleanupRuleFix,
   cleanupRuleIssues,
+  cleanupRuleKey,
   validateCleanupRules,
 } from "../services/CleanupRules";
 
@@ -54,6 +56,25 @@ describe("cleanupRuleIssues", () => {
     ).toEqual(["pattern must be a non-empty string"]);
   });
 
+  it("reports a whitespace-only service name but accepts all services", () => {
+    expect(
+      cleanupRuleIssues({
+        signalType: "logs",
+        periodValue: 1,
+        pattern: "x",
+        serviceName: "  ",
+      }),
+    ).toEqual(["serviceName must be a non-empty string"]);
+    expect(
+      cleanupRuleIssues({
+        signalType: "logs",
+        periodValue: 1,
+        pattern: "x",
+        serviceName: "",
+      }),
+    ).toEqual([]);
+  });
+
   it("reports all issues of a broken rule together", () => {
     expect(cleanupRuleIssues({ signalType: "", periodValue: 0, pattern: "" }))
       .toEqual([
@@ -89,5 +110,82 @@ describe("validateCleanupRules", () => {
 
   it("handles a missing rules list", () => {
     expect(validateCleanupRules(undefined as unknown as [])).toEqual([]);
+  });
+});
+
+describe("cleanupRuleKey", () => {
+  it("is stable regardless of the period", () => {
+    expect(
+      cleanupRuleKey({ signalType: "logs", pattern: "*", periodValue: 1 }),
+    ).toBe(
+      cleanupRuleKey({ signalType: "logs", pattern: "*", periodValue: 30 }),
+    );
+  });
+
+  it("differs by signal, pattern or service", () => {
+    const base = { signalType: "logs", pattern: "a", serviceName: "svc" };
+    expect(cleanupRuleKey(base)).not.toBe(
+      cleanupRuleKey({ ...base, signalType: "traces" }),
+    );
+    expect(cleanupRuleKey(base)).not.toBe(
+      cleanupRuleKey({ ...base, pattern: "b" }),
+    );
+    expect(cleanupRuleKey(base)).not.toBe(
+      cleanupRuleKey({ ...base, serviceName: "other" }),
+    );
+  });
+
+  it("trims the service name and normalizes missing values", () => {
+    expect(cleanupRuleKey({ serviceName: " svc " } as any)).toBe(
+      cleanupRuleKey({ serviceName: "svc" } as any),
+    );
+    expect(cleanupRuleKey({} as any)).toBe(JSON.stringify(["", "", ""]));
+  });
+});
+
+describe("cleanupRuleFix", () => {
+  it("fixes each invalid part of a rule", () => {
+    expect(
+      cleanupRuleFix({
+        signalType: "",
+        periodValue: 0,
+        periodUnit: "hours",
+        pattern: "   ",
+        serviceName: "  ",
+      }),
+    ).toEqual({
+      signalType: "logs",
+      periodValue: 30,
+      periodUnit: "days",
+      pattern: "*",
+      serviceName: "",
+    });
+  });
+
+  it("fixes a non-numeric period", () => {
+    const fixed = cleanupRuleFix({
+      signalType: "metrics",
+      periodValue: "abc",
+      periodUnit: "days",
+      pattern: "x",
+      serviceName: "",
+    });
+    expect(fixed.periodValue).toBe(30);
+    expect(fixed.periodUnit).toBe("days");
+  });
+
+  it("leaves a valid rule unchanged and never mutates the input", () => {
+    const rule = {
+      signalType: "traces",
+      periodValue: 2,
+      periodUnit: "days",
+      pattern: "error",
+      serviceName: "svc",
+    };
+    const before = { ...rule };
+    const fixed = cleanupRuleFix(rule);
+    expect(fixed).toEqual(rule);
+    expect(rule).toEqual(before);
+    expect(fixed).not.toBe(rule);
   });
 });

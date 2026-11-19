@@ -6,6 +6,7 @@ import {
   TraceGroupToAnalyticsParams,
   TraceGroupToTracesQuery,
   TraceLinksTimeWindowQuery,
+  TracePagePath,
   TraceReportToTracesQuery,
 } from "../services/TraceLinks";
 
@@ -169,5 +170,15 @@ describe("TraceGroupToAnalyticsParams", () => {
     );
     expect(params.get("serviceName")).toBe("svc");
     expect(params.get("name")).toBe("op");
+  });
+});
+
+describe("TracePagePath", () => {
+  it("encodes special characters in the trace id", () => {
+    expect(TracePagePath("a&b#c/d %")).toBe("/traces/a%26b%23c%2Fd%20%25");
+  });
+
+  it("leaves a plain id unchanged", () => {
+    expect(TracePagePath("abc123")).toBe("/traces/abc123");
   });
 });

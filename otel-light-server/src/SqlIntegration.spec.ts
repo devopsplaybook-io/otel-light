@@ -79,7 +79,7 @@ import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
 import { SettingsRoutes } from "./settings/SettingsRoutes";
-import { MaintenanceInit } from "./Maintenance";
+import { CLEANUP_RUN_STATUS_CATEGORY, MaintenanceInit } from "./Maintenance";
 import { MaintenanceFormatRetentionPattern } from "./Maintenance";
 import { AnalyticsStatsInit } from "./analytics/AnalyticsStatsCache";
 import { SignalUtilsInit } from "./v1/SignalUtils";
@@ -271,12 +271,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 16 and creates the rollup, saved-view and alert tables", async () => {
+    it("applies all migrations up to version 17 and creates the rollup, saved-view, alert and token tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(16);
+      expect(Number(versionRows[0].maxVersion)).toBe(17);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -324,6 +324,14 @@ describe("SQL-level integration (sqlite)", () => {
         [],
       );
       expect(summaryIndexRows.length).toBe(1);
+
+      const tokenColumns = await query(
+        "SELECT name FROM pragma_table_info('users_api_tokens')",
+        [],
+      );
+      expect(tokenColumns.map((row) => row.name)).toEqual(
+        expect.arrayContaining(["expiresAt", "lastUsedAt"]),
+      );
     });
   });
 
@@ -609,6 +617,30 @@ describe("SQL-level integration (sqlite)", () => {
             row.signalType === "traces" && row.serviceName === "sco-keep-svc",
         )?.count,
       ).toBe(1);
+
+      // The per-rule run summary is persisted for the settings UI.
+      const statusRows = await query(
+        "SELECT content FROM settings WHERE category = ?",
+        [CLEANUP_RUN_STATUS_CATEGORY],
+      );
+      expect(statusRows).toHaveLength(1);
+      const status = JSON.parse(statusRows[0].content);
+      expect(Number.isFinite(Date.parse(status.runAt))).toBe(true);
+      expect(
+        status.rules.map((rule: Loose) => [
+          rule.status,
+          rule.deletedRows,
+        ]),
+      ).toEqual([
+        ["deleted", 1],
+        ["deleted", 1],
+        ["deleted", 1],
+        ["deleted", 0],
+        ["deleted", 1],
+      ]);
+      expect(status.rules[0].key).toBe(
+        JSON.stringify(["traces", "maintcleanup", ""]),
+      );
     });
   });
 
@@ -3126,7 +3158,7 @@ describe("SQL-level integration (sqlite)", () => {
         "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionsBefore[0].v)).toBe(16);
+      expect(Number(versionsBefore[0].v)).toBe(17);
 
       // Migrations are logged through the shared module logger mock.
       const migrationLogger = OTelLogger().createModuleLogger("RestartProbe");
@@ -3161,7 +3193,7 @@ describe("SQL-level integration (sqlite)", () => {
       // Neither the version rows nor their maximum changed: no init file was
       // re-executed on an up-to-date database.
       expect(Number(versionsAfter[0].c)).toBe(Number(versionsBefore[0].c));
-      expect(Number(versionsAfter[0].v)).toBe(16);
+      expect(Number(versionsAfter[0].v)).toBe(17);
       const migrationInfoCalls = migrationInfo.mock.calls
         .map((call: unknown[]) => String(call[0]))
         .filter((message) => message.includes("Loading init file"));

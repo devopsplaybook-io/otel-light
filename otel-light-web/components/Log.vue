@@ -6,9 +6,15 @@
     >
     <span>{{ new Date(this.log.time / 1_000_000).toLocaleString() }}</span>
     <span>{{ this.log.severity }}</span>
-    <span @click="showLogDialog" style="cursor: pointer">{{
-      this.log.logText
-    }}</span>
+    <span @click="showLogDialog" style="cursor: pointer"
+      >{{ this.log.logText
+      }}<i
+        v-if="log.traceId"
+        class="bi bi-diagram-3 log-open-trace"
+        :title="'Open trace ' + log.traceId"
+        @click.stop="openTracePage(log.traceId)"
+      ></i
+    ></span>
     <dialog ref="logDialog" class="log-dialog">
       <article>
         <header>Log Details</header>
@@ -53,6 +59,7 @@ import {
   TraceApiLogsUrl,
   TraceApiSpansUrl,
   TraceApiSummaryUrl,
+  TracePagePath,
 } from "~~/services/TraceLinks";
 
 export default {
@@ -114,9 +121,24 @@ export default {
       this.isShowDialog = false;
       this.$refs.logDialog.close();
     },
-    openTracePage() {
-      this.$router.push("/traces/" + this.traceId);
+    openTracePage(traceId = this.traceId) {
+      if (!traceId) {
+        return;
+      }
+      this.$router.push(TracePagePath(traceId));
     },
   },
 };
 </script>
+
+<style scoped>
+.log-open-trace {
+  margin-left: 0.4rem;
+  opacity: 0.45;
+  cursor: pointer;
+}
+
+.log-open-trace:hover {
+  opacity: 1;
+}
+</style>

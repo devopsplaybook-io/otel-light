@@ -117,3 +117,36 @@ describe("Log trace lookup", () => {
     expect(context.logSpanId).toBeNull();
   });
 });
+
+describe("Log open trace action", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("navigates to the encoded trace page using the stored trace id", () => {
+    const push = vi.fn();
+    const context: any = { traceId: "a&b#c/d %", $router: { push } };
+
+    Log.methods.openTracePage.call(context);
+
+    expect(push).toHaveBeenCalledWith("/traces/a%26b%23c%2Fd%20%25");
+  });
+
+  it("accepts an explicit trace id", () => {
+    const push = vi.fn();
+    const context: any = { traceId: null, $router: { push } };
+
+    Log.methods.openTracePage.call(context, "trace-2");
+
+    expect(push).toHaveBeenCalledWith("/traces/trace-2");
+  });
+
+  it("does not navigate without a trace id", () => {
+    const push = vi.fn();
+    const context: any = { traceId: null, $router: { push } };
+
+    Log.methods.openTracePage.call(context);
+
+    expect(push).not.toHaveBeenCalled();
+  });
+});

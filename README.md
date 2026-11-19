@@ -8,11 +8,11 @@
 - User interface to visualize telemetry signals
 - Filter signals by service name and service version
 - Shareable trace pages (deep-linkable `/traces/{traceId}` URLs) with trace JSON copy/download, CSV export of the filtered logs view, and one-click navigation between logs, aggregated trace groups and traces
-- Metrics page with auto-refreshing card grid, per-card latest value with unit and timestamp, and chart loading progress; metrics excluded from auto-load are listed last
+- Metrics page with auto-refreshing card grid, per-card latest value with unit and timestamp, per-card queued/loading/stale/error states with retry, stable cards while the metric-name list refreshes, and auto-refresh paused while the tab is hidden; metrics excluded from auto-load are listed last
 - Dynamic paging with infinite scroll for Traces and Logs
 - Administration interface for login and maintenance rule management
 - Maintenance rules support optional service-name filtering
-- User API tokens: create personal tokens (on the profile page) to call the authenticated `GET/POST /api/*` endpoints with your own permissions; valid until revoked
+- User API tokens: create personal tokens (on the profile page) with an expiry choice (30/90/180/365 days, default 90) to call the authenticated `GET/POST /api/*` endpoints with your own permissions; the list shows last use and expiry
 - All-in-one container deployment
 - Low memory footprint (<100MB)
 - Supports up to 1 million signals (Traces, Logs, Metrics)
@@ -166,6 +166,8 @@ Rate-limit counters are in-memory and per process, so a restart also resets them
 
 Cleanup rules (settings → **Maintenance**) delete old signals whose `keywords` match a pattern. Patterns are matched case-insensitively and `*` is the **only** wildcard (it matches any sequence). SQL wildcards are escaped before the query, so `%`, `_` and `\` are compared literally — a rule like `error%100` matches that exact text, not "error followed by anything".
 
+Each maintenance run records a per-rule outcome (deleted rows, skip reason or error) plus the run time, persisted in the settings category `signal-cleanup-rules-status`; the Maintenance page shows it under the heading and as a "Last run" line per rule. Rules with an invalid period, pattern or service name are rejected by the settings API and the form. An invalid rule that was saved by an older version (e.g. a whitespace-only pattern) is flagged with a one-click **Fix** that repairs the form values (it never saves by itself — review and click Save), and the engine skips it instead of running it.
+
 Periodic metric compression keeps one data point per minute (then per hour) bucket **per full series**: `serviceName`, `serviceVersion`, `name`, `type` and the resource `attributes` are all part of the series identity. Series that share a name but differ by type, version or resource attributes are therefore preserved. Note that data compressed by older versions may already have lost series; that history cannot be recovered.
 
 ## Analytics Statistics
@@ -305,8 +307,9 @@ All these endpoints require the admin role.
 
 Users can create their own API tokens from the profile page (`/settings/profile`), in the "API Tokens" section. A token has the same permissions as the user who created it (role and scopes are read live on every request, so permission changes and revocation apply immediately).
 
-- **Create**: profile page → "Create Token" → give it a name. The plaintext token is displayed only once — copy it immediately.
-- **List / Revoke**: the profile page lists your tokens; revoking a token immediately invalidates it.
+- **Create**: profile page → "Create Token" → give it a name and choose an expiry (30/90/180/365 days, default 90). The plaintext token is displayed only once — copy it immediately.
+- **List / Revoke**: the profile page lists your tokens with creation date, last use and expiry (an **Expired** badge marks a past expiry); revoking a token asks for confirmation and immediately invalidates it.
+- **Last use** is refreshed at most once per hour. The optional `expiresAt`/`lastUsedAt` columns are added by the `init-0017` migration; old rows read as "Never expires" / "Never used". Expiry is enforced by the UI: a raw API client can still omit `expiresAt`.
 - **Use**: call any authenticated endpoint with the HTTP header below (e.g. `GET /api/analytics`, `GET /api/reports`, `GET /api/recommendation`):
 
 ```

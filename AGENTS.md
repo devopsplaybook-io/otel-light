@@ -32,8 +32,8 @@ otel-light/
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
-│   │   ├── sqlite/init-0000..0016.sql  # 17 migration files (CREATE tables, indexes, ALTER columns, data backfills)
-│   │   └── postgres/init-0000..0016.sql # Parallel migrations for PostgreSQL
+│   │   ├── sqlite/init-0000..0017.sql  # 18 migration files (CREATE tables, indexes, ALTER columns, data backfills)
+│   │   └── postgres/init-0000..0017.sql # Parallel migrations for PostgreSQL
 │   └── src/
 │       ├── App.ts                      # Entry point: config init, OTel setup, DB init, Fastify routes
 │       ├── Config.ts                   # Extends ConfigBase from common-utils
@@ -138,7 +138,7 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 | `alert_rule_state` | ruleId (PK), stateValue (JSON), updatedAt                                                                              | Alert rule lifecycle/state (alerting 2.0) |
 | `alert_events` | id, ruleId, ruleName, ruleType, serviceName, status, severity, observedValue, thresholdValue, message, signalType, signalPath, signalQuery, eventTime, notifiedAt, error | Alert history (fired/notified/resolved/suppressed/error) |
 
-Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0016). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
+Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0017). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
 ## Key Conventions
 

@@ -4,12 +4,21 @@ interface QueueItem {
   requestFn: (signal: AbortSignal) => Promise<unknown>;
   resolve: (value: unknown) => void;
   reject: (reason: unknown) => void;
+  priority: boolean;
+  onStart?: () => void;
 }
 
 export interface AnalyticsQueueOptions {
   maxConcurrent?: number;
   maxQueued?: number;
   timeoutMs?: number;
+}
+
+export interface AnalyticsEnqueueOptions {
+  /** Insert before the first non-priority queued item (FIFO among priority items). */
+  priority?: boolean;
+  /** Called when a slot is taken, immediately before the request starts. */
+  onStart?: () => void;
 }
 
 const DEFAULT_MAX_CONCURRENT = 4;
@@ -38,7 +47,10 @@ export class AnalyticsQueue {
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   }
 
-  enqueue<T>(requestFn: (signal: AbortSignal) => Promise<T>): Promise<T> {
+  enqueue<T>(
+    requestFn: (signal: AbortSignal) => Promise<T>,
+    options: AnalyticsEnqueueOptions = {},
+  ): Promise<T> {
     if (this.queue.length >= this.maxQueued) {
       return Promise.reject(
         new Error(
@@ -47,11 +59,23 @@ export class AnalyticsQueue {
       );
     }
     return new Promise<T>((resolve, reject) => {
-      this.queue.push({
+      const item: QueueItem = {
         requestFn,
         resolve: resolve as (value: unknown) => void,
         reject,
-      });
+        priority: options.priority === true,
+        onStart: options.onStart,
+      };
+      if (item.priority) {
+        const index = this.queue.findIndex((queued) => !queued.priority);
+        if (index === -1) {
+          this.queue.push(item);
+        } else {
+          this.queue.splice(index, 0, item);
+        }
+      } else {
+        this.queue.push(item);
+      }
       this.processQueue();
     });
   }
@@ -89,7 +113,14 @@ export class AnalyticsQueue {
       }, this.timeoutMs);
 
       Promise.resolve()
-        .then(() => item.requestFn(controller.signal))
+        .then(() => {
+          try {
+            item.onStart?.();
+          } catch {
+            // A UI callback must never break the queue.
+          }
+          return item.requestFn(controller.signal);
+        })
         .then((result) => settle(() => item.resolve(result)))
         .catch((error) => settle(() => item.reject(error)));
     }
@@ -107,9 +138,11 @@ export const analyticsQueue = new AnalyticsQueue();
 export function analyticsGet(
   url: string,
   config?: Record<string, unknown>,
+  options?: AnalyticsEnqueueOptions,
 ): Promise<any> {
-  return analyticsQueue.enqueue((signal) =>
-    axios.get(url, { ...config, signal }),
+  return analyticsQueue.enqueue(
+    (signal) => axios.get(url, { ...config, signal }),
+    options,
   );
 }
 
@@ -120,6 +153,10 @@ export function analyticsGet(
 export function analyticsFetch(
   url: string,
   init?: RequestInit,
+  options?: AnalyticsEnqueueOptions,
 ): Promise<Response> {
-  return analyticsQueue.enqueue((signal) => fetch(url, { ...init, signal }));
+  return analyticsQueue.enqueue(
+    (signal) => fetch(url, { ...init, signal }),
+    options,
+  );
 }

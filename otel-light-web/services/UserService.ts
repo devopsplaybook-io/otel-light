@@ -73,10 +73,13 @@ export class UserService {
     );
   }
 
-  public static async createApiToken(name: string): Promise<any> {
+  public static async createApiToken(
+    name: string,
+    expiresAt?: string | null,
+  ): Promise<any> {
     return axios.post(
       `${SERVER_URL}/users/tokens`,
-      { name },
+      { name, ...(expiresAt ? { expiresAt } : {}) },
       await AuthService.getAuthHeader(),
     );
   }
