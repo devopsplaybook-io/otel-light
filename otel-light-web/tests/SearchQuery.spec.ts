@@ -20,6 +20,7 @@ const TRACE_STATE: SearchQueryState = {
   severity: "",
   serviceName: "checkout",
   serviceVersion: "2.0",
+  name: "GET /api/checkout",
   durationMin: "50",
   durationMax: "2500",
   attributes: [
@@ -62,6 +63,7 @@ describe("URL round-trip", () => {
       "k8s.pod:exists",
     ]);
     expect(routeQuery.errorsOnly).toBe("true");
+    expect(routeQuery.name).toBe("GET /api/checkout");
     expect(SearchQueryFromRouteQuery(routeQuery, "traces")).toEqual(
       TRACE_STATE,
     );
@@ -114,6 +116,7 @@ describe("API request parameters", () => {
     ]);
     expect(params.get("errorsOnly")).toBe("true");
     expect(params.get("status")).toBe("error");
+    expect(params.get("name")).toBe("GET /api/checkout");
     expect(params.get("durationMin")).toBe("50");
     expect(params.get("durationMax")).toBe("2500");
   });

@@ -1,6 +1,6 @@
 <template>
   <div id="page-intro">
-    <article v-if="overview" id="home-overview">
+    <article id="home-overview">
       <header>
         <h3><i class="bi bi-activity"></i> Last 24 hours</h3>
       </header>
@@ -10,46 +10,142 @@
           to="/logs"
           class="overview-cell plain-link"
         >
-          <span class="overview-value">{{
-            formatCount(overview.logsTotal)
+          <span
+            v-if="HomeOverviewCellIsLoading(cells.logs)"
+            class="overview-value overview-skeleton"
+            aria-label="Loading logs"
+          ></span>
+          <span v-else class="overview-value">{{
+            HomeOverviewCellValueText(cells.logs)
           }}</span>
           <span class="overview-label">logs ingested</span>
-          <span class="overview-sub"
-            >{{ formatCount(overview.logErrors) }} errors</span
+          <span v-if="cells.logs.detail !== null" class="overview-sub"
+            >{{ cells.logs.detail }} errors</span
           >
+          <span
+            v-if="cells.logs.status === 'error'"
+            class="overview-error"
+            :title="cells.logs.error || 'Refresh failed'"
+          >
+            <template v-if="cells.logs.fetchedAt !== null">{{
+              HomeOverviewAsOfLabel(cells.logs.fetchedAt)
+            }}</template>
+            <template v-else>failed</template>
+            <button
+              type="button"
+              class="overview-retry"
+              title="Retry"
+              aria-label="Retry logs"
+              @click.prevent.stop="refreshLogs"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </span>
         </NuxtLink>
         <NuxtLink
           v-if="hasTracesScope"
           to="/traces"
           class="overview-cell plain-link"
         >
-          <span class="overview-value">{{
-            formatCount(overview.tracesTotal)
+          <span
+            v-if="HomeOverviewCellIsLoading(cells.traces)"
+            class="overview-value overview-skeleton"
+            aria-label="Loading traces"
+          ></span>
+          <span v-else class="overview-value">{{
+            HomeOverviewCellValueText(cells.traces)
           }}</span>
           <span class="overview-label">traces ingested</span>
-          <span class="overview-sub"
-            >{{ formatCount(overview.traceErrors) }} errors</span
+          <span v-if="cells.traces.detail !== null" class="overview-sub"
+            >{{ cells.traces.detail }} errors</span
           >
+          <span
+            v-if="cells.traces.status === 'error'"
+            class="overview-error"
+            :title="cells.traces.error || 'Refresh failed'"
+          >
+            <template v-if="cells.traces.fetchedAt !== null">{{
+              HomeOverviewAsOfLabel(cells.traces.fetchedAt)
+            }}</template>
+            <template v-else>failed</template>
+            <button
+              type="button"
+              class="overview-retry"
+              title="Retry"
+              aria-label="Retry traces"
+              @click.prevent.stop="refreshTraces"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </span>
         </NuxtLink>
         <NuxtLink
           v-if="hasMetricsScope"
           to="/metrics"
           class="overview-cell plain-link"
         >
-          <span class="overview-value">{{
-            formatCount(overview.metricSeries)
+          <span
+            v-if="HomeOverviewCellIsLoading(cells.metrics)"
+            class="overview-value overview-skeleton"
+            aria-label="Loading metric series"
+          ></span>
+          <span v-else class="overview-value">{{
+            HomeOverviewCellValueText(cells.metrics)
           }}</span>
           <span class="overview-label">metric series</span>
+          <span
+            v-if="cells.metrics.status === 'error'"
+            class="overview-error"
+            :title="cells.metrics.error || 'Refresh failed'"
+          >
+            <template v-if="cells.metrics.fetchedAt !== null">{{
+              HomeOverviewAsOfLabel(cells.metrics.fetchedAt)
+            }}</template>
+            <template v-else>failed</template>
+            <button
+              type="button"
+              class="overview-retry"
+              title="Retry"
+              aria-label="Retry metric series"
+              @click.prevent.stop="refreshMetrics"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </span>
         </NuxtLink>
         <div class="overview-cell">
-          <span class="overview-value">{{
-            formatCount(overview.servicesCount)
+          <span
+            v-if="HomeOverviewCellIsLoading(cells.services)"
+            class="overview-value overview-skeleton"
+            aria-label="Loading services"
+          ></span>
+          <span v-else class="overview-value">{{
+            HomeOverviewCellValueText(cells.services)
           }}</span>
           <span class="overview-label">services reporting</span>
+          <span
+            v-if="cells.services.status === 'error'"
+            class="overview-error"
+            :title="cells.services.error || 'Refresh failed'"
+          >
+            <template v-if="cells.services.fetchedAt !== null">{{
+              HomeOverviewAsOfLabel(cells.services.fetchedAt)
+            }}</template>
+            <template v-else>failed</template>
+            <button
+              type="button"
+              class="overview-retry"
+              title="Retry"
+              aria-label="Retry services"
+              @click.prevent.stop="refreshServices"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+            </button>
+          </span>
         </div>
         <div class="overview-cell overview-jobs">
           <span class="overview-label">Scheduled jobs</span>
-          <div v-for="job in overview.jobs" :key="job.label" class="overview-job">
+          <div v-for="job in overviewJobs" :key="job.label" class="overview-job">
             <span class="overview-job-label">{{ job.label }}</span>
             <span class="overview-job-value">{{
               formatJobTime(job.generatedAt)
@@ -118,6 +214,22 @@
           <h4><i class="bi bi-lightbulb"></i> Recommendations</h4>
           <!-- eslint-disable-next-line vue/no-v-html -->
           <div class="rec-content" v-html="renderMarkdown(recommendation.recommendations)"></div>
+          <div v-if="recommendationTraceLinks.length" class="rec-links">
+            <h5>Related traces</h5>
+            <ul>
+              <li v-for="link in recommendationTraceLinks" :key="link.key">
+                <NuxtLink
+                  :to="{
+                    path: '/traces',
+                    query: recommendationTraceQuery(link),
+                  }"
+                >
+                  {{ link.label }}
+                </NuxtLink>
+                <span class="rec-link-meta">{{ link.meta }}</span>
+              </li>
+            </ul>
+          </div>
         </div>
         <div
           v-if="!recommendation.analysis && !recommendation.recommendations"
@@ -152,10 +264,25 @@ import { analyticsGet } from "~~/services/AnalyticsQueue";
 import { renderMarkdown } from "~~/services/Markdown";
 import { UtilsDecompressJson, UtilsRelativeTime } from "~~/services/Utils";
 import {
-  HomeOverviewBuildModel,
+  HomeOverviewAsOfLabel,
+  HomeOverviewCellFailure,
+  HomeOverviewCellIsLoading,
+  HomeOverviewCellSuccess,
+  HomeOverviewCellValueText,
+  HomeOverviewCellsInitial,
+  HomeOverviewCellsLoad,
+  HomeOverviewCellsSave,
   HomeOverviewCanAccessRecommendation,
+  HomeOverviewErrorMessage,
+  HomeOverviewTraceTotals,
   HomeOverviewWindowNs,
 } from "~~/services/HomeOverview";
+import {
+  RecommendationBuildTraceLinks,
+  RecommendationTraceQuery,
+} from "~~/services/RecommendationLinks";
+
+const CELL_REQUEST_TIMEOUT_MS = 15000;
 
 export default {
   data() {
@@ -163,7 +290,10 @@ export default {
       recommendation: null,
       regenerating: false,
       recommendationGeneratedAt: null,
-      overview: null,
+      longestReportGeneratedAt: null,
+      mostCalledReportGeneratedAt: null,
+      cells: HomeOverviewCellsInitial(),
+      cellRequestIds: {},
     };
   },
   computed: {
@@ -185,90 +315,154 @@ export default {
         this.hasLogsScope,
       );
     },
+    overviewJobs() {
+      return [
+        {
+          label: "LLM recommendation",
+          generatedAt: this.recommendationGeneratedAt,
+        },
+        {
+          label: "Longest traces report",
+          generatedAt: this.longestReportGeneratedAt,
+        },
+        {
+          label: "Most called traces report",
+          generatedAt: this.mostCalledReportGeneratedAt,
+        },
+      ];
+    },
+    recommendationTraceLinks() {
+      return RecommendationBuildTraceLinks(this.recommendation);
+    },
   },
   async created() {
+    this.cells = HomeOverviewCellsLoad(window.localStorage);
     if (await AuthenticationStore().ensureAuthenticated()) {
-      this.fetchOverview();
+      this.refreshOverview();
     } else {
       useRouter().push({ path: "/settings/profile" });
     }
   },
   methods: {
-    async fetchOverview() {
-      // The recommendation powers both the card below and the strip's job row.
-      const recommendationPromise = this.fetchRecommendation();
-      const authHeader = await AuthService.getAuthHeader();
+    HomeOverviewCellIsLoading,
+    HomeOverviewCellValueText,
+    HomeOverviewAsOfLabel,
+    refreshOverview() {
+      // Every cell loads independently: one slow or failing signal must not
+      // hide the others, and each has its own retry action.
+      this.fetchRecommendation();
+      this.refreshLogs();
+      this.refreshTraces();
+      this.refreshMetrics();
+      this.refreshServices();
+      this.refreshReportJobs();
+    },
+    async refreshCell(key, enabled, request) {
+      if (!enabled) return;
+      // A retry started while an older request is in flight wins: the older
+      // response is discarded.
+      const requestId = (this.cellRequestIds[key] || 0) + 1;
+      this.cellRequestIds[key] = requestId;
+      try {
+        const result = await request();
+        if (this.cellRequestIds[key] !== requestId) return;
+        this.cells = {
+          ...this.cells,
+          [key]: HomeOverviewCellSuccess(
+            this.cells[key],
+            result.value,
+            result.detail ?? null,
+            Date.now(),
+          ),
+        };
+      } catch (err) {
+        if (this.cellRequestIds[key] !== requestId) return;
+        this.cells = {
+          ...this.cells,
+          [key]: HomeOverviewCellFailure(
+            this.cells[key],
+            HomeOverviewErrorMessage(err),
+          ),
+        };
+      }
+      HomeOverviewCellsSave(window.localStorage, this.cells);
+    },
+    async authHeader() {
+      return AuthService.getAuthHeader();
+    },
+    windowQueryString() {
       const { from, to } = HomeOverviewWindowNs(Date.now());
-      const windowQs = `from=${from}&to=${to}`;
-      const [logsRes, tracesRes, metricsRes, servicesRes, longestRes, mostCalledRes] =
-        await Promise.all([
-          this.fetchCell(this.hasLogsScope, () =>
-            analyticsGet(
-              `${SERVER_URL}/analytics/logs/stats?${windowQs}`,
-              authHeader,
-            ),
-          ),
-          this.fetchCell(this.hasTracesScope, () =>
-            analyticsGet(
-              `${SERVER_URL}/analytics/traces/stats?${windowQs}`,
-              authHeader,
-            ),
-          ),
-          this.fetchCell(this.hasMetricsScope, () =>
-            analyticsGet(
-              `${SERVER_URL}/analytics/metrics/names?${windowQs}`,
-              authHeader,
-            ),
-          ),
-          this.fetchCell(true, () =>
-            analyticsGet(`${SERVER_URL}/analytics/services`, authHeader),
-          ),
-          this.fetchCell(this.hasTracesScope, () =>
-            axios.get(`${SERVER_URL}/reports/longest-traces`, authHeader),
-          ),
-          this.fetchCell(this.hasTracesScope, () =>
-            axios.get(`${SERVER_URL}/reports/most-called-traces`, authHeader),
-          ),
-        ]);
-      await recommendationPromise;
-
-      let tracesGroups = null;
-      if (tracesRes) {
-        try {
-          tracesGroups = await UtilsDecompressJson(tracesRes.data.groups);
-        } catch (err) {
-          tracesGroups = null;
-        }
-      }
-      let metricNamesCount = null;
-      if (metricsRes) {
-        try {
-          const names = await UtilsDecompressJson(metricsRes.data.metricsNames);
-          metricNamesCount = Array.isArray(names) ? names.length : 0;
-        } catch (err) {
-          metricNamesCount = null;
-        }
-      }
-      this.overview = HomeOverviewBuildModel({
-        logsStats: logsRes ? logsRes.data : null,
-        tracesGroups,
-        metricNamesCount,
-        servicesCount: servicesRes
-          ? (servicesRes.data.services || []).length
-          : null,
-        recommendationGeneratedAt: this.recommendationGeneratedAt,
-        longestReportGeneratedAt: longestRes?.data?.generatedAt ?? null,
-        mostCalledReportGeneratedAt: mostCalledRes?.data?.generatedAt ?? null,
+      return `from=${from}&to=${to}`;
+    },
+    async refreshLogs() {
+      await this.refreshCell("logs", this.hasLogsScope, async () => {
+        const windowQs = this.windowQueryString();
+        const response = await analyticsGet(
+          `${SERVER_URL}/analytics/logs/stats?${windowQs}`,
+          { ...(await this.authHeader()), timeout: CELL_REQUEST_TIMEOUT_MS },
+        );
+        const severityCounts = response.data?.severityCounts || {};
+        return {
+          value: Number(response.data?.totalCount ?? 0),
+          detail:
+            (Number(severityCounts.ERROR) || 0) +
+            (Number(severityCounts.FATAL) || 0),
+        };
       });
     },
-    // Returns null (rendered as "—") when the cell is out of scope or the
-    // fetch fails: a broken cell must never break the page.
-    async fetchCell(enabled, request) {
-      if (!enabled) return null;
-      try {
-        return await request();
-      } catch (err) {
-        return null;
+    async refreshTraces() {
+      await this.refreshCell("traces", this.hasTracesScope, async () => {
+        const windowQs = this.windowQueryString();
+        const response = await analyticsGet(
+          `${SERVER_URL}/analytics/traces/summary?${windowQs}&includePercentiles=false`,
+          { ...(await this.authHeader()), timeout: CELL_REQUEST_TIMEOUT_MS },
+        );
+        const groups = response.data?.compressed
+          ? await UtilsDecompressJson(response.data.groups)
+          : response.data?.groups || [];
+        const totals = HomeOverviewTraceTotals(groups);
+        return { value: totals.tracesTotal, detail: totals.traceErrors };
+      });
+    },
+    async refreshMetrics() {
+      await this.refreshCell("metrics", this.hasMetricsScope, async () => {
+        const windowQs = this.windowQueryString();
+        const response = await analyticsGet(
+          `${SERVER_URL}/analytics/metrics/names?${windowQs}`,
+          { ...(await this.authHeader()), timeout: CELL_REQUEST_TIMEOUT_MS },
+        );
+        const names = await UtilsDecompressJson(response.data.metricsNames);
+        return {
+          value: Array.isArray(names) ? names.length : 0,
+          detail: null,
+        };
+      });
+    },
+    async refreshServices() {
+      await this.refreshCell("services", true, async () => {
+        const response = await analyticsGet(
+          `${SERVER_URL}/analytics/services`,
+          { ...(await this.authHeader()), timeout: CELL_REQUEST_TIMEOUT_MS },
+        );
+        return {
+          value: (response.data?.services || []).length,
+          detail: null,
+        };
+      });
+    },
+    async refreshReportJobs() {
+      const authHeader = await this.authHeader();
+      const [longest, mostCalled] = await Promise.allSettled([
+        axios.get(`${SERVER_URL}/reports/longest-traces`, authHeader),
+        axios.get(`${SERVER_URL}/reports/most-called-traces`, authHeader),
+      ]);
+      if (longest.status === "fulfilled") {
+        this.longestReportGeneratedAt =
+          longest.value?.data?.generatedAt ?? null;
+      }
+      if (mostCalled.status === "fulfilled") {
+        this.mostCalledReportGeneratedAt =
+          mostCalled.value?.data?.generatedAt ?? null;
       }
     },
     async fetchRecommendation() {
@@ -281,10 +475,10 @@ export default {
       }
       try {
         const url = `${SERVER_URL}/recommendation`;
-        const response = await axios.get(
-          url,
-          await AuthService.getAuthHeader(),
-        );
+        const response = await axios.get(url, {
+          ...(await this.authHeader()),
+          timeout: CELL_REQUEST_TIMEOUT_MS,
+        });
         if (response.data && response.data.generatedAt) {
           this.recommendation = response.data;
           this.recommendationGeneratedAt = response.data.generatedAt;
@@ -297,13 +491,13 @@ export default {
         this.recommendationGeneratedAt = null;
       }
     },
+    recommendationTraceQuery(link) {
+      return RecommendationTraceQuery(link, this.recommendation, Date.now());
+    },
     renderMarkdown,
     formatDate(isoString) {
       const d = new Date(isoString);
       return d.toLocaleString();
-    },
-    formatCount(value) {
-      return value === null ? "—" : String(value);
     },
     formatJobTime(generatedAt) {
       return generatedAt === null ? "never" : UtilsRelativeTime(generatedAt);
@@ -365,6 +559,38 @@ export default {
 .overview-sub {
   font-size: 0.75rem;
   opacity: 0.55;
+}
+.overview-skeleton {
+  display: inline-block;
+  width: 4rem;
+  height: 1.4rem;
+  border-radius: 0.25rem;
+  background-color: currentColor;
+  opacity: 0.12;
+  animation: overview-pulse 1.2s ease-in-out infinite;
+}
+@keyframes overview-pulse {
+  0%,
+  100% {
+    opacity: 0.08;
+  }
+  50% {
+    opacity: 0.22;
+  }
+}
+.overview-error {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: #c62828;
+}
+.overview-retry {
+  width: auto;
+  margin: 0;
+  padding: 0 0.35rem;
+  font-size: 0.75rem;
+  line-height: 1.4;
 }
 .overview-jobs {
   gap: 0.15rem;
@@ -452,6 +678,35 @@ export default {
 }
 .rec-content strong {
   font-weight: 600;
+}
+.rec-links {
+  margin-top: 0.75rem;
+}
+.rec-links h5 {
+  margin: 0 0 0.35rem 0;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  opacity: 0.7;
+}
+.rec-links ul {
+  list-style: none;
+  padding-left: 0;
+  margin: 0;
+}
+.rec-links li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: baseline;
+  padding: 0.15rem 0;
+}
+.rec-links a {
+  font-size: 0.85rem;
+}
+.rec-link-meta {
+  font-size: 0.75rem;
+  opacity: 0.6;
 }
 
 .rec-regenerate {

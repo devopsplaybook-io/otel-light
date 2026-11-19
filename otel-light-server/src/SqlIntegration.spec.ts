@@ -267,12 +267,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 14 and creates the rollup and saved-view tables", async () => {
+    it("applies all migrations up to version 15 and creates the rollup and saved-view tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(14);
+      expect(Number(versionRows[0].maxVersion)).toBe(15);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -312,6 +312,12 @@ describe("SQL-level integration (sqlite)", () => {
         "idx_saved_views_shared",
         "idx_saved_views_user",
       ]);
+
+      const summaryIndexRows = await query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'idx_traces_stats_summary'",
+        [],
+      );
+      expect(summaryIndexRows.length).toBe(1);
     });
   });
 
@@ -1587,6 +1593,311 @@ describe("SQL-level integration (sqlite)", () => {
       expect(group.traceCount).toBe(5000);
       expect(group.p90).toBeDefined();
       expect(elapsedMs).toBeLessThan(5000);
+
+      // The root-span summary must stay well under the Home budget.
+      const summaryStartedAt = Date.now();
+      const summaryRes = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/summary?from=${windowStart}&to=${windowEnd}&serviceName=${latencyService}&includePercentiles=false`,
+      });
+      const summaryElapsedMs = Date.now() - summaryStartedAt;
+      expect(summaryRes.statusCode).toBe(200);
+      const summaryGroups = await decodeB64Json(summaryRes.json().groups);
+      expect(summaryGroups[0].traceCount).toBe(5000);
+      expect(summaryElapsedMs).toBeLessThan(2000);
+    });
+  });
+
+  // =========================================================================
+  // Analytics traces summary: root-span-only aggregate for Home + Aggregated
+  // =========================================================================
+  describe("Analytics traces summary", () => {
+    const MINUTE_NS = 60_000_000_000;
+    const summaryEnd =
+      Math.floor((Date.now() * 1_000_000) / MINUTE_NS) * MINUTE_NS -
+      2 * 3_600_000_000_000;
+    const summaryStart = summaryEnd - 60 * MINUTE_NS;
+    const summaryService = "summary-svc";
+    const summaryOtherService = "summary-other-svc";
+    const summaryUrl = (extra = "") =>
+      `/api/analytics/traces/summary?from=${summaryStart}&to=${summaryEnd}${extra}`;
+
+    beforeAll(async () => {
+      // Root OK with an error child: root-only nbErrors stays 0 (the
+      // /traces/stats any-span semantics would count 1).
+      await insertTrace(
+        "sm-a",
+        "sm-a-root",
+        null,
+        "sm-op-a",
+        summaryStart + 1_000_000_000,
+        summaryStart + 11_000_000_000,
+        0,
+        summaryService,
+      );
+      await insertTrace(
+        "sm-a",
+        "sm-a-child",
+        "sm-a-root",
+        "sm-op-a-child",
+        summaryStart + 2_000_000_000,
+        summaryStart + 3_000_000_000,
+        2,
+        summaryService,
+      );
+      // Root error, 4s.
+      await insertTrace(
+        "sm-b",
+        "sm-b-root",
+        null,
+        "sm-op-b",
+        summaryStart + 65_000_000_000,
+        summaryStart + 69_000_000_000,
+        2,
+        summaryService,
+      );
+      // Second OK trace in the sm-op-a group (2s): avg becomes (10+2)/2.
+      await insertTrace(
+        "sm-c",
+        "sm-c-root",
+        null,
+        "sm-op-a",
+        summaryStart + 30_000_000_000,
+        summaryStart + 32_000_000_000,
+        0,
+        summaryService,
+      );
+      // Same name in another service/version for the filters.
+      await insertTrace(
+        "sm-d",
+        "sm-d-root",
+        null,
+        "sm-op-a",
+        summaryStart + 40_000_000_000,
+        summaryStart + 41_000_000_000,
+        0,
+        summaryOtherService,
+        "2.0",
+      );
+    });
+
+    afterAll(async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 20000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+    });
+
+    it("groups root spans and counts root-span errors only", async () => {
+      const res = await fastify.inject({ method: "GET", url: summaryUrl() });
+      expect(res.statusCode).toBe(200);
+      expect(res.json().compressed).toBe(true);
+      const groups = await decodeB64Json(res.json().groups);
+
+      const groupA = groups.find(
+        (g: Loose) =>
+          g.name === "sm-op-a" && g.serviceName === summaryService,
+      );
+      expect(groupA).toMatchObject({
+        serviceVersion: "1.0",
+        traceCount: 2,
+        nbErrors: 0,
+      });
+      expect(groupA.avgDuration).toBe(6_000_000_000);
+
+      const groupB = groups.find(
+        (g: Loose) =>
+          g.name === "sm-op-b" && g.serviceName === summaryService,
+      );
+      expect(groupB).toMatchObject({ traceCount: 1, nbErrors: 1 });
+      expect(groupB.avgDuration).toBe(4_000_000_000);
+
+      // Root-only: no all-spans join, no avgSpanCount.
+      expect(groupA).not.toHaveProperty("avgSpanCount");
+    });
+
+    it("applies service, version, exact-name, keywords, errorsOnly and window filters", async () => {
+      const byService = await decodeB64Json(
+        (
+          await fastify.inject({
+            method: "GET",
+            url: summaryUrl(`&serviceName=${summaryOtherService}`),
+          })
+        ).json().groups,
+      );
+      expect(
+        byService.map((g: Loose) => [g.serviceName, g.serviceVersion]),
+      ).toEqual([[summaryOtherService, "2.0"]]);
+
+      const byVersion = await decodeB64Json(
+        (
+          await fastify.inject({
+            method: "GET",
+            url: summaryUrl("&serviceVersion=2.0"),
+          })
+        ).json().groups,
+      );
+      expect(byVersion.map((g: Loose) => g.serviceName)).toEqual([
+        summaryOtherService,
+      ]);
+
+      const byName = await decodeB64Json(
+        (
+          await fastify.inject({
+            method: "GET",
+            url: summaryUrl("&name=sm-op-b"),
+          })
+        ).json().groups,
+      );
+      expect(byName.map((g: Loose) => g.name)).toEqual(["sm-op-b"]);
+
+      const byKeywords = await decodeB64Json(
+        (
+          await fastify.inject({
+            method: "GET",
+            url: summaryUrl("&keywords=sm-op-b"),
+          })
+        ).json().groups,
+      );
+      expect(byKeywords.map((g: Loose) => g.name)).toEqual(["sm-op-b"]);
+
+      // errorsOnly keeps the list semantics (any span of the trace is an
+      // error): the sm-op-a trace with an error child is selected too, while
+      // its nbErrors stays root-only (0).
+      const byErrors = await decodeB64Json(
+        (
+          await fastify.inject({
+            method: "GET",
+            url: summaryUrl(
+              `&serviceName=${summaryService}&errorsOnly=true`,
+            ),
+          })
+        ).json().groups,
+      );
+      expect(
+        byErrors.map((g: Loose) => [g.name, g.nbErrors]).sort(),
+      ).toEqual([
+        ["sm-op-a", 0],
+        ["sm-op-b", 1],
+      ]);
+
+      // Minute-rounded window isolates the sm-op-b minute (T+60s..T+120s).
+      const narrowFrom = summaryStart + 61_000_000_000;
+      const narrowTo = summaryStart + 119_000_000_000;
+      const byWindow = await decodeB64Json(
+        (
+          await fastify.inject({
+            method: "GET",
+            url: `/api/analytics/traces/summary?from=${narrowFrom}&to=${narrowTo}`,
+          })
+        ).json().groups,
+      );
+      expect(byWindow.map((g: Loose) => g.name)).toEqual(["sm-op-b"]);
+    });
+
+    it("omits percentiles when includePercentiles=false", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: summaryUrl("&includePercentiles=false"),
+      });
+      expect(res.statusCode).toBe(200);
+      const groups = await decodeB64Json(res.json().groups);
+      const groupA = groups.find(
+        (g: Loose) =>
+          g.name === "sm-op-a" && g.serviceName === summaryService,
+      );
+      expect(groupA.traceCount).toBe(2);
+      expect(groupA.avgDuration).toBe(6_000_000_000);
+      expect(groupA).not.toHaveProperty("p90");
+      expect(groupA).not.toHaveProperty("p95");
+    });
+
+    it("returns deterministic sampled percentiles", async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 20000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      const first = await fastify.inject({ method: "GET", url: summaryUrl() });
+      const second = await fastify.inject({ method: "GET", url: summaryUrl() });
+      const firstGroups = await decodeB64Json(first.json().groups);
+      const secondGroups = await decodeB64Json(second.json().groups);
+      expect(secondGroups).toEqual(firstGroups);
+
+      const groupA = firstGroups.find(
+        (g: Loose) =>
+          g.name === "sm-op-a" && g.serviceName === summaryService,
+      );
+      // Durations 2s and 10s: p90 index = ceil(1.8)-1 = 1 → 10s,
+      // p95 index = ceil(1.9)-1 = 1 → 10s.
+      expect(groupA.p90).toBe(10_000_000_000);
+      expect(groupA.p95).toBe(10_000_000_000);
+    });
+
+    it("serves repeated requests from the cache and refreshes when disabled", async () => {
+      await AnalyticsStatsInit(testSpan(), {
+        ANALYTICS_STATS_CACHE_TTL_SECONDS: 60,
+        ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+        ANALYTICS_STATS_SAMPLE_CAP: 20000,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      try {
+        const first = await fastify.inject({
+          method: "GET",
+          url: summaryUrl("&serviceName=summary-cache-svc"),
+        });
+        expect(first.statusCode).toBe(200);
+        await insertTrace(
+          "sm-cache-1",
+          "sm-cache-1-root",
+          null,
+          "sm-cache-op",
+          summaryStart + 5_000_000_000,
+          summaryStart + 6_000_000_000,
+          0,
+          "summary-cache-svc",
+        );
+        const cached = await fastify.inject({
+          method: "GET",
+          url: summaryUrl("&serviceName=summary-cache-svc"),
+        });
+        expect(await decodeB64Json(cached.json().groups)).toEqual(
+          await decodeB64Json(first.json().groups),
+        );
+
+        await AnalyticsStatsInit(testSpan(), {
+          ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+          ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+          ANALYTICS_STATS_SAMPLE_CAP: 20000,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+        const fresh = await fastify.inject({
+          method: "GET",
+          url: summaryUrl("&serviceName=summary-cache-svc"),
+        });
+        const freshGroups = await decodeB64Json(fresh.json().groups);
+        expect(freshGroups).toHaveLength(1);
+        expect(freshGroups[0].traceCount).toBe(1);
+      } finally {
+        await AnalyticsStatsInit(testSpan(), {
+          ANALYTICS_STATS_CACHE_TTL_SECONDS: 0,
+          ANALYTICS_STATS_CACHE_MAX_ENTRIES: 100,
+          ANALYTICS_STATS_SAMPLE_CAP: 20000,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        } as any);
+      }
+    });
+
+    it("returns an empty group list for an empty window", async () => {
+      const res = await fastify.inject({
+        method: "GET",
+        url: `/api/analytics/traces/summary?from=${summaryStart - 10 * MINUTE_NS}&to=${summaryStart - 5 * MINUTE_NS}&serviceName=${summaryService}`,
+      });
+      expect(res.statusCode).toBe(200);
+      expect(await decodeB64Json(res.json().groups)).toEqual([]);
     });
   });
 
@@ -2414,7 +2725,7 @@ describe("SQL-level integration (sqlite)", () => {
         "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionsBefore[0].v)).toBe(14);
+      expect(Number(versionsBefore[0].v)).toBe(15);
 
       // Migrations are logged through the shared module logger mock.
       const migrationLogger = OTelLogger().createModuleLogger("RestartProbe");
@@ -2438,7 +2749,7 @@ describe("SQL-level integration (sqlite)", () => {
       // Neither the version rows nor their maximum changed: no init file was
       // re-executed on an up-to-date database.
       expect(Number(versionsAfter[0].c)).toBe(Number(versionsBefore[0].c));
-      expect(Number(versionsAfter[0].v)).toBe(14);
+      expect(Number(versionsAfter[0].v)).toBe(15);
       const migrationInfoCalls = migrationInfo.mock.calls
         .map((call: unknown[]) => String(call[0]))
         .filter((message) => message.includes("Loading init file"));
@@ -2580,6 +2891,9 @@ describe("SQL-level integration (sqlite)", () => {
       );
       expect(top?.count).toBe(3);
       expect(top?.errorCount).toBe(0);
+      // The service travels with each top entry so the web UI can link back
+      // to the matching traces.
+      expect(top?.serviceName).toBe(recService);
       expect(stats.services).toContain(recService);
     });
 

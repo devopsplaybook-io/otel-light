@@ -26,6 +26,7 @@ export interface SearchQueryState {
   severity: string;
   serviceName: string;
   serviceVersion: string;
+  name: string;
   durationMin: string;
   durationMax: string;
   attributes: SearchAttributeFilter[];
@@ -50,6 +51,7 @@ export function SearchQueryEmptyState(): SearchQueryState {
     severity: "",
     serviceName: "",
     serviceVersion: "",
+    name: "",
     durationMin: "",
     durationMax: "",
     attributes: [],
@@ -130,6 +132,7 @@ export function SearchQueryFromRouteQuery(
   }
   state.errorsOnly = firstValue(query.errorsOnly) === "true";
   state.status = firstValue(query.status);
+  state.name = firstValue(query.name);
   state.durationMin = firstValue(query.durationMin);
   state.durationMax = firstValue(query.durationMax);
   const rawAttributes = query.attr;
@@ -163,6 +166,7 @@ export function SearchQueryToRouteQuery(
   }
   if (state.errorsOnly) query.errorsOnly = "true";
   if (state.status) query.status = state.status;
+  if (state.name) query.name = state.name;
   if (state.durationMin) query.durationMin = state.durationMin;
   if (state.durationMax) query.durationMax = state.durationMax;
   const attributes = state.attributes
@@ -211,6 +215,7 @@ export function SearchQueryToParams(
   }
   if (state.errorsOnly) params.set("errorsOnly", "true");
   if (state.status) params.set("status", state.status);
+  if (state.name) params.set("name", state.name);
   if (state.durationMin) params.set("durationMin", state.durationMin);
   if (state.durationMax) params.set("durationMax", state.durationMax);
   for (const attribute of state.attributes) {
@@ -245,6 +250,7 @@ export function SearchQueryStateFromParams(
   }
   state.errorsOnly = params.get("errorsOnly") === "true";
   state.status = params.get("status") || "";
+  state.name = params.get("name") || "";
   state.durationMin = params.get("durationMin") || "";
   state.durationMax = params.get("durationMax") || "";
   state.attributes = rawAttributes

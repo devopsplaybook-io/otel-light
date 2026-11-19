@@ -5,6 +5,8 @@ import {
   TraceApiSummaryUrl,
   TraceGroupToAnalyticsParams,
   TraceGroupToTracesQuery,
+  TraceLinksTimeWindowQuery,
+  TraceReportToTracesQuery,
 } from "../services/TraceLinks";
 
 describe("TraceGroupToTracesQuery", () => {
@@ -14,12 +16,13 @@ describe("TraceGroupToTracesQuery", () => {
       { keywords: "old", from: "3600", to: "0", errorsOnly: "true" }
     );
     expect(query).toEqual({
-      keywords: "GET /api",
+      keywords: "old",
       from: "3600",
       to: "0",
       errorsOnly: "true",
       serviceName: "svc",
       serviceVersion: "1.0.0",
+      name: "GET /api",
     });
   });
 
@@ -36,7 +39,67 @@ describe("TraceGroupToTracesQuery", () => {
       { serviceName: "svc", name: "op" },
       null
     );
-    expect(query).toEqual({ serviceName: "svc", keywords: "op" });
+    expect(query).toEqual({ serviceName: "svc", name: "op" });
+  });
+});
+
+describe("TraceLinksTimeWindowQuery", () => {
+  const nowMs = 1_760_000_000_000;
+
+  it("snaps a half-hour window to the 30 min option", () => {
+    expect(
+      TraceLinksTimeWindowQuery(nowMs - 30 * 60 * 1000, nowMs, nowMs)
+    ).toEqual({ from: String(30 * 60), to: "0" });
+  });
+
+  it("snaps upward to the smallest option covering the window", () => {
+    // 7 days is not an option: the 10 days one is the smallest superset.
+    expect(
+      TraceLinksTimeWindowQuery(
+        nowMs - 7 * 24 * 60 * 60 * 1000,
+        nowMs,
+        nowMs
+      )
+    ).toEqual({ from: String(10 * 24 * 60 * 60), to: "0" });
+  });
+
+  it("falls back to the widest option for windows beyond the list", () => {
+    const query = TraceLinksTimeWindowQuery(nowMs - 1000 * 24 * 3600 * 1000, nowMs, nowMs);
+    expect(query).toEqual({ from: String(99999 * 24 * 60 * 60), to: "0" });
+  });
+
+  it("uses the earlier bound when from and to are inverted", () => {
+    expect(
+      TraceLinksTimeWindowQuery(nowMs, nowMs - 5 * 60 * 1000, nowMs)
+    ).toEqual({ from: String(5 * 60), to: "0" });
+  });
+
+  it("falls back to the widest option for non-finite bounds", () => {
+    expect(TraceLinksTimeWindowQuery(Number.NaN, nowMs, nowMs)).toEqual({
+      from: String(99999 * 24 * 60 * 60),
+      to: "0",
+    });
+  });
+});
+
+describe("TraceReportToTracesQuery", () => {
+  const nowMs = 1_760_000_000_000;
+
+  it("composes the group filters and the report window", () => {
+    const query = TraceReportToTracesQuery(
+      { serviceName: "svc", serviceVersion: "2.0.0", name: "GET /cart" },
+      nowMs - 24 * 3600 * 1000,
+      2,
+      nowMs
+    );
+    // The report started 3 days ago: the 5 days option covers it.
+    expect(query).toEqual({
+      serviceName: "svc",
+      serviceVersion: "2.0.0",
+      name: "GET /cart",
+      from: String(5 * 24 * 60 * 60),
+      to: "0",
+    });
   });
 });
 

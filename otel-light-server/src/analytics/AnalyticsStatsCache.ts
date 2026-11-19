@@ -58,10 +58,12 @@ export function AnalyticsStatsCacheBuildKey(
   includePercentiles: boolean,
   keywords?: string,
   errorsOnly?: boolean,
+  name?: string,
+  mode: "stats" | "summary" = "stats",
   filtersFingerprint?: string,
 ): string {
   // JSON.stringify keeps user text (which may contain any separator) unambiguous.
-  return JSON.stringify([
+  const key: unknown[] = [
     from,
     to ?? "",
     serviceName ?? "",
@@ -69,8 +71,20 @@ export function AnalyticsStatsCacheBuildKey(
     includePercentiles ? "1" : "0",
     keywords ?? "",
     errorsOnly ? "1" : "0",
-    filtersFingerprint ?? "",
-  ]);
+  ];
+  // The trailing entries are tagged so a stats key can never collide with a
+  // summary key that happens to end on the same text; omitted defaults keep
+  // the historical stats key unchanged.
+  if (name) {
+    key.push(`name:${name}`);
+  }
+  if (mode !== "stats") {
+    key.push(`mode:${mode}`);
+  }
+  if (filtersFingerprint) {
+    key.push(`filters:${filtersFingerprint}`);
+  }
+  return JSON.stringify(key);
 }
 
 export function AnalyticsStatsCacheGet(
