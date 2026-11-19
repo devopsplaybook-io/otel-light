@@ -345,6 +345,7 @@ interface LogsStats {
 }
 
 interface TraceTypeStats {
+  serviceName: string;
   name: string;
   totalDurationMs: number;
   count: number;
@@ -560,6 +561,7 @@ export async function RecommendationCollectStats(
       return Math.round(d[Math.max(0, Math.min(idx, d.length - 1))]);
     };
     return {
+      serviceName: row.serviceName || "unknown",
       name: row.name,
       count,
       totalDurationMs,

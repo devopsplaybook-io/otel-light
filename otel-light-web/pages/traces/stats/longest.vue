@@ -10,6 +10,7 @@
         :bucket-ns="report.bucketNs"
         :series="report.series"
         value-label="Max Duration (s)"
+        @drilldown="onDrilldown"
       />
     </div>
   </div>
@@ -22,6 +23,7 @@ import { TracesTabs } from "~~/services/TracesTabs";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError } from "~~/services/EventBus";
+import { TraceReportToTracesQuery } from "~~/services/TraceLinks";
 
 export default {
   components: { TraceReportStatic },
@@ -64,6 +66,15 @@ export default {
       } catch (err) {
         handleError(err);
       }
+    },
+    onDrilldown(group) {
+      const query = TraceReportToTracesQuery(
+        group,
+        Date.parse(this.report.generatedAt),
+        this.report.periodDays,
+        Date.now()
+      );
+      this.$router.push({ path: "/traces", query });
     },
   },
 };

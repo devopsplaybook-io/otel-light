@@ -43,6 +43,132 @@ function roundTimeUpToMinute(
   return Math.ceil(value / MINUTE_NS) * MINUTE_NS;
 }
 
+interface TracesRootsQuery {
+  from?: number;
+  to?: number;
+  keywords?: string;
+  errorsOnly?: string;
+  serviceName?: string;
+  serviceVersion?: string;
+  name?: string;
+  includePercentiles?: string;
+}
+
+interface TracesRootsFilter {
+  rootsWhere: string;
+  fromTime: string | number | undefined;
+  toTime: string | number | undefined;
+  serviceName: string;
+  serviceVersion: string;
+  keywords: string;
+  name: string;
+  errorsOnly: boolean;
+  includePercentiles: boolean;
+}
+
+// Shared root-span WHERE builder for /traces/stats and /traces/summary: the
+// window (minute-rounded), the exact filters and the any-span error EXISTS
+// have identical semantics on both endpoints. Bound parameters are appended
+// to `rootsParams` in textual order.
+function buildTracesRootsFilter(
+  dbType: string,
+  query: TracesRootsQuery,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  rootsParams: any[],
+): TracesRootsFilter {
+  const q = (ident: string) =>
+    dbType === "postgres" ? `"${ident}"` : ident;
+  let rootsWhere = `${q("parentSpanId")} IS NULL`;
+
+  const includePercentiles = !["false", "0", "no"].includes(
+    String(query.includePercentiles ?? "true").trim().toLowerCase(),
+  );
+  const serviceName = String(query.serviceName ?? "").trim();
+  const serviceVersion = String(query.serviceVersion ?? "").trim();
+  const keywords = String(query.keywords ?? "").toLowerCase().trim();
+  const name = String(query.name ?? "").trim();
+  const errorsOnly = query.errorsOnly === "true";
+
+  // Default window: bound the aggregation scan unless the caller asked for an
+  // explicit range (the web UI always sends `from`). Windows are rounded to
+  // whole minutes so repeated loads are deterministic and share a cache entry.
+  const fromTime = roundTimeDownToMinute(
+    AnalyticsUtilsGetTimeParam(
+      query.from || AnalyticsUtilsGetDefaultFromTime24h(),
+    ),
+  );
+  const toTime = query.to
+    ? roundTimeUpToMinute(AnalyticsUtilsGetTimeParam(query.to))
+    : undefined;
+
+  rootsWhere +=
+    ` AND ${q("startTime")} >= ` +
+    AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+  rootsParams.push(fromTime);
+
+  if (toTime !== undefined) {
+    rootsWhere +=
+      ` AND ${q("startTime")} <= ` +
+      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+    rootsParams.push(toTime);
+  }
+  if (serviceName) {
+    rootsWhere +=
+      ` AND ${q("serviceName")} = ` +
+      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+    rootsParams.push(serviceName);
+  }
+  if (serviceVersion) {
+    rootsWhere +=
+      ` AND ${q("serviceVersion")} = ` +
+      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+    rootsParams.push(serviceVersion);
+  }
+  if (name) {
+    rootsWhere +=
+      ` AND ${q("name")} = ` +
+      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+    rootsParams.push(name);
+  }
+  if (keywords) {
+    rootsWhere +=
+      ` AND ${q("keywords")} LIKE ` +
+      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1) +
+      " ESCAPE '\\'";
+    rootsParams.push(`%${AnalyticsUtilsEscapeLike(keywords)}%`);
+  }
+  // Same semantics as the traces list: any span of the trace is an error.
+  if (errorsOnly) {
+    rootsWhere +=
+      ` AND EXISTS (SELECT 1 FROM traces e WHERE e.${q("traceId")} = traces.${q("traceId")}` +
+      ` AND e.${q("statusCode")} = ${AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1)})`;
+    rootsParams.push(SpanStatusCode.ERROR);
+  }
+
+  return {
+    rootsWhere,
+    fromTime,
+    toTime,
+    serviceName,
+    serviceVersion,
+    keywords,
+    name,
+    errorsOnly,
+    includePercentiles,
+  };
+}
+
+function percentileOf(
+  durations: number[],
+  pct: number,
+  fallback: number,
+): number {
+  if (durations.length === 0) return fallback;
+  const sorted = [...durations].sort((a, b) => a - b);
+  const idx = Math.ceil((pct / 100) * sorted.length) - 1;
+  return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
+}
+
 export class AnalyticsStatsRoutes {
   //
   public async getRoutes(fastify: FastifyInstance): Promise<void> {
@@ -220,15 +346,7 @@ export class AnalyticsStatsRoutes {
     // Traces stats: server-side aggregation by serviceName/name.
     // Replaces the single-page fetch + client-side grouping.
     fastify.get<{
-      Querystring: {
-        from?: number;
-        to?: number;
-        keywords?: string;
-        errorsOnly?: string;
-        serviceName?: string;
-        serviceVersion?: string;
-        includePercentiles?: string;
-      };
+      Querystring: TracesRootsQuery;
     }>("/traces/stats", async (req, res) => {
       try {
         await AuthHasScope(req, res, "traces");
@@ -237,38 +355,20 @@ export class AnalyticsStatsRoutes {
       }
 
       const dbType = DbUtilsGetType();
-      // Quote an identifier for the target DB: PostgreSQL needs double-quotes
-      // to preserve camelCase column names created with quoted identifiers.
-      const q = (ident: string) =>
-        dbType === "postgres" ? `"${ident}"` : ident;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rootsParams: any[] = [];
-      let rootsWhere = `${q("parentSpanId")} IS NULL`;
-
-      const includePercentiles = !["false", "0", "no"].includes(
-        String(req.query.includePercentiles ?? "true")
-          .trim()
-          .toLowerCase(),
-      );
-      const serviceName = String(req.query.serviceName ?? "").trim();
-      const serviceVersion = String(req.query.serviceVersion ?? "").trim();
-      const keywords = String(req.query.keywords ?? "").toLowerCase().trim();
-      const errorsOnly = req.query.errorsOnly === "true";
-
-      // Default window: bound the aggregation scan unless the caller asked
-      // for an explicit range (the web UI always sends `from`). Windows are
-      // rounded to whole minutes so repeated loads are deterministic and
-      // share a cache entry.
-      const fromTime = roundTimeDownToMinute(
-        AnalyticsUtilsGetTimeParam(
-          req.query.from || AnalyticsUtilsGetDefaultFromTime24h(),
-        ),
-      );
-      const toTime = req.query.to
-        ? roundTimeUpToMinute(
-            AnalyticsUtilsGetTimeParam(req.query.to),
-          )
-        : undefined;
+      const filter = buildTracesRootsFilter(dbType, req.query, rootsParams);
+      const {
+        rootsWhere,
+        fromTime,
+        toTime,
+        serviceName,
+        serviceVersion,
+        keywords,
+        name,
+        errorsOnly,
+        includePercentiles,
+      } = filter;
 
       const cacheKey = AnalyticsStatsCacheBuildKey(
         fromTime,
@@ -278,48 +378,11 @@ export class AnalyticsStatsRoutes {
         includePercentiles,
         keywords || undefined,
         errorsOnly,
+        name || undefined,
       );
       const cached = AnalyticsStatsCacheGet(cacheKey);
       if (cached) {
         return res.status(200).send(cached);
-      }
-
-      rootsWhere +=
-        ` AND ${q("startTime")} >= ` +
-        AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-      rootsParams.push(fromTime);
-
-      if (toTime !== undefined) {
-        rootsWhere +=
-          ` AND ${q("startTime")} <= ` +
-          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(toTime);
-      }
-      if (serviceName) {
-        rootsWhere +=
-          ` AND ${q("serviceName")} = ` +
-          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(serviceName);
-      }
-      if (serviceVersion) {
-        rootsWhere +=
-          ` AND ${q("serviceVersion")} = ` +
-          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(serviceVersion);
-      }
-      if (keywords) {
-        rootsWhere +=
-          ` AND ${q("keywords")} LIKE ` +
-          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1) +
-          " ESCAPE '\\'";
-        rootsParams.push(`%${AnalyticsUtilsEscapeLike(keywords)}%`);
-      }
-      // Same semantics as the traces list: any span of the trace is an error.
-      if (errorsOnly) {
-        rootsWhere +=
-          ` AND EXISTS (SELECT 1 FROM traces e WHERE e.${q("traceId")} = traces.${q("traceId")}` +
-          ` AND e.${q("statusCode")} = ${AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1)})`;
-        rootsParams.push(SpanStatusCode.ERROR);
       }
 
       const statusCodeVarIdx = rootsParams.length + 1;
@@ -360,17 +423,6 @@ export class AnalyticsStatsRoutes {
           sampleDurations[key].push(Number(row.duration));
         }
       }
-      const percentileOf = (
-        durations: number[],
-        pct: number,
-        fallback: number,
-      ): number => {
-        if (durations.length === 0) return fallback;
-        const sorted = [...durations].sort((a, b) => a - b);
-        const idx = Math.ceil((pct / 100) * sorted.length) - 1;
-        return sorted[Math.max(0, Math.min(idx, sorted.length - 1))];
-      };
-
       // Build grouped trace stats
       const groups = rawRows.map((row) => {
         const avgDuration = Number(row.avgDuration);
@@ -382,6 +434,132 @@ export class AnalyticsStatsRoutes {
           name: row.name,
           traceCount: Number(row.traceCount),
           avgSpanCount: Number(row.avgSpanCount),
+          nbErrors: Number(row.nbErrors),
+          avgDuration,
+        };
+        if (includePercentiles) {
+          return {
+            ...group,
+            p90: percentileOf(durations, 90, avgDuration),
+            p95: percentileOf(durations, 95, avgDuration),
+          };
+        }
+        return group;
+      });
+
+      const payload = {
+        groups: await AnalyticsUtilsCompressJson(groups, "gzip"),
+        compressed: true,
+      };
+      AnalyticsStatsCacheSet(cacheKey, payload);
+      return res.status(200).send(payload);
+    });
+
+    // Traces summary: one indexed GROUP BY over root spans only. It serves
+    // the Home KPIs and the Aggregated view without the all-spans join of
+    // /traces/stats. Response shape is identical to /traces/stats.
+    fastify.get<{
+      Querystring: TracesRootsQuery;
+    }>("/traces/summary", async (req, res) => {
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
+      }
+
+      const dbType = DbUtilsGetType();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rootsParams: any[] = [];
+      const filter = buildTracesRootsFilter(dbType, req.query, rootsParams);
+      const {
+        rootsWhere,
+        fromTime,
+        toTime,
+        serviceName,
+        serviceVersion,
+        keywords,
+        name,
+        errorsOnly,
+        includePercentiles,
+      } = filter;
+
+      const cacheKey = AnalyticsStatsCacheBuildKey(
+        fromTime,
+        toTime,
+        serviceName || undefined,
+        serviceVersion || undefined,
+        includePercentiles,
+        keywords || undefined,
+        errorsOnly,
+        name || undefined,
+        "summary",
+      );
+      const cached = AnalyticsStatsCacheGet(cacheKey);
+      if (cached) {
+        return res.status(200).send(cached);
+      }
+
+      // SQLite binds `?` by textual position: the status placeholder sits in
+      // the SELECT list, before the WHERE placeholders, so it is bound first.
+      // Postgres uses an explicit $N index and appends it after rootsWhere.
+      const statusCodeVarIdx = rootsParams.length + 1;
+      const summaryParams =
+        dbType === "sqlite"
+          ? [SpanStatusCode.ERROR, ...rootsParams]
+          : [...rootsParams, SpanStatusCode.ERROR];
+
+      const rawRows = await DbUtilsNoTelemetryQuerySQL(
+        SQL_QUERIES.TRACES_SUMMARY(rootsWhere, statusCodeVarIdx)[dbType],
+        summaryParams,
+      );
+
+      // Root spans are the trace itself here: nbErrors counts root-span
+      // errors and avgDuration is the root span duration, so no all-spans
+      // join is needed. P90/P95 come from a bounded deterministic sample of
+      // root spans (stride from the exact total, capped like /traces/stats).
+      const sampleDurations: Record<string, number[]> = {};
+      const totalTraces = rawRows.reduce(
+        (sum: number, row: { traceCount: number }) =>
+          sum + Number(row.traceCount || 0),
+        0,
+      );
+      if (includePercentiles && totalTraces > 0) {
+        const sampleCap = AnalyticsStatsGetSampleCap();
+        const stride = Math.max(1, Math.ceil(totalTraces / sampleCap));
+        const strideVarIdx = rootsParams.length + 1;
+        const limitVarIdx = rootsParams.length + 2;
+        const sampleRows = await DbUtilsNoTelemetryQuerySQL(
+          SQL_QUERIES.TRACES_SUMMARY_DURATION_SAMPLE(
+            rootsWhere,
+            strideVarIdx,
+            limitVarIdx,
+          )[dbType],
+          [...rootsParams, stride, sampleCap],
+        );
+        for (const row of sampleRows) {
+          const key = [
+            row.serviceName || "",
+            row.serviceVersion || "",
+            row.name || "",
+          ].join("||");
+          if (!sampleDurations[key]) sampleDurations[key] = [];
+          sampleDurations[key].push(Number(row.duration));
+        }
+      }
+
+      const groups = rawRows.map((row) => {
+        const avgDuration = Number(row.avgDuration);
+        const key = [
+          row.serviceName || "",
+          row.serviceVersion || "",
+          row.name || "",
+        ].join("||");
+        const durations = sampleDurations[key] || [];
+        const group = {
+          serviceName: row.serviceName,
+          serviceVersion: row.serviceVersion,
+          name: row.name,
+          traceCount: Number(row.traceCount),
           nbErrors: Number(row.nbErrors),
           avgDuration,
         };
@@ -495,6 +673,61 @@ const SQL_QUERIES = {
              (endTime - startTime) AS duration
       FROM ranked
       WHERE (rn - 1) % ? = 0`,
+  }),
+  // Root-span-only aggregate: total traces and root-span errors per
+  // (serviceName, serviceVersion, name). One GROUP BY over the rows matched
+  // by the shared roots filter, no trace join and no sampling.
+  TRACES_SUMMARY: (rootsWhere: string, statusCodeVarIdx: number) => ({
+    postgres: `
+      SELECT "serviceName",
+             "serviceVersion",
+             "name",
+             COUNT(*)::int AS "traceCount",
+             SUM(CASE WHEN "statusCode" = $${statusCodeVarIdx} THEN 1 ELSE 0 END)::int AS "nbErrors",
+             AVG("endTime" - "startTime")::float AS "avgDuration"
+      FROM traces
+      WHERE ${rootsWhere}
+      GROUP BY "serviceName", "serviceVersion", "name"
+      ORDER BY "traceCount" DESC`,
+    sqlite: `
+      SELECT serviceName,
+             serviceVersion,
+             name,
+             COUNT(*) AS traceCount,
+             SUM(CASE WHEN statusCode = ? THEN 1 ELSE 0 END) AS nbErrors,
+             AVG(endTime - startTime) AS avgDuration
+      FROM traces
+      WHERE ${rootsWhere}
+      GROUP BY serviceName, serviceVersion, name
+      ORDER BY traceCount DESC`,
+  }),
+  // Bounded deterministic sample of root-span durations for P90/P95:
+  // every `stride`-th root row, at most `cap` rows. Same placeholder scheme
+  // as TRACES_ROOT_SAMPLE in Recommendation.ts (hash stride on Postgres,
+  // rowid on SQLite).
+  TRACES_SUMMARY_DURATION_SAMPLE: (
+    rootsWhere: string,
+    strideParamIdx: number,
+    limitParamIdx: number,
+  ) => ({
+    postgres: `
+      SELECT "name",
+             "serviceName",
+             "serviceVersion",
+             ("endTime" - "startTime") AS "duration"
+      FROM traces
+      WHERE ${rootsWhere}
+        AND (abs(hashtext("traceId" || ':' || "spanId")::bigint) % $${strideParamIdx}) = 0
+      LIMIT $${limitParamIdx}`,
+    sqlite: `
+      SELECT name,
+             serviceName,
+             serviceVersion,
+             (endTime - startTime) AS duration
+      FROM traces
+      WHERE ${rootsWhere}
+        AND (rowid % ?) = 0
+      LIMIT ?`,
   }),
   TRACES_STATS: (rootsWhere: string, statusCodeVarIdx: number) => ({
     postgres: `

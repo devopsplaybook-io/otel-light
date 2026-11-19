@@ -156,6 +156,7 @@ describe("Scope enforcement (H3)", () => {
   const GET_ENDPOINTS = [
     "/api/analytics/logs/stats",
     "/api/analytics/traces/stats",
+    "/api/analytics/traces/summary",
     "/api/analytics/services",
     "/api/reports/longest-traces",
     "/api/reports/most-called-traces",
@@ -175,6 +176,7 @@ describe("Scope enforcement (H3)", () => {
   it.each([
     ["/api/analytics/logs/stats", "logs"],
     ["/api/analytics/traces/stats", "traces"],
+    ["/api/analytics/traces/summary", "traces"],
     ["/api/reports/longest-traces", "traces"],
     ["/api/reports/most-called-traces", "traces"],
   ])(
@@ -194,6 +196,7 @@ describe("Scope enforcement (H3)", () => {
   it.each([
     ["/api/analytics/logs/stats"],
     ["/api/analytics/traces/stats"],
+    ["/api/analytics/traces/summary"],
     ["/api/reports/longest-traces"],
     ["/api/reports/most-called-traces"],
   ])("passes through when the scope is granted: %s", async (url) => {

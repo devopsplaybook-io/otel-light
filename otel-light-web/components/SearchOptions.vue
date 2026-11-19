@@ -6,7 +6,7 @@
         v-model="keywords"
         placeholder="Search"
         aria-label="Search"
-        @input="emitFilterChanged"
+        @input="onKeywordsInput"
       />
       <span class="search-button" @click="onRefreshClick" title="Refresh">
         <i
@@ -22,6 +22,20 @@
         <i
           :class="filtersExpanded ? 'bi bi-chevron-up' : 'bi bi-chevron-down'"
         ></i>
+      </span>
+    </div>
+    <div v-if="type === 'traces' && name" class="search-chips">
+      <span class="search-chip" :title="`Exact trace name: ${name}`">
+        <span class="search-chip-text">name: <strong>{{ name }}</strong></span>
+        <button
+          type="button"
+          class="search-chip-clear"
+          aria-label="Clear name filter"
+          title="Clear name filter"
+          @click="clearName"
+        >
+          <i class="bi bi-x" aria-hidden="true"></i>
+        </button>
       </span>
     </div>
     <div class="search-collapsible" :class="{ collapsed: !filtersExpanded }">
@@ -128,6 +142,7 @@ export default {
       severity: "",
       serviceName: "",
       serviceVersion: "",
+      name: "",
       filtersExpanded: savedExpanded === null ? true : savedExpanded === "true",
       isRefreshing: false,
     };
@@ -152,6 +167,7 @@ export default {
     if (query.severity) this.severity = query.severity;
     if (query.serviceName) this.serviceName = query.serviceName;
     if (query.serviceVersion) this.serviceVersion = query.serviceVersion;
+    if (this.type === "traces" && query.name) this.name = query.name;
     this.emitFilterChanged = this._debounce(
       this.emitFilterChangedRaw.bind(this),
       500,
@@ -172,6 +188,18 @@ export default {
     onServiceNameChange() {
       this.serviceVersion = "";
       this.emitFilterChanged();
+    },
+    // Editing the free-text keywords starts a new search scope, so an exact
+    // trace-name drilldown no longer applies.
+    onKeywordsInput() {
+      if (this.name) {
+        this.name = "";
+      }
+      this.emitFilterChanged();
+    },
+    clearName() {
+      this.name = "";
+      this.emitFilterChangedRaw();
     },
     emitFilterChangedRaw() {
       function toNanoseconds(secondsAgo) {
@@ -195,6 +223,7 @@ export default {
       if (this.serviceName) params.serviceName = this.serviceName;
       if (this.serviceVersion && this.type !== "metrics")
         params.serviceVersion = this.serviceVersion;
+      if (this.type === "traces" && this.name) params.name = this.name;
 
       const queryString = new URLSearchParams(params).toString();
 
@@ -207,6 +236,7 @@ export default {
       if (this.serviceName) urlQuery.serviceName = this.serviceName;
       if (this.serviceVersion && this.type !== "metrics")
         urlQuery.serviceVersion = this.serviceVersion;
+      if (this.type === "traces" && this.name) urlQuery.name = this.name;
       this.$router.replace({ query: urlQuery }).catch(() => {});
 
       this.$emit("filterChanged", {
@@ -303,6 +333,45 @@ export default {
 }
 .collapse-button {
   padding-right: 0;
+}
+.search-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding-bottom: 0.3rem;
+}
+.search-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid #dfe3eb88;
+  border-radius: 999px;
+  font-size: 0.85em;
+  background: #dfe3eb22;
+}
+.search-chip-text {
+  max-width: 32rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  width: 1.2rem;
+  height: 1.2rem;
+  margin: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  cursor: pointer;
+  line-height: 1;
+}
+.search-chip-clear:hover {
+  background: #dfe3eb55;
 }
 @keyframes spin-once {
   from {

@@ -32,8 +32,8 @@ otel-light/
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
-│   │   ├── sqlite/init-0000..0013.sql  # 14 migration files (CREATE tables, indexes, ALTER columns, data backfills)
-│   │   └── postgres/init-0000..0013.sql # Parallel migrations for PostgreSQL
+│   │   ├── sqlite/init-0000..0014.sql  # 15 migration files (CREATE tables, indexes, ALTER columns, data backfills)
+│   │   └── postgres/init-0000..0014.sql # Parallel migrations for PostgreSQL
 │   └── src/
 │       ├── App.ts                      # Entry point: config init, OTel setup, DB init, Fastify routes
 │       ├── Config.ts                   # Extends ConfigBase from common-utils
@@ -131,7 +131,7 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 | `metrics`  | name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords                                                  | Ingested metric data points      |
 | `logs`     | serviceName, serviceVersion, severity, time, logText, attributes, keywords, traceId, spanId                                     | Ingested log records             |
 
-Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0013). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
+Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0014). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
 ## Key Conventions
 
@@ -303,6 +303,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **Atomic JSON writes**: analytics cache and report/recommendation files are written with `FileUtilsWriteJsonAtomic` (serialize → temp file → fsync → rename). A failed serialization or crash never truncates the previous file; do not use `fs.writeJson` directly for these caches.
 - **Scheduled heavy jobs**: maintenance, LLM recommendation and static reports run through `ScheduledJobRunDelayed` / `ScheduledJobRegisterCron`, which add `SCHEDULED_JOB_JITTER_MINUTES` of random delay and serialize with an in-process mutex (`ScheduledJobRunExclusive`, waits up to `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES` then skips). There is no distributed lock: the guard assumes a single server instance, and the staggered cron defaults mitigate cross-instance overlap.
 - **Traces-stats determinism**: `/api/analytics/traces/stats` rounds windows to whole minutes and samples with a deterministic stride (`ANALYTICS_STATS_SAMPLE_CAP`), so percentiles are stable across identical requests. Responses are cached by rounded window + filters (`ANALYTICS_STATS_CACHE_TTL_SECONDS`, max entries). The cache module defaults to TTL 0 until `AnalyticsStatsInit` runs, keeping tests isolated.
+- **Traces summary semantics**: `/api/analytics/traces/summary` (home KPI strip, Aggregated view) aggregates root spans only (`parentSpanId IS NULL`), so `traceCount`/`avgDuration`/P90/P95 describe whole traces and `nbErrors` counts traces whose root span failed. This intentionally differs from `/traces/stats`, which aggregates every matching span; `errorsOnly=true` keeps the list semantics (a trace is included when any span errored). Both routes share `buildTracesRootsFilter`, the gzip+`AnalyticsStatsCache` contract and the deterministic stride sample; the cache key tags the summary mode so a stats request with an exact `name` cannot collide with a summary request. `init-0014` adds the covering `idx_traces_stats_summary` index used by both. Do not switch the summary to an all-span join without re-measuring the 24 h latency budget.
 - **Analytics filters and bounds**: paging `offset` is parsed with `AnalyticsUtilsParseOffset` (integer `[0, 1_000_000]`, 400 otherwise) and `LIMIT`/`OFFSET` are bound — never interpolate them. Every analytics `keywords` LIKE uses `ESCAPE '\'` with `AnalyticsUtilsEscapeLike`, so `%`/`_`/`\` match literally. `/logs/stats` defaults `from` to 24 h ago and rejects `bucketNs` below 1 s or windows over 1,000 buckets. `/traces/stats` accepts the same `keywords`/`errorsOnly` filters as `/traces`, and the cache key must include them.
 - **Metric series identity**: `metrics.attributes` stores canonicalized resource attributes (`SignalUtilsCanonicalizeAttributes`: sorted by key, `JSON.stringify`), so compression can compare the TEXT column directly. The compression series identity is `(serviceName, serviceVersion, name, type, attributes, bucket)` in both dialects — do not remove any of these from the GROUP BY/delete predicates.
 - **Raw JSON storage**: `rawSpan`, `rawMetric` columns store the full OTLP JSON for each signal. These are returned by analytics endpoints for client-side rendering.
