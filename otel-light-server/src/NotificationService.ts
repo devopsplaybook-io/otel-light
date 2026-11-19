@@ -1,6 +1,7 @@
 import { NotificationsClient } from "@devopsplaybook.io/common-utils";
 import { Config } from "./Config";
 import { OTelLogger } from "./OTelContext";
+import { AlertSeverity } from "./alerts/AlertRules";
 
 const logger = OTelLogger().createModuleLogger("notification-service");
 
@@ -27,6 +28,16 @@ export function NotificationInit(config: Config): void {
  */
 export function NotificationIsEnabled(): boolean {
   return Boolean(notificationClient && notificationClient.isEnabled());
+}
+
+export interface AlertNotificationItem {
+  message: string;
+  severity: AlertSeverity;
+}
+
+export interface AlertNotificationResult {
+  sent: boolean;
+  error?: string;
 }
 
 /**
@@ -67,33 +78,84 @@ export async function NotificationSendRecommendation(
 }
 
 /**
- * Send an error-threshold alert for a breached alert rule.
- *
- * @param serviceLabel The service name, or "all services" for global rules
- * @param count The number of error logs counted in the period
- * @param threshold The configured threshold that was exceeded
- * @param periodHours The lookback period of the rule in hours
- * @returns Whether a notification was actually sent (false when the
- *   integration is disabled or the send failed)
+ * Send one grouped alert notification. Items are grouped by service by the
+ * alert engine; the highest severity of the group selects the notification
+ * method (critical -> error, warning -> warning, info -> info).
  */
-export async function NotificationSendErrorAlert(
-  serviceLabel: string,
-  count: number,
-  threshold: number,
-  periodHours: number,
-): Promise<boolean> {
+export async function NotificationSendAlertGroup(
+  groupLabel: string,
+  items: AlertNotificationItem[],
+): Promise<AlertNotificationResult> {
+  const title = `Alert: ${groupLabel}`;
+  const body = items.map((item) => `- ${item.message}`).join("\n");
+  return AlertNotificationSend(NotificationSeverityMax(items), title, body, groupLabel);
+}
+
+/**
+ * Send one grouped recovery notification (same routing as breaches).
+ */
+export async function NotificationSendRecoveryGroup(
+  groupLabel: string,
+  items: AlertNotificationItem[],
+): Promise<AlertNotificationResult> {
+  const title = `Alert recovered: ${groupLabel}`;
+  const body = items.map((item) => `- ${item.message}`).join("\n");
+  return AlertNotificationSend(NotificationSeverityMax(items), title, body, groupLabel);
+}
+
+/**
+ * Sample notification used by the settings "send test notification" action.
+ */
+export async function NotificationSendTest(
+  severity: AlertSeverity,
+): Promise<AlertNotificationResult> {
+  return AlertNotificationSend(
+    severity,
+    "Test notification from OTel Light",
+    `This is a ${severity} test notification. Alert rules deliver grouped breach and recovery notifications through this channel.`,
+  );
+}
+
+// Private Functions
+
+function NotificationSeverityMax(items: AlertNotificationItem[]): AlertSeverity {
+  const rank: Record<AlertSeverity, number> = {
+    info: 0,
+    warning: 1,
+    critical: 2,
+  };
+  let max: AlertSeverity = "info";
+  for (const item of items || []) {
+    if ((rank[item.severity] ?? 0) > rank[max]) {
+      max = item.severity;
+    }
+  }
+  return max;
+}
+
+async function AlertNotificationSend(
+  severity: AlertSeverity,
+  title: string,
+  body: string,
+  context?: string,
+): Promise<AlertNotificationResult> {
   if (!notificationClient || !notificationClient.isEnabled()) {
-    return false;
+    return { sent: false, error: "notifications disabled" };
   }
-
-  const title = `Error threshold breached: ${serviceLabel}`;
-  const body =
-    `${count} error logs in the last ${periodHours}h for ${serviceLabel}, ` +
-    `above the configured threshold of ${threshold}.`;
-
-  const response = await notificationClient.warning(title, body, "otel-light");
+  // The notification client exposes info/success/warning/error only: the
+  // rule-level "critical" maps to "error" and the webhook contract keeps the
+  // existing info|warning|error severities.
+  const response =
+    severity === "critical"
+      ? await notificationClient.error(title, body, "otel-light")
+      : severity === "warning"
+        ? await notificationClient.warning(title, body, "otel-light")
+        : await notificationClient.info(title, body, "otel-light");
   if (response) {
-    logger.info(`Error alert notification sent successfully (${serviceLabel})`);
+    logger.info(
+      `Alert notification sent successfully${context ? ` (${context})` : ""}`,
+    );
+    return { sent: true };
   }
-  return Boolean(response);
+  return { sent: false, error: "notification send failed" };
 }

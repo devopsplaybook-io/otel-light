@@ -4,9 +4,32 @@ import { Config } from "../Config";
 import { Settings } from "../model/Settings";
 import { OTelLogger, OTelTracer } from "../OTelContext";
 import {
+  AlertNotificationItem,
   NotificationIsEnabled,
-  NotificationSendErrorAlert,
+  NotificationSendAlertGroup,
+  NotificationSendRecoveryGroup,
 } from "../NotificationService";
+import {
+  ALERT_HISTORY_RETENTION_DAYS,
+  AlertEventStatus,
+  AlertMaintenanceWindow,
+  AlertMaintenanceWindowActive,
+  AlertMaintenanceWindowsOf,
+  AlertRule,
+  AlertRuleIssues,
+  AlertRuleLabel,
+  AlertRuleNormalize,
+  AlertRuleTypeOf,
+  AlertServiceLabel,
+  AlertSeverity,
+  AlertSignalType,
+} from "./AlertRules";
+import { AlertEvaluationResult, AlertRuleEvaluate } from "./AlertEvaluators";
+import {
+  AlertEventInput,
+  AlertHistoryInsert,
+  AlertHistoryPrune,
+} from "./AlertHistory";
 import {
   DbUtilsExecSQL,
   DbUtilsGetType,
@@ -17,15 +40,30 @@ const logger = OTelLogger().createModuleLogger("ErrorAlerts");
 
 let config: Config;
 let lastEvaluatedAt: string | null = null;
+let lastHistoryPruneAt = 0;
 
-export interface ErrorAlertRule {
-  id: string;
-  serviceName?: string;
-  threshold: number;
-  periodHours: number;
-  enabled: boolean;
+const SETTINGS_CATEGORY = "error-alert-rules";
+const OUTCOME_KEY_PREFIX = "error-alert-outcome-";
+const OUTCOME_MAX_LENGTH = 200;
+const HISTORY_PRUNE_INTERVAL_MS = 3_600_000;
+
+// Full lifecycle state, persisted in alert_rule_state (one row per rule).
+export interface AlertRuleState {
+  at: string;
+  ruleType: string;
+  value: number | null;
+  threshold: number | null;
+  breached: boolean;
+  notified: boolean;
+  notifiedAt: string | null;
+  breachStartedAt: string | null;
+  lastNotifiedAt: string | null;
+  lastError: string | null;
+  suppressed: boolean;
 }
 
+// Compact outcome kept in maintenance_state for backward compatibility with
+// existing consumers of GET /api/alerts/status (and SqlIntegration tests).
 export interface ErrorAlertOutcome {
   at: string;
   count?: number;
@@ -33,6 +71,10 @@ export interface ErrorAlertOutcome {
   breached?: boolean;
   notified?: boolean;
   error?: string;
+  ruleType?: string;
+  value?: number | null;
+  suppressed?: boolean;
+  notifiedAt?: string | null;
 }
 
 export interface ErrorAlertsStatus {
@@ -40,11 +82,6 @@ export interface ErrorAlertsStatus {
   evaluatedAt: string | null;
   evaluations: Record<string, ErrorAlertOutcome>;
 }
-
-// Outcomes are persisted in maintenance_state whose stateValue column is
-// VARCHAR(200): the JSON must stay compact (long error texts are truncated).
-const OUTCOME_KEY_PREFIX = "error-alert-outcome-";
-const OUTCOME_MAX_LENGTH = 200;
 
 export async function ErrorAlertsInit(
   context: Span,
@@ -71,13 +108,8 @@ export async function ErrorAlertsInit(
 export async function ErrorAlertsEvaluate(): Promise<void> {
   const span = OTelTracer().startSpan("ErrorAlertsEvaluate");
   try {
-    const rules = await ErrorAlertsLoadRules(span);
-    const notificationsEnabled = NotificationIsEnabled();
-    for (let idx = 0; idx < rules.length; idx++) {
-      await ErrorAlertsEvaluateRule(span, rules[idx], idx, notificationsEnabled);
-    }
+    await ErrorAlertsRun(span);
     lastEvaluatedAt = new Date().toISOString();
-    logger.info(`Error alerts: evaluated ${rules.length} rule(s)`, span);
   } catch (err) {
     span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
     logger.error("Error during error alerts evaluation", err, span);
@@ -101,22 +133,16 @@ export async function ErrorAlertsEvaluate(): Promise<void> {
 export async function ErrorAlertsGetStatus(): Promise<ErrorAlertsStatus> {
   const span = OTelTracer().startSpan("ErrorAlertsGetStatus");
   try {
-    const rows = await DbUtilsQuerySQL(
-      span,
-      SQL_QUERIES.LIST_OUTCOMES[DbUtilsGetType()],
-      [OUTCOME_KEY_PREFIX + "%"],
-    );
     const evaluations: Record<string, ErrorAlertOutcome> = {};
-    for (const row of rows || []) {
-      try {
-        evaluations[String(row.stateKey).substring(OUTCOME_KEY_PREFIX.length)] =
-          JSON.parse(row.stateValue) as ErrorAlertOutcome;
-      } catch {
-        logger.warn(
-          `Ignoring malformed error alert outcome: ${row.stateKey}`,
-          span,
-        );
-      }
+    // Legacy outcomes first: rules evaluated before the alert_rule_state
+    // table existed keep reporting until their next evaluation.
+    const legacyOutcomes = await ErrorAlertsLoadLegacyOutcomes(span);
+    for (const [ruleId, outcome] of legacyOutcomes) {
+      evaluations[ruleId] = outcome;
+    }
+    const states = await ErrorAlertsLoadStates(span);
+    for (const [ruleId, state] of states) {
+      evaluations[ruleId] = StateToOutcome(state);
     }
     return {
       notificationsEnabled: NotificationIsEnabled(),
@@ -130,151 +156,555 @@ export async function ErrorAlertsGetStatus(): Promise<ErrorAlertsStatus> {
 
 // Private Functions
 
-async function ErrorAlertsLoadRules(span: Span): Promise<ErrorAlertRule[]> {
-  const rawSettings = await DbUtilsQuerySQL(
-    span,
-    SQL_QUERIES.GET_SETTINGS[DbUtilsGetType()],
-    ["error-alert-rules"],
-  );
-  if (!rawSettings || rawSettings.length === 0) {
-    return [];
+interface AlertEngineNotificationItem {
+  rule: AlertRule;
+  state: AlertRuleState;
+  result: AlertEvaluationResult;
+}
+
+interface AlertEngineNotificationGroup {
+  kind: "breach" | "recovery";
+  label: string;
+  items: AlertEngineNotificationItem[];
+}
+
+async function ErrorAlertsRun(span: Span): Promise<void> {
+  const content = await ErrorAlertsLoadSettingsContent(span);
+  const rawRules = ErrorAlertsRawRules(content);
+  const windows = AlertMaintenanceWindowsOf(content);
+  const nowMs = Date.now();
+  const nowIso = new Date(nowMs).toISOString();
+  const notificationsEnabled = NotificationIsEnabled();
+  const previousStates = await ErrorAlertsLoadStates(span);
+  const legacyOutcomes = await ErrorAlertsLoadLegacyOutcomes(span);
+  const nextStates = new Map<string, AlertRuleState>();
+  const currentIds = new Set<string>();
+  const notifications: AlertEngineNotificationGroup[] = [];
+
+  for (let idx = 0; idx < rawRules.length; idx++) {
+    const raw = rawRules[idx];
+    const ruleId = ErrorAlertsRuleId(raw, idx);
+    currentIds.add(ruleId);
+    const previous =
+      previousStates.get(ruleId) ||
+      LegacyOutcomeToState(legacyOutcomes.get(ruleId));
+    const issues = AlertRuleIssues(raw);
+    if (issues.length > 0) {
+      const error = issues.join(", ");
+      const state = ErrorAlertsErrorState(
+        AlertRuleTypeOf(raw),
+        previous,
+        error,
+        nowIso,
+      );
+      nextStates.set(ruleId, state);
+      await ErrorAlertsOutcomeSet(span, ruleId, ErrorAlertsOutcomeOf(state));
+      if (!previous || previous.lastError !== error) {
+        await AlertHistoryInsert(
+          ErrorAlertsEventForRaw(
+            raw,
+            ruleId,
+            "error",
+            `Rule cannot run: ${error}`,
+            nowIso,
+            error,
+          ),
+        );
+      }
+      continue;
+    }
+    const rule = AlertRuleNormalize(raw);
+    if (rule.enabled === false) {
+      // Disabled rules are intentionally not evaluated and keep no outcome.
+      continue;
+    }
+    await ErrorAlertsEvaluateRule(span, {
+      rule,
+      ruleId,
+      previous,
+      windows,
+      nowMs,
+      nowIso,
+      notificationsEnabled,
+      nextStates,
+      notifications,
+    });
   }
-  const settings = new Settings(rawSettings[0]);
-  const rules = settings.content?.alertRules;
-  return Array.isArray(rules) ? rules : [];
+
+  await ErrorAlertsSendNotifications(span, notifications);
+
+  for (const [ruleId, state] of nextStates) {
+    await ErrorAlertsStateSet(span, ruleId, state);
+    await ErrorAlertsOutcomeSet(span, ruleId, ErrorAlertsOutcomeOf(state));
+  }
+  await ErrorAlertsPruneState(span, currentIds);
+  await ErrorAlertsPruneLegacyOutcomes(span, legacyOutcomes, currentIds);
+  await ErrorAlertsPruneHistoryIfDue(span, nowMs);
+  logger.info(`Error alerts: evaluated ${rawRules.length} rule(s)`, span);
+}
+
+interface ErrorAlertsEvaluateRuleContext {
+  rule: AlertRule;
+  ruleId: string;
+  previous: AlertRuleState | null;
+  windows: AlertMaintenanceWindow[];
+  nowMs: number;
+  nowIso: string;
+  notificationsEnabled: boolean;
+  nextStates: Map<string, AlertRuleState>;
+  notifications: AlertEngineNotificationGroup[];
 }
 
 async function ErrorAlertsEvaluateRule(
   span: Span,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  rule: any,
-  idx: number,
-  notificationsEnabled: boolean,
+  context: ErrorAlertsEvaluateRuleContext,
 ): Promise<void> {
-  // Rules are validated at save time, but a rule that still cannot run must
-  // record an outcome instead of being silently skipped (it is keyed by id,
-  // or by position when the id itself is invalid).
-  const ruleId =
-    rule && typeof rule === "object" && typeof rule.id === "string" && rule.id.trim()
-      ? rule.id.trim()
-      : `rule-${idx + 1}`;
+  const {
+    rule,
+    ruleId,
+    previous,
+    windows,
+    nowMs,
+    nowIso,
+    notificationsEnabled,
+    nextStates,
+    notifications,
+  } = context;
+  let result: AlertEvaluationResult;
   try {
-    const invalidReason = ruleInvalidReason(rule);
-    if (invalidReason) {
-      await ErrorAlertsOutcomeSet(span, ruleId, {
-        at: new Date().toISOString(),
-        error: invalidReason,
-      });
-      return;
+    result = await AlertRuleEvaluate(span, rule, nowMs);
+  } catch (err) {
+    const error = err?.message || String(err);
+    const state = ErrorAlertsErrorState(
+      rule.type,
+      previous,
+      error,
+      nowIso,
+    );
+    nextStates.set(ruleId, state);
+    await ErrorAlertsOutcomeSet(span, ruleId, ErrorAlertsOutcomeOf(state));
+    await AlertHistoryInsert(
+      ErrorAlertsEventForRule(rule, ruleId, "error", `Evaluation failed: ${error}`, nowIso, {
+        error,
+      }),
+    );
+    return;
+  }
+
+  const state: AlertRuleState = {
+    at: nowIso,
+    ruleType: rule.type,
+    value: result.value,
+    threshold: result.threshold,
+    breached: result.breached,
+    notified: false,
+    notifiedAt: null,
+    breachStartedAt: null,
+    lastNotifiedAt: previous?.lastNotifiedAt || null,
+    lastError: null,
+    suppressed: false,
+  };
+  const wasBreached = previous?.breached === true;
+  const wasNotified = previous?.notified === true;
+  const muted = AlertMaintenanceWindowActive(windows, rule, nowMs);
+  const serviceLabel = AlertServiceLabel(rule);
+
+  if (result.breached) {
+    const newEpisode = !wasBreached;
+    state.breachStartedAt = newEpisode
+      ? nowIso
+      : previous?.breachStartedAt || previous?.at || nowIso;
+    state.notified = !newEpisode && wasNotified;
+    state.notifiedAt = !newEpisode ? previous?.notifiedAt || null : null;
+    if (newEpisode) {
+      await AlertHistoryInsert(
+        ErrorAlertsEventForRule(rule, ruleId, "fired", result.message, nowIso, {
+          result,
+        }),
+      );
     }
-    if (rule.enabled === false) {
-      // Disabled rules are intentionally not evaluated and keep no outcome.
-      return;
-    }
-    const count = await ErrorAlertsCountErrors(span, rule);
-    const threshold = Number(rule.threshold);
-    const breached = count > threshold;
-    const previous = await ErrorAlertsOutcomeGet(span, ruleId);
-    // Notify only on the healthy→breached transition of an episode: a breach
-    // that persists does not re-send (state survives restarts), and a rule
-    // left un-notified (integration disabled or send failure) stays eligible.
-    const alreadyNotified =
-      previous?.breached === true && previous?.notified === true;
-    let notified = false;
-    let error: string | undefined;
-    if (breached) {
-      if (alreadyNotified) {
-        notified = true;
-      } else if (notificationsEnabled) {
-        const serviceLabel = rule.serviceName?.trim() || "all services";
-        const sent = await NotificationSendErrorAlert(
-          serviceLabel,
-          count,
-          threshold,
-          Number(rule.periodHours),
+    const repeatDue =
+      !newEpisode && wasNotified && ErrorAlertsRepeatDue(rule, previous, nowMs);
+    const shouldNotify = newEpisode || !wasNotified || repeatDue;
+    if (shouldNotify) {
+      if (muted) {
+        state.suppressed = true;
+        await AlertHistoryInsert(
+          ErrorAlertsEventForRule(
+            rule,
+            ruleId,
+            "suppressed",
+            `Notification suppressed by a maintenance window: ${result.message}`,
+            nowIso,
+            { result },
+          ),
         );
-        if (sent) {
-          notified = true;
-        } else {
-          error = "notification send failed";
+      } else if (!notificationsEnabled) {
+        state.notified = false;
+        if (previous?.lastError !== "notifications disabled") {
+          await AlertHistoryInsert(
+            ErrorAlertsEventForRule(rule, ruleId, "error", result.message, nowIso, {
+              result,
+              error: "notifications disabled",
+            }),
+          );
         }
+        state.lastError = "notifications disabled";
       } else {
-        error = "notifications disabled";
+        ErrorAlertsAddNotification(notifications, "breach", serviceLabel, {
+          rule,
+          state,
+          result,
+        });
       }
     }
-    await ErrorAlertsOutcomeSet(span, ruleId, {
-      at: new Date().toISOString(),
-      count,
-      threshold,
-      breached,
-      notified,
-      ...(error ? { error } : {}),
-    });
-  } catch (err) {
-    await ErrorAlertsOutcomeSet(span, ruleId, {
-      at: new Date().toISOString(),
-      error: err?.message || String(err),
-    }).catch(() => undefined);
+  } else if (wasBreached) {
+    // Episode ended: always record the resolution, notify when the episode
+    // had been notified and recovery notifications are enabled.
+    await AlertHistoryInsert(
+      ErrorAlertsEventForRule(
+        rule,
+        ruleId,
+        "resolved",
+        `Condition cleared: ${result.message}`,
+        nowIso,
+        { result },
+      ),
+    );
+    const recoveryWanted =
+      rule.notifyOnRecovery !== false && wasNotified && notificationsEnabled;
+    if (recoveryWanted) {
+      if (muted) {
+        await AlertHistoryInsert(
+          ErrorAlertsEventForRule(
+            rule,
+            ruleId,
+            "suppressed",
+            `Recovery notification suppressed by a maintenance window: ${result.message}`,
+            nowIso,
+            { result },
+          ),
+        );
+      } else {
+        ErrorAlertsAddNotification(notifications, "recovery", serviceLabel, {
+          rule,
+          state,
+          result,
+        });
+      }
+    }
   }
+  nextStates.set(ruleId, state);
 }
 
-function ruleInvalidReason(rule: unknown): string | null {
-  if (!rule || typeof rule !== "object" || Array.isArray(rule)) {
-    return "rule must be an object";
+function ErrorAlertsRepeatDue(
+  rule: AlertRule,
+  previous: AlertRuleState | null,
+  nowMs: number,
+): boolean {
+  const repeatMinutes = Number(rule.repeatIntervalMinutes);
+  if (!Number.isFinite(repeatMinutes) || repeatMinutes <= 0) {
+    return false;
   }
-  const r = rule as { threshold?: unknown; periodHours?: unknown };
-  // An empty string must not be silently coerced to 0 ("any error").
-  const threshold = Number(r.threshold);
-  if (
-    r.threshold === "" ||
-    r.threshold === null ||
-    r.threshold === undefined ||
-    !Number.isFinite(threshold) ||
-    threshold < 0
-  ) {
-    return "threshold must be a number >= 0";
+  const lastNotifiedAt = previous?.lastNotifiedAt || previous?.notifiedAt;
+  const lastNotifiedMs = lastNotifiedAt ? Date.parse(lastNotifiedAt) : NaN;
+  if (!Number.isFinite(lastNotifiedMs)) {
+    return true;
   }
-  const periodHours = Number(r.periodHours);
-  if (!Number.isFinite(periodHours) || periodHours <= 0) {
-    return "periodHours must be a positive number";
-  }
-  return null;
+  return nowMs - lastNotifiedMs >= repeatMinutes * 60_000;
 }
 
-async function ErrorAlertsCountErrors(
+function ErrorAlertsAddNotification(
+  notifications: AlertEngineNotificationGroup[],
+  kind: "breach" | "recovery",
+  label: string,
+  item: AlertEngineNotificationItem,
+): void {
+  let group = notifications.find(
+    (candidate) => candidate.kind === kind && candidate.label === label,
+  );
+  if (!group) {
+    group = { kind, label, items: [] };
+    notifications.push(group);
+  }
+  group.items.push(item);
+}
+
+async function ErrorAlertsSendNotifications(
   span: Span,
-  rule: ErrorAlertRule,
-): Promise<number> {
-  const periodHours = Number(rule.periodHours);
-  const nowNs = Date.now() * 1_000_000;
-  const startNs = nowNs - periodHours * 3_600_000 * 1_000_000;
-  const serviceName = rule.serviceName?.trim() || null;
-  const params = serviceName ? [startNs, nowNs, serviceName] : [startNs, nowNs];
+  notifications: AlertEngineNotificationGroup[],
+): Promise<void> {
+  for (const group of notifications) {
+    const items: AlertNotificationItem[] = group.items.map((item) => ({
+      message:
+        group.kind === "recovery"
+          ? `Recovered: ${item.result.message}`
+          : item.result.message,
+      severity: item.rule.severity,
+    }));
+    const outcome =
+      group.kind === "recovery"
+        ? await NotificationSendRecoveryGroup(group.label, items)
+        : await NotificationSendAlertGroup(group.label, items);
+    for (const item of group.items) {
+      if (outcome.sent) {
+        const nowIso = new Date().toISOString();
+        if (group.kind === "breach") {
+          item.state.notified = true;
+          item.state.notifiedAt = nowIso;
+          item.state.lastNotifiedAt = nowIso;
+          item.state.lastError = null;
+          await AlertHistoryInsert(
+            ErrorAlertsEventForRule(
+              item.rule,
+              item.rule.id,
+              "notified",
+              item.result.message,
+              nowIso,
+              { result: item.result, notifiedAt: nowIso },
+            ),
+          );
+        }
+      } else {
+        const error = outcome.error || "notification send failed";
+        item.state.lastError = error;
+        await AlertHistoryInsert(
+          ErrorAlertsEventForRule(
+            item.rule,
+            item.rule.id,
+            "error",
+            item.result.message,
+            new Date().toISOString(),
+            { result: item.result, error },
+          ),
+        );
+      }
+    }
+  }
+  if (notifications.length > 0) {
+    logger.info(
+      `Error alerts: sent ${notifications.length} notification group(s)`,
+      span,
+    );
+  }
+}
+
+function ErrorAlertsErrorState(
+  ruleType: string,
+  previous: AlertRuleState | null,
+  error: string,
+  nowIso: string,
+): AlertRuleState {
+  return {
+    at: nowIso,
+    ruleType,
+    value: null,
+    threshold: null,
+    breached: false,
+    notified: false,
+    notifiedAt: null,
+    breachStartedAt: null,
+    lastNotifiedAt: previous?.lastNotifiedAt || null,
+    lastError: error,
+    suppressed: false,
+  };
+}
+
+function StateToOutcome(state: AlertRuleState): ErrorAlertOutcome {
+  const outcome: ErrorAlertOutcome = {
+    at: state.at,
+    count: state.value === null ? undefined : state.value,
+    threshold: state.threshold === null ? undefined : state.threshold,
+    breached: state.breached,
+    notified: state.notified,
+    ruleType: state.ruleType,
+    value: state.value,
+    suppressed: state.suppressed,
+    notifiedAt: state.notifiedAt,
+  };
+  if (state.lastError) {
+    outcome.error = state.lastError;
+  }
+  return outcome;
+}
+
+function LegacyOutcomeToState(
+  outcome: ErrorAlertOutcome | undefined,
+): AlertRuleState | null {
+  if (!outcome) {
+    return null;
+  }
+  return {
+    at: outcome.at || new Date(0).toISOString(),
+    ruleType: outcome.ruleType || "log-count",
+    value: outcome.count === undefined ? null : Number(outcome.count),
+    threshold:
+      outcome.threshold === undefined ? null : Number(outcome.threshold),
+    breached: outcome.breached === true,
+    notified: outcome.notified === true,
+    notifiedAt: outcome.notified === true ? outcome.at || null : null,
+    breachStartedAt:
+      outcome.breached === true ? outcome.at || null : null,
+    lastNotifiedAt: outcome.notified === true ? outcome.at || null : null,
+    lastError: outcome.error || null,
+    suppressed: false,
+  };
+}
+
+// History event builders
+
+function ErrorAlertsEventForRule(
+  rule: AlertRule,
+  ruleId: string,
+  status: AlertEventStatus,
+  message: string,
+  eventTime: string,
+  extras: {
+    result?: AlertEvaluationResult;
+    notifiedAt?: string | null;
+    error?: string | null;
+  } = {},
+): AlertEventInput {
+  return {
+    ruleId,
+    ruleName: AlertRuleLabel(rule),
+    ruleType: rule.type,
+    serviceName: rule.serviceName?.trim() || "",
+    status,
+    severity: rule.severity,
+    observedValue: extras.result?.value ?? null,
+    thresholdValue: extras.result?.threshold ?? null,
+    message,
+    signalType: extras.result?.signalType || "logs",
+    signalPath: extras.result?.signalPath || "/logs",
+    signalQuery: extras.result?.signalQuery || "",
+    eventTime,
+    notifiedAt: extras.notifiedAt ?? null,
+    error: extras.error ?? null,
+  };
+}
+
+function ErrorAlertsEventForRaw(
+  raw: unknown,
+  ruleId: string,
+  status: AlertEventStatus,
+  message: string,
+  eventTime: string,
+  error: string,
+): AlertEventInput {
+  const rule = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const serviceName =
+    typeof rule.serviceName === "string" ? rule.serviceName.trim() : "";
+  return {
+    ruleId,
+    ruleName:
+      (typeof rule.description === "string" && rule.description.trim()) ||
+      ruleId,
+    ruleType: String(AlertRuleTypeOf(raw)),
+    serviceName,
+    status,
+    severity: (["info", "warning", "critical"].includes(String(rule.severity))
+      ? String(rule.severity)
+      : "warning") as AlertSeverity,
+    observedValue: null,
+    thresholdValue: null,
+    message,
+    signalType: "logs" as AlertSignalType,
+    signalPath: "/logs",
+    signalQuery: "",
+    eventTime,
+    notifiedAt: null,
+    error,
+  };
+}
+
+// Settings, states and outcomes
+
+async function ErrorAlertsLoadSettingsContent(span: Span): Promise<unknown> {
+  const rawSettings = await DbUtilsQuerySQL(
+    span,
+    SQL_QUERIES.GET_SETTINGS[DbUtilsGetType()],
+    [SETTINGS_CATEGORY],
+  );
+  if (!rawSettings || rawSettings.length === 0) {
+    return { alertRules: [] };
+  }
+  const settings = new Settings(rawSettings[0]);
+  return settings.content || { alertRules: [] };
+}
+
+function ErrorAlertsRawRules(content: unknown): unknown[] {
+  if (!content || typeof content !== "object" || Array.isArray(content)) {
+    return [];
+  }
+  const rules = (content as { alertRules?: unknown }).alertRules;
+  return Array.isArray(rules) ? rules : [];
+}
+
+function ErrorAlertsRuleId(raw: unknown, idx: number): string {
+  if (raw && typeof raw === "object" && typeof (raw as { id?: unknown }).id === "string") {
+    const id = (raw as { id: string }).id.trim();
+    if (id) {
+      return id;
+    }
+  }
+  return `rule-${idx + 1}`;
+}
+
+async function ErrorAlertsLoadStates(
+  span: Span,
+): Promise<Map<string, AlertRuleState>> {
+  const states = new Map<string, AlertRuleState>();
   const rows = await DbUtilsQuerySQL(
     span,
-    SQL_QUERIES.COUNT_ERRORS(serviceName)[DbUtilsGetType()],
-    params,
+    SQL_QUERIES.LIST_STATES[DbUtilsGetType()],
+    [],
   );
-  return Number(rows?.[0]?.count || 0);
+  for (const row of rows || []) {
+    try {
+      states.set(String(row.ruleId), JSON.parse(row.stateValue) as AlertRuleState);
+    } catch {
+      logger.warn(`Ignoring malformed alert rule state: ${row.ruleId}`, span);
+    }
+  }
+  return states;
 }
 
-async function ErrorAlertsOutcomeGet(
+async function ErrorAlertsLoadLegacyOutcomes(
+  span: Span,
+): Promise<Map<string, ErrorAlertOutcome>> {
+  const outcomes = new Map<string, ErrorAlertOutcome>();
+  const rows = await DbUtilsQuerySQL(
+    span,
+    SQL_QUERIES.LIST_OUTCOMES[DbUtilsGetType()],
+    [OUTCOME_KEY_PREFIX + "%"],
+  );
+  for (const row of rows || []) {
+    try {
+      outcomes.set(
+        String(row.stateKey).substring(OUTCOME_KEY_PREFIX.length),
+        JSON.parse(row.stateValue) as ErrorAlertOutcome,
+      );
+    } catch {
+      logger.warn(
+        `Ignoring malformed error alert outcome: ${row.stateKey}`,
+        span,
+      );
+    }
+  }
+  return outcomes;
+}
+
+async function ErrorAlertsStateSet(
   span: Span,
   ruleId: string,
-): Promise<ErrorAlertOutcome | null> {
-  const rows = await DbUtilsQuerySQL(
-    span,
-    SQL_QUERIES.GET_MAINTENANCE_STATE[DbUtilsGetType()],
-    [OUTCOME_KEY_PREFIX + ruleId],
-  );
-  if (!rows || rows.length === 0) {
-    return null;
-  }
-  try {
-    return JSON.parse(rows[0].stateValue) as ErrorAlertOutcome;
-  } catch {
-    return null;
-  }
+  state: AlertRuleState,
+): Promise<void> {
+  await DbUtilsExecSQL(span, SQL_QUERIES.UPSERT_STATE[DbUtilsGetType()], [
+    ruleId,
+    JSON.stringify(state),
+    state.at,
+  ]);
 }
 
 async function ErrorAlertsOutcomeSet(
@@ -286,6 +716,78 @@ async function ErrorAlertsOutcomeSet(
     span,
     SQL_QUERIES.UPSERT_MAINTENANCE_STATE[DbUtilsGetType()],
     [OUTCOME_KEY_PREFIX + ruleId, compactOutcomeJson(outcome)],
+  );
+}
+
+function ErrorAlertsOutcomeOf(state: AlertRuleState): ErrorAlertOutcome {
+  const outcome: ErrorAlertOutcome = {
+    at: state.at,
+    breached: state.breached,
+    notified: state.notified,
+  };
+  if (state.value !== null) {
+    outcome.count = state.value;
+  }
+  if (state.threshold !== null) {
+    outcome.threshold = state.threshold;
+  }
+  if (state.lastError) {
+    outcome.error = state.lastError;
+  }
+  return outcome;
+}
+
+async function ErrorAlertsPruneState(
+  span: Span,
+  currentIds: Set<string>,
+): Promise<void> {
+  const ids = Array.from(currentIds);
+  if (ids.length === 0) {
+    await DbUtilsExecSQL(span, SQL_QUERIES.DELETE_ALL_STATES[DbUtilsGetType()], []);
+    return;
+  }
+  const dbType = DbUtilsGetType();
+  const placeholders = ids
+    .map((_, idx) => (dbType === "postgres" ? `$${idx + 1}` : "?"))
+    .join(", ");
+  await DbUtilsExecSQL(
+    span,
+    SQL_QUERIES.DELETE_STATES_NOT_IN(placeholders)[dbType],
+    ids,
+  );
+}
+
+async function ErrorAlertsPruneLegacyOutcomes(
+  span: Span,
+  outcomes: Map<string, ErrorAlertOutcome>,
+  currentIds: Set<string>,
+): Promise<void> {
+  for (const ruleId of outcomes.keys()) {
+    if (!currentIds.has(ruleId)) {
+      await DbUtilsExecSQL(
+        span,
+        SQL_QUERIES.DELETE_MAINTENANCE_STATE[DbUtilsGetType()],
+        [OUTCOME_KEY_PREFIX + ruleId],
+      );
+    }
+  }
+}
+
+async function ErrorAlertsPruneHistoryIfDue(
+  span: Span,
+  nowMs: number,
+): Promise<void> {
+  if (nowMs - lastHistoryPruneAt < HISTORY_PRUNE_INTERVAL_MS) {
+    return;
+  }
+  lastHistoryPruneAt = nowMs;
+  const cutoff = new Date(
+    nowMs - ALERT_HISTORY_RETENTION_DAYS * 24 * 3_600_000,
+  ).toISOString();
+  await AlertHistoryPrune(cutoff);
+  logger.info(
+    `Error alerts: pruned alert history before ${cutoff}`,
+    span,
   );
 }
 
@@ -316,13 +818,25 @@ const SQL_QUERIES = {
     postgres: 'SELECT * FROM settings WHERE "category" = $1',
     sqlite: "SELECT * FROM settings WHERE category = ?",
   },
-  COUNT_ERRORS: (serviceName: string | null) => ({
+  LIST_STATES: {
+    postgres: 'SELECT "ruleId", "stateValue" FROM alert_rule_state',
+    sqlite: "SELECT ruleId, stateValue FROM alert_rule_state",
+  },
+  UPSERT_STATE: {
     postgres:
-      'SELECT COUNT(*) AS count FROM logs WHERE "time" >= $1 AND "time" < $2 AND "severity" = \'ERROR\'' +
-      (serviceName ? ' AND "serviceName" = $3' : ""),
+      'INSERT INTO alert_rule_state ("ruleId", "stateValue", "updatedAt") VALUES ($1, $2, $3)' +
+      ' ON CONFLICT ("ruleId") DO UPDATE SET "stateValue" = EXCLUDED."stateValue", "updatedAt" = EXCLUDED."updatedAt"',
     sqlite:
-      "SELECT COUNT(*) AS count FROM logs WHERE time >= ? AND time < ? AND severity = 'ERROR'" +
-      (serviceName ? " AND serviceName = ?" : ""),
+      "INSERT INTO alert_rule_state (ruleId, stateValue, updatedAt) VALUES (?, ?, ?)" +
+      " ON CONFLICT(ruleId) DO UPDATE SET stateValue = excluded.stateValue, updatedAt = excluded.updatedAt",
+  },
+  DELETE_ALL_STATES: {
+    postgres: "DELETE FROM alert_rule_state",
+    sqlite: "DELETE FROM alert_rule_state",
+  },
+  DELETE_STATES_NOT_IN: (placeholders: string) => ({
+    postgres: `DELETE FROM alert_rule_state WHERE "ruleId" NOT IN (${placeholders})`,
+    sqlite: `DELETE FROM alert_rule_state WHERE ruleId NOT IN (${placeholders})`,
   }),
   GET_MAINTENANCE_STATE: {
     postgres:
@@ -336,6 +850,10 @@ const SQL_QUERIES = {
     sqlite:
       "INSERT INTO maintenance_state (stateKey, stateValue) VALUES (?, ?)" +
       " ON CONFLICT(stateKey) DO UPDATE SET stateValue = excluded.stateValue",
+  },
+  DELETE_MAINTENANCE_STATE: {
+    postgres: 'DELETE FROM maintenance_state WHERE "stateKey" = $1',
+    sqlite: "DELETE FROM maintenance_state WHERE stateKey = ?",
   },
   LIST_OUTCOMES: {
     postgres:
