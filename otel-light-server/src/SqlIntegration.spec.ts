@@ -74,6 +74,7 @@ import {
 } from "./utils-std-ts/DbUtilsNoTelemetry";
 import { OTelLogger, OTelTracer } from "./OTelContext";
 import { ErrorAlertsEvaluate } from "./alerts/ErrorAlerts";
+import { ErrorAlertsRoutes } from "./alerts/ErrorAlertsRoutes";
 import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
@@ -245,6 +246,9 @@ describe("SQL-level integration (sqlite)", () => {
     await fastify.register(new SettingsRoutes().getRoutes, {
       prefix: "/api/settings",
     });
+    await fastify.register(new ErrorAlertsRoutes().getRoutes, {
+      prefix: "/api/alerts",
+    });
     await fastify.ready();
   });
 
@@ -267,12 +271,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 15 and creates the rollup and saved-view tables", async () => {
+    it("applies all migrations up to version 16 and creates the rollup, saved-view and alert tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(15);
+      expect(Number(versionRows[0].maxVersion)).toBe(16);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -289,6 +293,8 @@ describe("SQL-level integration (sqlite)", () => {
           "signal_metric_names",
           "maintenance_state",
           "saved_views",
+          "alert_rule_state",
+          "alert_events",
         ]),
       );
 
@@ -2162,6 +2168,132 @@ describe("SQL-level integration (sqlite)", () => {
       expect(getRes.statusCode).toBe(200);
       expect(getRes.json().settings.content).toEqual(content);
     });
+
+    it("validates the alerting 2.0 rule types and maintenance windows", async () => {
+      const invalidContents: { content: unknown; token: string }[] = [
+        {
+          content: {
+            alertRules: [
+              { id: "hb", type: "heartbeat", serviceName: "", periodHours: 1, enabled: true },
+            ],
+          },
+          token: "serviceName is required for heartbeat rules",
+        },
+        {
+          content: {
+            alertRules: [
+              { id: "mt", type: "metric-threshold", serviceName: "", metricName: "", threshold: 1, periodHours: 1, enabled: true },
+            ],
+          },
+          token: "metricName",
+        },
+        {
+          content: {
+            alertRules: [
+              { id: "tr", type: "trace-errors", mode: "error-rate", threshold: 150, periodHours: 1, enabled: true },
+            ],
+          },
+          token: "between 0 and 100",
+        },
+        {
+          content: {
+            alertRules: [
+              { id: "lc", type: "log-count", threshold: 1, periodHours: 1, enabled: true, severities: ["LOUD"] },
+            ],
+          },
+          token: "severities",
+        },
+        {
+          content: {
+            alertRules: [],
+            maintenanceWindows: [
+              {
+                id: "mw",
+                start: "2026-11-19T10:00:00.000Z",
+                end: "2026-11-19T09:00:00.000Z",
+              },
+            ],
+          },
+          token: "start must be before end",
+        },
+      ];
+      for (const entry of invalidContents) {
+        const res = await fastify.inject({
+          method: "PUT",
+          url: "/api/settings/error-alert-rules",
+          payload: { content: entry.content },
+        });
+        expect(res.statusCode).toBe(400);
+        expect(res.json().error).toContain(entry.token);
+      }
+
+      const valid = {
+        alertRules: [
+          {
+            id: "type-log",
+            type: "log-count",
+            serviceName: "svc-a",
+            threshold: 1,
+            periodHours: 1,
+            enabled: true,
+            severity: "critical",
+            severities: ["ERROR", "FATAL"],
+            repeatIntervalMinutes: 30,
+            notifyOnRecovery: false,
+          },
+          {
+            id: "type-metric",
+            type: "metric-threshold",
+            serviceName: "",
+            metricName: "cpu.usage",
+            aggregation: "avg",
+            comparison: ">=",
+            threshold: 90,
+            periodHours: 2,
+            enabled: true,
+          },
+          {
+            id: "type-trace",
+            type: "trace-errors",
+            serviceName: "",
+            mode: "error-count",
+            threshold: 5,
+            periodHours: 1,
+            enabled: false,
+          },
+          {
+            id: "type-heartbeat",
+            type: "heartbeat",
+            serviceName: "svc-a",
+            signalType: "metrics",
+            metricName: "cpu.usage",
+            periodHours: 1,
+            enabled: true,
+          },
+        ],
+        maintenanceWindows: [
+          {
+            id: "mw-1",
+            ruleId: "",
+            serviceName: "svc-a",
+            start: "2026-11-19T09:00:00.000Z",
+            end: "2026-11-19T10:00:00.000Z",
+            enabled: true,
+          },
+        ],
+      };
+      const putRes = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: { content: valid },
+      });
+      expect(putRes.statusCode).toBe(201);
+      const getRes = await fastify.inject({
+        method: "GET",
+        url: "/api/settings/error-alert-rules",
+      });
+      expect(getRes.json().settings.content).toEqual(valid);
+    });
   });
 
   // =========================================================================
@@ -2233,6 +2365,265 @@ describe("SQL-level integration (sqlite)", () => {
       // Disabled rules keep no outcome.
       expect(outcomes["error-alert-outcome-ea-e2e-off"]).toBeUndefined();
       expect(rows.length).toBe(2);
+    });
+  });
+
+  // =========================================================================
+  // Alerting 2.0 end-to-end: every rule type, maintenance windows and history
+  // =========================================================================
+  describe("Alerting 2.0 evaluation end-to-end", () => {
+    it("evaluates every rule type, suppresses muted rules and records history", async () => {
+      const nowNs = Date.now() * 1_000_000;
+      const nowMs = nowNs / 1_000_000;
+      const service = "alert-multi-svc";
+
+      // log-count: one FATAL inside the window, one INFO that must not count.
+      await insertLog(service, "1.0", "FATAL", nowNs - 60_000_000_000, "f1", `alert ${service}`, "multi-log-1");
+      await insertLog(service, "1.0", "INFO", nowNs - 50_000_000_000, "i1", `alert ${service}`, "multi-log-2");
+      // metric-threshold: one gauge sample above the threshold.
+      const metricTime = nowNs - 30_000_000_000;
+      await runSql(
+        'INSERT INTO metrics ("name", "serviceName", "serviceVersion", "type", "time", "attributes", "rawMetric", "keywords") VALUES (?,?,?,?,?,?,?,?)',
+        [
+          "cpu.usage",
+          service,
+          "1.0",
+          "gauge",
+          metricTime,
+          "[]",
+          JSON.stringify({
+            gauge: {
+              dataPoints: [{ timeUnixNano: String(metricTime), asDouble: 91.5 }],
+            },
+          }),
+          "cpu.usage",
+        ],
+      );
+      // trace-errors: 1 errored trace out of 2 -> 50% error rate.
+      await insertTrace("multi-t1", "multi-s1", null, "alert-op", nowNs - 40_000_000_000, nowNs - 39_000_000_000, 2, service);
+      await insertTrace("multi-t2", "multi-s2", null, "alert-op", nowNs - 41_000_000_000, nowNs - 40_000_000_000, 0, service);
+
+      const putRes = await fastify.inject({
+        method: "PUT",
+        url: "/api/settings/error-alert-rules",
+        payload: {
+          content: {
+            alertRules: [
+              {
+                id: "multi-log",
+                type: "log-count",
+                serviceName: service,
+                threshold: 0,
+                periodHours: 1,
+                enabled: true,
+                severity: "critical",
+                severities: ["FATAL"],
+              },
+              {
+                id: "multi-metric",
+                type: "metric-threshold",
+                serviceName: service,
+                metricName: "cpu.usage",
+                aggregation: "last",
+                comparison: ">=",
+                threshold: 90,
+                periodHours: 1,
+                enabled: true,
+              },
+              {
+                id: "multi-trace",
+                type: "trace-errors",
+                serviceName: service,
+                mode: "error-rate",
+                threshold: 10,
+                periodHours: 1,
+                enabled: true,
+              },
+              {
+                id: "multi-heartbeat",
+                type: "heartbeat",
+                serviceName: "alert-missing-svc",
+                signalType: "logs",
+                periodHours: 1,
+                enabled: true,
+              },
+              {
+                id: "multi-heartbeat-ok",
+                type: "heartbeat",
+                serviceName: service,
+                signalType: "metrics",
+                periodHours: 1,
+                enabled: true,
+              },
+            ],
+            maintenanceWindows: [
+              {
+                id: "multi-window",
+                ruleId: "multi-metric",
+                serviceName: "",
+                start: new Date(nowMs - 3_600_000).toISOString(),
+                end: new Date(nowMs + 3_600_000).toISOString(),
+                enabled: true,
+              },
+            ],
+          },
+        },
+      });
+      expect(putRes.statusCode).toBe(201);
+
+      await ErrorAlertsEvaluate();
+
+      const events = await query(
+        "SELECT * FROM alert_events WHERE ruleId LIKE ? ORDER BY eventTime ASC, id ASC",
+        ["multi-%"],
+      );
+      const statusesOf = (ruleId: string) =>
+        events
+          .filter((event) => event.ruleId === ruleId)
+          .map((event) => event.status)
+          .sort();
+      expect(statusesOf("multi-log")).toEqual(["error", "fired"]);
+      expect(statusesOf("multi-metric")).toEqual(["fired", "suppressed"]);
+      expect(statusesOf("multi-trace")).toEqual(["error", "fired"]);
+      expect(statusesOf("multi-heartbeat")).toEqual(["error", "fired"]);
+      expect(statusesOf("multi-heartbeat-ok")).toEqual([]);
+      expect(events.length).toBe(8);
+
+      const logEvent = events.find(
+        (event) => event.ruleId === "multi-log" && event.status === "fired",
+      );
+      expect(logEvent).toMatchObject({
+        ruleType: "log-count",
+        serviceName: service,
+        severity: "critical",
+        observedValue: 1,
+        thresholdValue: 0,
+        signalType: "logs",
+        signalPath: "/logs",
+      });
+      expect(logEvent.signalQuery).toBe(
+        `from=3600&serviceName=${service}&severity=FATAL`,
+      );
+
+      const metricEvent = events.find(
+        (event) => event.ruleId === "multi-metric" && event.status === "suppressed",
+      );
+      expect(metricEvent).toMatchObject({
+        ruleType: "metric-threshold",
+        observedValue: 91.5,
+        thresholdValue: 90,
+        signalType: "metrics",
+        signalPath: "/metrics",
+      });
+      expect(metricEvent.signalQuery).toBe(
+        `from=3600&serviceName=${service}&keywords=cpu.usage`,
+      );
+
+      const traceEvent = events.find(
+        (event) => event.ruleId === "multi-trace" && event.status === "fired",
+      );
+      expect(traceEvent).toMatchObject({
+        ruleType: "trace-errors",
+        observedValue: 50,
+        signalType: "traces",
+        signalPath: "/traces",
+      });
+      expect(traceEvent.signalQuery).toBe(
+        `from=3600&serviceName=${service}&errorsOnly=true`,
+      );
+
+      const heartbeatEvent = events.find(
+        (event) => event.ruleId === "multi-heartbeat",
+      );
+      expect(heartbeatEvent).toMatchObject({
+        ruleType: "heartbeat",
+        observedValue: 0,
+        signalType: "logs",
+        signalPath: "/logs",
+      });
+      expect(events.some((event) => event.status === "notified")).toBe(false);
+
+      const stateRows = await query(
+        "SELECT ruleId, stateValue FROM alert_rule_state",
+      );
+      expect(stateRows.length).toBe(5);
+      const states: Record<string, Loose> = {};
+      for (const row of stateRows) {
+        states[row.ruleId] = JSON.parse(row.stateValue);
+      }
+      expect(states["multi-metric"]).toMatchObject({ breached: true, suppressed: true });
+      expect(states["multi-trace"]).toMatchObject({ breached: true, value: 50 });
+      expect(states["multi-heartbeat"]).toMatchObject({ breached: true, value: 0 });
+      expect(states["multi-heartbeat-ok"]).toMatchObject({ breached: false });
+
+      const outcomeRows = await query(
+        "SELECT stateKey, stateValue FROM maintenance_state WHERE stateKey LIKE ?",
+        ["error-alert-outcome-%"],
+      );
+      const outcomes: Record<string, Loose> = {};
+      for (const row of outcomeRows) {
+        outcomes[row.stateKey] = JSON.parse(row.stateValue);
+      }
+      expect(Object.keys(outcomes).sort()).toEqual(
+        [
+          "error-alert-outcome-multi-heartbeat",
+          "error-alert-outcome-multi-heartbeat-ok",
+          "error-alert-outcome-multi-log",
+          "error-alert-outcome-multi-metric",
+          "error-alert-outcome-multi-trace",
+        ].sort(),
+      );
+      expect(outcomes["error-alert-outcome-multi-metric"]).toMatchObject({
+        count: 91.5,
+        threshold: 90,
+        breached: true,
+      });
+
+      const statusRes = await fastify.inject({
+        method: "GET",
+        url: "/api/alerts/status",
+      });
+      expect(statusRes.statusCode).toBe(200);
+      const status = statusRes.json();
+      expect(status.notificationsEnabled).toBe(false);
+      expect(status.evaluations["multi-metric"]).toMatchObject({
+        ruleType: "metric-threshold",
+        value: 91.5,
+        breached: true,
+        suppressed: true,
+      });
+      expect(status.evaluations["multi-heartbeat-ok"].breached).toBe(false);
+
+      const historyRes = await fastify.inject({
+        method: "GET",
+        url: "/api/alerts/history?ruleId=multi-metric",
+      });
+      expect(historyRes.statusCode).toBe(200);
+      const history = historyRes.json();
+      expect(history.hasMore).toBe(false);
+      expect(history.events.map((event: Loose) => event.status).sort()).toEqual([
+        "fired",
+        "suppressed",
+      ]);
+      expect(
+        history.events.every((event: Loose) => event.ruleId === "multi-metric"),
+      ).toBe(true);
+
+      const filteredRes = await fastify.inject({
+        method: "GET",
+        url: "/api/alerts/history?serviceName=alert-multi-svc&status=suppressed",
+      });
+      expect(filteredRes.statusCode).toBe(200);
+      expect(filteredRes.json().events).toHaveLength(1);
+      expect(filteredRes.json().events[0].ruleId).toBe("multi-metric");
+
+      const pagedRes = await fastify.inject({
+        method: "GET",
+        url: "/api/alerts/history?ruleId=multi-metric&limit=1",
+      });
+      expect(pagedRes.statusCode).toBe(200);
+      expect(pagedRes.json().events).toHaveLength(1);
+      expect(pagedRes.json().hasMore).toBe(true);
     });
   });
 
@@ -2721,11 +3112,21 @@ describe("SQL-level integration (sqlite)", () => {
     it("does not re-apply migrations on the second boot and keeps the data", async () => {
       const logsBefore = await query("SELECT COUNT(*) AS c FROM logs", []);
       expect(Number(logsBefore[0].c)).toBeGreaterThan(0);
+      const statesBefore = await query(
+        "SELECT COUNT(*) AS c FROM alert_rule_state",
+        [],
+      );
+      const eventsBefore = await query(
+        "SELECT COUNT(*) AS c FROM alert_events",
+        [],
+      );
+      expect(Number(statesBefore[0].c)).toBeGreaterThan(0);
+      expect(Number(eventsBefore[0].c)).toBeGreaterThan(0);
       const versionsBefore = await query(
         "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionsBefore[0].v)).toBe(15);
+      expect(Number(versionsBefore[0].v)).toBe(16);
 
       // Migrations are logged through the shared module logger mock.
       const migrationLogger = OTelLogger().createModuleLogger("RestartProbe");
@@ -2742,6 +3143,17 @@ describe("SQL-level integration (sqlite)", () => {
 
       const logsAfter = await query("SELECT COUNT(*) AS c FROM logs", []);
       expect(Number(logsAfter[0].c)).toBe(Number(logsBefore[0].c));
+      const statesAfter = await query(
+        "SELECT COUNT(*) AS c FROM alert_rule_state",
+        [],
+      );
+      const eventsAfter = await query(
+        "SELECT COUNT(*) AS c FROM alert_events",
+        [],
+      );
+      // Alert state and history survive a restart untouched.
+      expect(Number(statesAfter[0].c)).toBe(Number(statesBefore[0].c));
+      expect(Number(eventsAfter[0].c)).toBe(Number(eventsBefore[0].c));
       const versionsAfter = await query(
         "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
@@ -2749,7 +3161,7 @@ describe("SQL-level integration (sqlite)", () => {
       // Neither the version rows nor their maximum changed: no init file was
       // re-executed on an up-to-date database.
       expect(Number(versionsAfter[0].c)).toBe(Number(versionsBefore[0].c));
-      expect(Number(versionsAfter[0].v)).toBe(15);
+      expect(Number(versionsAfter[0].v)).toBe(16);
       const migrationInfoCalls = migrationInfo.mock.calls
         .map((call: unknown[]) => String(call[0]))
         .filter((message) => message.includes("Loading init file"));

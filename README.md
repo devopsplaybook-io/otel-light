@@ -20,8 +20,9 @@
   - Configurable period (default 24h) and cron schedule (default daily at midnight)
   - Statistics include: log volumes and error rates, trace counts and top types by duration, metric volumes, all per service
   - Supports any OpenAI-compatible API (DeepSeek, OpenAI, etc.)
-- **Optional error-threshold notifications**: per-service (or global) alert rules "more than N error logs in the last H hours" evaluated on a schedule, pushing through the notification channel (see [Error Notifications](#error-notifications))
+- **Optional alerting 2.0**: per-service (or global) rules for log counts (ERROR/FATAL by default), metric thresholds, trace error rates/counts and heartbeats, evaluated on a schedule and pushed through the notification channel (see [Alerting](#alerting))
   - Rules managed in the settings **Alerts** tab, with the last evaluation outcome shown per rule
+  - Per-rule notification severity, repeat interval and recovery notices; maintenance windows suppress notifications; full alert history with links to the matching signals
   - Daily recommendation notifications include a per-service error digest so a quiet day is confirmed, not only breaches
 
 ![](docs/images/Traces.png?raw=true)
@@ -87,7 +88,7 @@ See [`docs/deployments`](docs/deployments) for additional deployment options.
 - **Ingestion authentication**: when `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` is empty (the default), the `/v1/*` ingestion endpoints accept unauthenticated writes and the server logs a `SECURITY WARNING` at startup. Set the header on any instance reachable from an untrusted network; clients must then send `Authorization: Bearer <value>`.
 - **Rate limiting**: `POST /v1/{traces,metrics,logs}` are limited per client IP (`INGESTION_RATE_LIMIT_MAX` requests per `INGESTION_RATE_LIMIT_WINDOW_SECONDS`, default 3000 per 60 s) and `POST /api/users/session` is limited per IP + username (`LOGIN_RATE_LIMIT_MAX` per `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, default 10 per 60 s). `0` disables a limit. Exceeding a limit returns **HTTP 429** with a `Retry-After` header and a `{"statusCode":429,"error":"Too Many Requests","code":"RATE_LIMITED","message":"..."}` body. Counters are in-memory and per process: they reset on restart and are not shared between replicas. Limits are read at startup, so restart the server after changing them.
 - **Reverse proxies**: buckets are keyed on the client IP. Set `API_TRUST_PROXY=true` only when a trusted reverse proxy overwrites `X-Forwarded-For`; on a directly exposed server, trusting the header lets clients spoof their IP and evade the limits.
-- **Admin-only data**: reading and writing `/api/settings/:category` and `GET /api/alerts/status` require the admin role.
+- **Admin-only data**: reading and writing `/api/settings/:category` and the `GET /api/alerts/status`, `GET /api/alerts/history` and `POST /api/alerts/test` endpoints require the admin role.
 - **Trace logs**: `/api/analytics/traces/:traceId/logs` requires the `logs` scope; the trace pages hide/skip the log panel for users without it.
 - **Recommendation data**: `GET /api/recommendation` returns log-derived statistics (totals, per-severity counts, top error messages), so it requires **both** the `traces` and `logs` scopes. The home page hides the card for users lacking either scope.
 - **CSV export**: exported log values that start with `=`, `+`, `-`, `@`, tab, CR or LF are prefixed with an apostrophe so spreadsheets treat them as text instead of formulas.
@@ -147,8 +148,8 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | MAINTENANCE_ORPHAN_LOOKBACK_HOURS                       | Lookback window for orphan-span cleanup scans         | 24                                          | Config file or environment variable |
 | NOTIFICATIONS_API                                       | Notifications API endpoint URL (empty = notifications disabled) | (empty)                           | Config file or environment variable |
 | NOTIFICATIONS_TOKEN                                     | Notifications API token                               | (empty)                                     | Config file or environment variable |
-| ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES               | Interval (in minutes) between error alert rule evaluations | 15                                     | Config file or environment variable |
-| ERROR_ALERTS_STARTUP_DELAY_MINUTES                      | Delay before the first error alert evaluation         | 1                                           | Config file or environment variable |
+| ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES               | Interval (in minutes) between alert rule evaluations  | 15                                     | Config file or environment variable |
+| ERROR_ALERTS_STARTUP_DELAY_MINUTES                      | Delay before the first alert rule evaluation          | 1                                           | Config file or environment variable |
 
 ### Settings applied at startup
 
@@ -238,26 +239,50 @@ When `LLM_API_KEY` is configured, OTel Light automatically generates a daily tel
 
 The recommendation is displayed as a card on the home page, with markdown-rendered analysis and recommendations sections, and the generation timestamp.
 
-## Error Notifications
+## Alerting
 
-OTel Light can notify you when a service (or all services) produces too many error logs, using the existing notification channel.
+OTel Light can notify you when a service (or all services) breaches an alert rule, using the existing notification channel.
 
-### Alert rules
+### Rule types
 
-Rules are managed in the settings **Alerts** tab (admin only). Each rule defines:
+Rules are managed in the settings **Alerts** tab (admin only). Every rule defines:
 
-- **Service**: a specific service, or all services
-- **Threshold**: the rule breaches when the number of error logs is **greater than** this value during the period (a threshold of 0 means "any error")
-- **Period**: the lookback window in hours or days (e.g. "more than 10 errors in the last 24 hours")
+- **Type**: `log-count` (the default for legacy rules), `metric-threshold`, `trace-errors` or `heartbeat`
+- **Service**: a specific service, or all services (heartbeat rules require one)
+- **Period**: the lookback window in hours or days
+- **Severity**: `info`, `warning` or `critical` — critical maps to the notification channel's error severity; the webhook contract stays `info|warning|error`
+- **Repeat interval**: minutes between notifications while the breach persists (`0` = notify once)
+- **Notify on recovery**: send a recovery notification when the breach clears
 - **Enabled**: disabled rules are kept but not evaluated
 
-Rules are stored in the settings store and re-read at every evaluation, so changes apply without a restart.
+Type-specific fields:
+
+- **Log count**: the rule breaches when more logs than the threshold carry the selected severities; the default is `ERROR` + `FATAL`, so FATAL is counted as an error.
+- **Metric threshold**: aggregates the metric data points (`last`, `avg`, `max`, `min`) and compares them with the threshold (`>`, `>=`, `<`, `<=`).
+- **Trace errors**: error rate (percentage of distinct traces with `statusCode = 2`) or error count, compared with `>`.
+- **Heartbeat**: breaches when no signal of the chosen type (metrics, logs or traces — optionally a specific metric) was received for the service during the period. One heartbeat rule per expected signal/service covers the freshness checks that otherwise need external cronjobs.
+
+Rules and maintenance windows are stored in the `error-alert-rules` settings category (the name is kept for backwards compatibility) and re-read at every evaluation, so changes apply without a restart.
+
+### Maintenance windows
+
+A maintenance window has an optional rule and service scope (empty = all rules/services), a start/end date and an enabled flag. While a window is active, a matching rule is still evaluated and its observed value/state is stored, but notifications are suppressed and the suppression is recorded in the alert history. An all-services rule is not muted by a service-scoped window.
 
 ### Evaluation
 
 - The engine evaluates all enabled rules on a schedule: every `ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES` (default 15 minutes), starting `ERROR_ALERTS_STARTUP_DELAY_MINUTES` (default 1 minute) after startup.
-- Only the healthy→breached **transition** sends a notification: a breach that persists does not repeat, and the rule re-arms after an evaluation below the threshold (the breach state survives restarts).
-- The last evaluation outcome of each rule (timestamp, counted errors, threshold, whether an alert was sent, or the error encountered) is shown in the **Alerts** tab — rules are never silently skipped.
+- A new breach sends a notification; a persisting breach repeats only when `repeatIntervalMinutes` is set. The breach lifecycle survives restarts (`alert_rule_state`).
+- When a breach clears, a `resolved` history event is recorded and a recovery notification is sent if the episode had been notified and `notifyOnRecovery` is enabled.
+- The last evaluation outcome of each rule (timestamp, observed value, threshold, whether an alert was sent or suppressed, or the error encountered) is shown in the **Alerts** tab — rules are never silently skipped.
+- A disabled or failed notification send is recorded as an `error` outcome/history event, so breaches are not lost silently.
+
+### Alert history
+
+Every fired/notified/resolved/suppressed/error event is stored in `alert_events` (90 days retention, pruned at most hourly) and survives restarts. The settings **Alert history** tab lists it with rule/service/status/date filters and "Load more" pagination; each entry links to the matching search page filtered over the rule period (logs with the rule severity, metrics by keyword, traces with `errorsOnly`).
+
+### Test notification
+
+The **Alerts** tab has a "Send test notification" action with a severity selector. It reports whether the channel accepted the notification or why it failed (for example notifications disabled), so the integration can be verified without waiting for a breach.
 
 ### Daily error digest
 
@@ -265,11 +290,16 @@ When the LLM recommendation is enabled, its notification also includes a per-ser
 
 ### Disabled integration
 
-When `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not configured, the **Alerts** tab shows the integration as disabled: rules are still evaluated and their outcomes (counts, breaches) are recorded with "not notified", and no notifications are sent.
+When `NOTIFICATIONS_API`/`NOTIFICATIONS_TOKEN` are not configured, the **Alerts** tab shows the integration as disabled: rules are still evaluated and their outcomes (observed values, breaches, suppressions) are recorded with "not notified", and no notifications are sent.
 
 ### API
 
-- `GET /api/alerts/status` — Returns whether the notifications integration is enabled and the last evaluation outcome of each rule (admin only)
+- `GET /api/alerts/status` — whether the notifications integration is enabled and the last evaluation outcome of each rule
+- `GET /api/alerts/history` — paginated alert history (`ruleId`, `serviceName`, `status`, `from`, `to`, `limit`, `offset`)
+- `POST /api/alerts/test` — send a test notification (`severity`: `info`, `warning` or `critical`)
+- `GET`/`PUT /api/settings/error-alert-rules` — alert rules and maintenance windows content
+
+All these endpoints require the admin role.
 
 ## API Tokens
 
@@ -319,7 +349,7 @@ Accepted requests answer **HTTP 200** with an empty JSON object. When some recor
 
 Every ingested value is normalized to what both database backends can store: ids are trimmed to 50 characters, service name/version and span names to 2000, keywords to 4000, and log text to 65,536 characters (NUL characters are stripped). Trace/span ids are kept as opaque strings but an empty or non-string mandatory id rejects the span. Timestamps must be finite positive integers of nanoseconds that fit a signed 64-bit integer. `attributes`, `rawSpan` and `rawMetric` are stored as the original JSON and are therefore not truncated; they are bounded by `INGESTION_BODY_LIMIT_BYTES` and the retention rules instead.
 
-Log severity is canonicalized at ingestion to the uppercase OTLP set (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`): the text is trimmed, uppercased, common aliases are mapped (`WARNING` → `WARN`, `CRITICAL` → `FATAL`, …) and a trailing OTLP numeric suffix is removed (`WARN2` → `WARN`). When `severityText` is missing, the value is derived from `severityNumber` (1–4 `TRACE`, 5–8 `DEBUG`, 9–12 `INFO`, 13–16 `WARN`, 17–20 `ERROR`, 21–24 `FATAL`); custom text is kept uppercased and truncated. The list filter, logs stats and error alerts all compare that exact uppercase value, and the `init-0013` migration backfills existing rows at startup. Filters still accept any casing (`severity=error` matches `ERROR`).
+Log severity is canonicalized at ingestion to the uppercase OTLP set (`TRACE`, `DEBUG`, `INFO`, `WARN`, `ERROR`, `FATAL`): the text is trimmed, uppercased, common aliases are mapped (`WARNING` → `WARN`, `CRITICAL` → `FATAL`, …) and a trailing OTLP numeric suffix is removed (`WARN2` → `WARN`). When `severityText` is missing, the value is derived from `severityNumber` (1–4 `TRACE`, 5–8 `DEBUG`, 9–12 `INFO`, 13–16 `WARN`, 17–20 `ERROR`, 21–24 `FATAL`); custom text is kept uppercased and truncated. The list filter, logs stats and alert rules all compare that exact uppercase value, and the `init-0013` migration backfills existing rows at startup. Filters still accept any casing (`severity=error` matches `ERROR`).
 
 Retry semantics are **at-least-once** for logs and metrics: OTLP has no stable log record or metric identity, so an exporter retry may insert duplicates. Spans are de-duplicated on `(traceId, spanId)`: replaying a trace batch does not duplicate rows or inflate counts.
 

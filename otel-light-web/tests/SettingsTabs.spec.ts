@@ -11,6 +11,7 @@ describe("SettingsTabs", () => {
       "profile",
       "maintenance",
       "alerts",
+      "alert-history",
       "users",
     ]);
     expect(SettingsTabs[0].to).toBe("/settings/profile");
@@ -27,6 +28,7 @@ describe("SettingsTabs", () => {
       "profile",
       "maintenance",
       "alerts",
+      "alert-history",
       "users",
     ]);
   });
