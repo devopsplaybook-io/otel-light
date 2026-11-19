@@ -123,7 +123,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | DATABASE_POSTGRES_PASSWORD                              | PostgreSQL password                                   |                                             | Config file or environment variable |
 | DATABASE_POSTGRES_DATABASE                              | PostgreSQL database name                              |                                             | Config file or environment variable |
 | ANALYTICS_UTILS_RESULT_LIMIT_METRICS                    | Maximum number of results for metrics queries         | 10000                                       | Config file or environment variable |
-| ANALYTICS_STATS_SAMPLE_CAP                              | Max traces deterministically sampled for duration percentiles on `/api/analytics/traces/stats` | 20000 | Config file or environment variable |
+| ANALYTICS_STATS_SAMPLE_CAP                              | Max traces deterministically sampled for duration percentiles on `/api/analytics/traces/stats` and `/api/analytics/traces/summary` | 20000 | Config file or environment variable |
 | ANALYTICS_STATS_CACHE_TTL_SECONDS                       | TTL of the traces-stats response cache (0 disables)   | 30                                          | Config file or environment variable |
 | ANALYTICS_STATS_CACHE_MAX_ENTRIES                       | Max cached traces-stats responses                     | 100                                         | Config file or environment variable |
 | LLM_API_KEY                                             | API key for the LLM service (leave empty to disable)  | (empty)                                     | Config file or environment variable |
@@ -170,9 +170,11 @@ Periodic metric compression keeps one data point per minute (then per hour) buck
 
 `GET /api/analytics/traces/stats` rounds its `from`/`to` window down/up to whole minutes and uses a deterministic sampling stride (capped by `ANALYTICS_STATS_SAMPLE_CAP`) for P90/P95 durations, so repeated identical requests return identical percentiles. Responses are cached for `ANALYTICS_STATS_CACHE_TTL_SECONDS` (up to `ANALYTICS_STATS_CACHE_MAX_ENTRIES` entries). Pass `includePercentiles=false` to skip the percentile computation and payload. It accepts the same `keywords` and `errorsOnly` filters as `GET /api/analytics/traces`.
 
+`GET /api/analytics/traces/summary` is the fast variant used by the home page and the Aggregated view. It aggregates **root spans only** (`parentSpanId IS NULL`), so each row is one distributed trace: `serviceName`, `serviceVersion`, `name`, `traceCount`, `nbErrors` (traces whose root span failed) and `avgDuration`. P90/P95 trace durations are computed from a bounded, deterministic sample controlled by `ANALYTICS_STATS_SAMPLE_CAP`; pass `includePercentiles=false` to skip them. Compared with `/traces/stats`, durations and the error count describe the whole trace rather than every matching span, and `errorsOnly=true` keeps the list semantics of `/traces/stats` (a trace is included when **any** span errored). It accepts the window (`from`/`to`, rounded to whole minutes), `serviceName`, `serviceVersion`, an exact `name` and the `keywords`/`errorsOnly` filters, and shares the stats response cache.
+
 All analytics list endpoints bind and validate their paging parameters: `offset` must be a non-negative integer up to 1,000,000 and a malformed value returns `400`. `GET /api/analytics/logs/stats` requires a bounded window: `from` defaults to 24 hours ago, `bucketNs` must be an integer of at least one second, and the window may not exceed 1,000 buckets (otherwise `400`). Analytics `keywords` filters treat `%`, `_` and `\` literally.
 
-`GET /api/analytics/traces` accepts an exact-match `name` filter on the root span name, which the aggregated traces page uses when expanding a group.
+`GET /api/analytics/traces` accepts an exact-match `name` filter on the trace name, which drilldowns use when expanding a group, a report row or a recommendation bullet.
 
 ## LLM Recommendation
 
