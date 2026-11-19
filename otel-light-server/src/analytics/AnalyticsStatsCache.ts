@@ -58,6 +58,7 @@ export function AnalyticsStatsCacheBuildKey(
   includePercentiles: boolean,
   keywords?: string,
   errorsOnly?: boolean,
+  filtersFingerprint?: string,
 ): string {
   // JSON.stringify keeps user text (which may contain any separator) unambiguous.
   return JSON.stringify([
@@ -68,6 +69,7 @@ export function AnalyticsStatsCacheBuildKey(
     includePercentiles ? "1" : "0",
     keywords ?? "",
     errorsOnly ? "1" : "0",
+    filtersFingerprint ?? "",
   ]);
 }
 

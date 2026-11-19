@@ -1,4 +1,5 @@
 import { FastifyInstance } from "fastify";
+import { Readable } from "stream";
 import { AuthHasScope } from "@devopsplaybook.io/common-utils";
 import { Trace } from "../model/Trace";
 import { Span } from "../model/Span";
@@ -7,12 +8,27 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
-  AnalyticsUtilsEscapeLike,
+  AnalyticsUtilsGetDefaultFromTime24h,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
   AnalyticsUtilsParseOffset,
 } from "./AnalyticsUtils";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
+import {
+  AnalyticsFiltersAttributesSql,
+  AnalyticsFiltersDurationSql,
+  AnalyticsFiltersKeywordsSql,
+  AnalyticsFiltersParse,
+} from "./AnalyticsFilters";
+import {
+  ANALYTICS_EXPORT_TRACES_CSV_HEADER,
+  AnalyticsExportContentType,
+  AnalyticsExportGetMaxRows,
+  AnalyticsExportParseFormat,
+  AnalyticsExportStream,
+  AnalyticsExportTraceCsvRow,
+  AnalyticsExportTraceJsonl,
+} from "./AnalyticsExport";
 
 const PAGE_SIZE = 200;
 
@@ -25,8 +41,12 @@ export class AnalyticsTracesRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        attr?: string | string[];
         traceId?: string;
         errorsOnly?: string;
+        status?: string;
+        durationMin?: string | number;
+        durationMax?: string | number;
         serviceName?: string;
         serviceVersion?: string;
         name?: string;
@@ -122,26 +142,33 @@ export class AnalyticsTracesRoutes {
         }
       }
 
-      if (req.query.keywords?.trim()) {
-        rootsWhere +=
-          ` AND ${q("keywords")} LIKE ` +
-          varAt(rootsParams.length + 1) +
-          " ESCAPE '\\'";
-        rootsParams.push(
-          `%${AnalyticsUtilsEscapeLike(req.query.keywords.toLowerCase().trim())}%`,
-        );
+      const parsedFilters = AnalyticsFiltersParse(req.query, { traces: true });
+      if (parsedFilters.error) {
+        return res.status(400).send({ error: parsedFilters.error });
       }
+      const filters = parsedFilters.filters;
+      const filterCtx = { dbType, params: rootsParams, varAt };
+      rootsWhere += AnalyticsFiltersKeywordsSql(
+        filterCtx,
+        q("keywords"),
+        filters.keywords,
+      );
+      rootsWhere += AnalyticsFiltersAttributesSql(
+        filterCtx,
+        `traces.${q("attributes")}`,
+        filters.attributes,
+      );
 
-      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+      if (filters.serviceName) {
         rootsWhere +=
           ` AND ${q("serviceName")} = ` + varAt(rootsParams.length + 1);
-        rootsParams.push(String(req.query.serviceName).trim());
+        rootsParams.push(filters.serviceName);
       }
 
-      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+      if (filters.serviceVersion) {
         rootsWhere +=
           ` AND ${q("serviceVersion")} = ` + varAt(rootsParams.length + 1);
-        rootsParams.push(String(req.query.serviceVersion).trim());
+        rootsParams.push(filters.serviceVersion);
       }
 
       if (req.query.name && String(req.query.name).trim()) {
@@ -149,6 +176,19 @@ export class AnalyticsTracesRoutes {
           ` AND ${q("name")} = ` + varAt(rootsParams.length + 1);
         rootsParams.push(String(req.query.name).trim());
       }
+
+      if (filters.status !== undefined) {
+        rootsWhere +=
+          ` AND ${q("statusCode")} = ` + varAt(rootsParams.length + 1);
+        rootsParams.push(filters.status);
+      }
+
+      rootsWhere += AnalyticsFiltersDurationSql(
+        filterCtx,
+        `traces.${q("traceId")}`,
+        filters.durationMinNs,
+        filters.durationMaxNs,
+      );
 
       // errorsOnly must filter BEFORE the LIMIT (in the roots CTE), otherwise
       // a page can come back short and hasMore/pagination become inconsistent.
@@ -241,6 +281,136 @@ export class AnalyticsTracesRoutes {
 
       return res.status(200).send({ logs });
     });
+
+    // Streamed export of the complete filtered trace result set (aggregated
+    // per trace, root-span attributes included). Paging parameters are
+    // ignored; the walk is keyset-paginated and bounded by
+    // ANALYTICS_EXPORT_MAX_ROWS.
+    fastify.get<{
+      Querystring: {
+        from?: number;
+        to?: number;
+        keywords?: string;
+        attr?: string | string[];
+        errorsOnly?: string;
+        status?: string;
+        durationMin?: string | number;
+        durationMax?: string | number;
+        serviceName?: string;
+        serviceVersion?: string;
+        name?: string;
+        format?: string;
+      };
+    }>("/export", async (req, res) => {
+      try {
+        await AuthHasScope(req, res, "traces");
+      } catch {
+        return;
+      }
+      const format = AnalyticsExportParseFormat(req.query.format);
+      if (!format) {
+        return res.status(400).send({ error: "Invalid format" });
+      }
+      const parsedFilters = AnalyticsFiltersParse(req.query, { traces: true });
+      if (parsedFilters.error) {
+        return res.status(400).send({ error: parsedFilters.error });
+      }
+      const filters = parsedFilters.filters;
+      const errorsOnly = req.query.errorsOnly === "true";
+      const dbType = DbUtilsGetType();
+      const q = (ident: string) =>
+        dbType === "postgres" ? `"${ident}"` : ident;
+      const varAt = (index: number) =>
+        AnalyticsUtilsGetSQLVariable(dbType, index);
+      const fromTime =
+        req.query.from || AnalyticsUtilsGetDefaultFromTime24h();
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fetchChunk = async (cursor: any, limit: number) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const params: any[] = [];
+        let where = `${q("parentSpanId")} IS NULL`;
+        where += ` AND ${q("startTime")} >= ` + varAt(params.length + 1);
+        params.push(AnalyticsUtilsGetTimeParam(fromTime));
+        if (req.query.to) {
+          where += ` AND ${q("startTime")} <= ` + varAt(params.length + 1);
+          params.push(AnalyticsUtilsGetTimeParam(req.query.to));
+        }
+        if (cursor) {
+          const idx = params.length + 1;
+          where +=
+            ` AND (${q("startTime")} < ${varAt(idx)}` +
+            ` OR (${q("startTime")} = ${varAt(idx + 1)}` +
+            ` AND ${q("traceId")} < ${varAt(idx + 2)}))`;
+          params.push(cursor.time, cursor.time, cursor.id);
+        }
+        const ctx = { dbType, params, varAt };
+        where += AnalyticsFiltersKeywordsSql(ctx, q("keywords"), filters.keywords);
+        where += AnalyticsFiltersAttributesSql(
+          ctx,
+          `traces.${q("attributes")}`,
+          filters.attributes,
+        );
+        if (filters.serviceName) {
+          where += ` AND ${q("serviceName")} = ` + varAt(params.length + 1);
+          params.push(filters.serviceName);
+        }
+        if (filters.serviceVersion) {
+          where += ` AND ${q("serviceVersion")} = ` + varAt(params.length + 1);
+          params.push(filters.serviceVersion);
+        }
+        if (req.query.name && String(req.query.name).trim()) {
+          where += ` AND ${q("name")} = ` + varAt(params.length + 1);
+          params.push(String(req.query.name).trim());
+        }
+        if (filters.status !== undefined) {
+          where += ` AND ${q("statusCode")} = ` + varAt(params.length + 1);
+          params.push(filters.status);
+        }
+        where += AnalyticsFiltersDurationSql(
+          ctx,
+          `traces.${q("traceId")}`,
+          filters.durationMinNs,
+          filters.durationMaxNs,
+        );
+        if (errorsOnly) {
+          where +=
+            ` AND EXISTS (SELECT 1 FROM traces e WHERE e.${q("traceId")} = traces.${q("traceId")}` +
+            ` AND e.${q("statusCode")} = ${varAt(params.length + 1)})`;
+          params.push(SpanStatusCode.ERROR);
+        }
+        const limitVar = varAt(params.length + 1);
+        const statusCodeVar = varAt(params.length + 2);
+        params.push(limit, SpanStatusCode.ERROR);
+        return DbUtilsNoTelemetryQuerySQL(
+          SQL_QUERIES.EXPORT_TRACES(where, limitVar, statusCodeVar)[dbType],
+          params,
+        );
+      };
+
+      const maxRows = AnalyticsExportGetMaxRows();
+      res.header("Content-Type", AnalyticsExportContentType(format));
+      res.header(
+        "Content-Disposition",
+        `attachment; filename="traces-export.${format}"`,
+      );
+      res.header("X-Export-Max-Rows", String(maxRows));
+      res.header("X-Export-Format", format);
+      res.header("Cache-Control", "no-store");
+      const stream = AnalyticsExportStream({
+        format,
+        maxRows,
+        header: ANALYTICS_EXPORT_TRACES_CSV_HEADER,
+        fetchChunk,
+        cursorOf: (row) => ({
+          time: Number(row.startTime),
+          id: String(row.traceId),
+        }),
+        toCsv: AnalyticsExportTraceCsvRow,
+        toJsonl: AnalyticsExportTraceJsonl,
+      });
+      return res.send(Readable.from(stream));
+    });
   }
 }
 
@@ -307,4 +477,54 @@ const SQL_QUERIES = {
     postgres: `SELECT * FROM logs WHERE "traceId" = $1`,
     sqlite: `SELECT * FROM logs WHERE traceId = ?`,
   },
+  // Same two-phase shape as GET_TRACES_CTE, plus root-span attributes so the
+  // export carries the attribute set of the matched root span.
+  EXPORT_TRACES: (
+    rootsWhere: string,
+    limitVar: string,
+    statusCodeVar: string,
+  ) => ({
+    postgres: `
+      WITH roots AS (
+        SELECT "traceId", "name", "serviceName", "serviceVersion", "startTime", "attributes"
+        FROM traces
+        WHERE ${rootsWhere}
+        ORDER BY "startTime" DESC, "traceId" DESC
+        LIMIT ${limitVar}
+      )
+      SELECT  MIN(t."startTime") AS "startTime",
+              MAX(t."endTime") AS "endTime",
+              t."traceId",
+              COUNT(*) as "spanCount",
+              r."name" AS "name",
+              r."serviceName" AS "serviceName",
+              r."serviceVersion" AS "serviceVersion",
+              COUNT(CASE WHEN t."statusCode" = ${statusCodeVar} THEN 1 END) AS "nbErrors",
+              r."attributes" AS "attributes"
+      FROM traces t
+        JOIN roots r ON r."traceId" = t."traceId"
+      GROUP BY t."traceId", r."name", r."serviceName", r."serviceVersion", r."startTime", r."attributes"
+      ORDER BY r."startTime" DESC, t."traceId" DESC`,
+    sqlite: `
+      WITH roots AS (
+        SELECT traceId, name, serviceName, serviceVersion, startTime, attributes
+        FROM traces
+        WHERE ${rootsWhere}
+        ORDER BY startTime DESC, traceId DESC
+        LIMIT ${limitVar}
+      )
+      SELECT  MIN(t.startTime) AS startTime,
+              MAX(t.endTime) AS endTime,
+              t.traceId,
+              COUNT(*) as spanCount,
+              r.name AS name,
+              r.serviceName AS serviceName,
+              r.serviceVersion AS serviceVersion,
+              COUNT(CASE WHEN t.statusCode = ? THEN 1 END) AS nbErrors,
+              r.attributes AS attributes
+      FROM traces t
+        JOIN roots r ON r.traceId = t.traceId
+      GROUP BY t.traceId, r.name, r.serviceName, r.serviceVersion, r.startTime, r.attributes
+      ORDER BY r.startTime DESC, t.traceId DESC`,
+  }),
 };

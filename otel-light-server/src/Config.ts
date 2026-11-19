@@ -73,6 +73,9 @@ export class Config extends ConfigBase {
   public ANALYTICS_STATS_CACHE_TTL_SECONDS = 30;
   public ANALYTICS_STATS_CACHE_MAX_ENTRIES = 100;
 
+  // Streamed analytics export: hard cap on rows per export request.
+  public ANALYTICS_EXPORT_MAX_ROWS = 100_000;
+
   // LLM Recommendation
   public LLM_API_KEY = "";
   public LLM_API_URL = "https://api.deepseek.com/chat/completions";
@@ -144,6 +147,7 @@ export class Config extends ConfigBase {
     this.addConfigField({ field: "ANALYTICS_STATS_SAMPLE_CAP" });
     this.addConfigField({ field: "ANALYTICS_STATS_CACHE_TTL_SECONDS" });
     this.addConfigField({ field: "ANALYTICS_STATS_CACHE_MAX_ENTRIES" });
+    this.addConfigField({ field: "ANALYTICS_EXPORT_MAX_ROWS" });
     this.addConfigField({ field: "LLM_API_KEY", sensitive: true });
     this.addConfigField({ field: "LLM_API_URL" });
     this.addConfigField({ field: "LLM_MODEL" });
@@ -263,6 +267,12 @@ export class Config extends ConfigBase {
       100,
       1,
       10000,
+    );
+    this.ANALYTICS_EXPORT_MAX_ROWS = ConfigClampNumber(
+      this.ANALYTICS_EXPORT_MAX_ROWS,
+      100_000,
+      1,
+      1_000_000,
     );
     // A 0/negative value would turn the self-metrics refresh into a hot loop.
     this.METRICS_SELF_REFRESH_MINUTES = ConfigClampNumber(

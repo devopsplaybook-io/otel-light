@@ -4,7 +4,6 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
-  AnalyticsUtilsEscapeLike,
   AnalyticsUtilsGetDefaultFromTime24h,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
@@ -16,7 +15,13 @@ import {
   AnalyticsStatsGetSampleCap,
 } from "./AnalyticsStatsCache";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
-import { SignalNormalizationSeverity } from "../SignalNormalization";
+import {
+  AnalyticsFiltersAttributesSql,
+  AnalyticsFiltersDurationSql,
+  AnalyticsFiltersFingerprint,
+  AnalyticsFiltersKeywordsSql,
+  AnalyticsFiltersParse,
+} from "./AnalyticsFilters";
 
 const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
 const MIN_LOGS_STATS_BUCKET_NS = 1_000_000_000;
@@ -54,6 +59,7 @@ export class AnalyticsStatsRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        attr?: string | string[];
         severity?: string;
         serviceName?: string;
         serviceVersion?: string;
@@ -139,37 +145,42 @@ export class AnalyticsStatsRoutes {
         );
         sqlParams.push(toTime);
       }
-      if (req.query.keywords?.trim()) {
-        appendWhere(
-          "keywords LIKE " +
-            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1) +
-            " ESCAPE '\\'",
-        );
-        sqlParams.push(
-          `%${AnalyticsUtilsEscapeLike(req.query.keywords.toLowerCase().trim())}%`,
-        );
+      const parsedFilters = AnalyticsFiltersParse(req.query);
+      if (parsedFilters.error) {
+        return res.status(400).send({ error: parsedFilters.error });
       }
-      const severity = SignalNormalizationSeverity(req.query.severity);
-      if (severity) {
+      const filters = parsedFilters.filters;
+      const filterCtx = { dbType, params: sqlParams, varAt: (index: number) => AnalyticsUtilsGetSQLVariable(dbType, index) };
+      sqlWhere += AnalyticsFiltersKeywordsSql(
+        filterCtx,
+        "keywords",
+        filters.keywords,
+      );
+      sqlWhere += AnalyticsFiltersAttributesSql(
+        filterCtx,
+        "attributes",
+        filters.attributes,
+      );
+      if (filters.severity) {
         appendWhere(
           "severity = " +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(severity);
+        sqlParams.push(filters.severity);
       }
-      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+      if (filters.serviceName) {
         appendWhere(
           ' "serviceName" = ' +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(String(req.query.serviceName).trim());
+        sqlParams.push(filters.serviceName);
       }
-      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+      if (filters.serviceVersion) {
         appendWhere(
           ' "serviceVersion" = ' +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(String(req.query.serviceVersion).trim());
+        sqlParams.push(filters.serviceVersion);
       }
 
       // The bucket size parameter is referenced exactly once (the query
@@ -224,7 +235,11 @@ export class AnalyticsStatsRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        attr?: string | string[];
         errorsOnly?: string;
+        status?: string;
+        durationMin?: string | number;
+        durationMax?: string | number;
         serviceName?: string;
         serviceVersion?: string;
         includePercentiles?: string;
@@ -250,10 +265,12 @@ export class AnalyticsStatsRoutes {
           .trim()
           .toLowerCase(),
       );
-      const serviceName = String(req.query.serviceName ?? "").trim();
-      const serviceVersion = String(req.query.serviceVersion ?? "").trim();
-      const keywords = String(req.query.keywords ?? "").toLowerCase().trim();
       const errorsOnly = req.query.errorsOnly === "true";
+      const parsedFilters = AnalyticsFiltersParse(req.query, { traces: true });
+      if (parsedFilters.error) {
+        return res.status(400).send({ error: parsedFilters.error });
+      }
+      const filters = parsedFilters.filters;
 
       // Default window: bound the aggregation scan unless the caller asked
       // for an explicit range (the web UI always sends `from`). Windows are
@@ -273,11 +290,12 @@ export class AnalyticsStatsRoutes {
       const cacheKey = AnalyticsStatsCacheBuildKey(
         fromTime,
         toTime,
-        serviceName || undefined,
-        serviceVersion || undefined,
+        filters.serviceName || undefined,
+        filters.serviceVersion || undefined,
         includePercentiles,
-        keywords || undefined,
+        filters.keywords.join(" ") || undefined,
         errorsOnly,
+        AnalyticsFiltersFingerprint(filters),
       );
       const cached = AnalyticsStatsCacheGet(cacheKey);
       if (cached) {
@@ -295,25 +313,41 @@ export class AnalyticsStatsRoutes {
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
         rootsParams.push(toTime);
       }
-      if (serviceName) {
+      const filterCtx = { dbType, params: rootsParams, varAt: (index: number) => AnalyticsUtilsGetSQLVariable(dbType, index) };
+      if (filters.serviceName) {
         rootsWhere +=
           ` AND ${q("serviceName")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(serviceName);
+        rootsParams.push(filters.serviceName);
       }
-      if (serviceVersion) {
+      if (filters.serviceVersion) {
         rootsWhere +=
           ` AND ${q("serviceVersion")} = ` +
           AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-        rootsParams.push(serviceVersion);
+        rootsParams.push(filters.serviceVersion);
       }
-      if (keywords) {
+      rootsWhere += AnalyticsFiltersKeywordsSql(
+        filterCtx,
+        q("keywords"),
+        filters.keywords,
+      );
+      rootsWhere += AnalyticsFiltersAttributesSql(
+        filterCtx,
+        `traces.${q("attributes")}`,
+        filters.attributes,
+      );
+      if (filters.status !== undefined) {
         rootsWhere +=
-          ` AND ${q("keywords")} LIKE ` +
-          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1) +
-          " ESCAPE '\\'";
-        rootsParams.push(`%${AnalyticsUtilsEscapeLike(keywords)}%`);
+          ` AND ${q("statusCode")} = ` +
+          AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+        rootsParams.push(filters.status);
       }
+      rootsWhere += AnalyticsFiltersDurationSql(
+        filterCtx,
+        `traces.${q("traceId")}`,
+        filters.durationMinNs,
+        filters.durationMaxNs,
+      );
       // Same semantics as the traces list: any span of the trace is an error.
       if (errorsOnly) {
         rootsWhere +=

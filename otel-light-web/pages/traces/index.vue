@@ -66,6 +66,22 @@
         <span v-else-if="!hasMore" class="no-more-data">No more data</span>
       </div>
     </div>
+    <div class="fab-actions">
+      <button
+        class="fab-button"
+        @click="exportServer('csv')"
+        title="Export all filtered traces as CSV"
+      >
+        <i class="bi bi-download"></i>&nbsp;CSV
+      </button>
+      <button
+        class="fab-button"
+        @click="exportServer('jsonl')"
+        title="Export all filtered traces as JSONL"
+      >
+        <i class="bi bi-filetype-json"></i>&nbsp;JSONL
+      </button>
+    </div>
   </div>
 </template>
 
@@ -79,7 +95,10 @@ import { TracesTabs } from "~~/services/TracesTabs";
 import { UtilsDecompressJson } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
-import { handleError, ErrorAlertText } from "~~/services/EventBus";
+import { handleError, ErrorAlertText, EventBus, EventTypes } from "~~/services/EventBus";
+import {
+  ServerExportDownload
+} from "~~/services/ServerExport";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import {
   SignalCursorMax,
@@ -351,6 +370,23 @@ export default {
         desc: this.sortKey === key && this.sortOrder === "desc",
       };
     },
+    async exportServer(format) {
+      try {
+        const { maxRows } = await ServerExportDownload(
+          "traces",
+          this.filter.queryString,
+          format,
+        );
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "info",
+          text: maxRows
+            ? `Exported filtered traces (${format.toUpperCase()}, capped at ${maxRows} rows)`
+            : `Exported filtered traces (${format.toUpperCase()})`,
+        });
+      } catch (err) {
+        handleError(err);
+      }
+    },
   },
 };
 </script>
@@ -378,5 +414,21 @@ export default {
   margin-left: 0.5rem;
   padding: 0.2em 0.6em;
   font-size: 0.85em;
+}
+
+.fab-actions {
+  position: fixed;
+  bottom: 2rem;
+  right: 2rem;
+  z-index: 1000;
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+.fab-actions .fab-button {
+  position: static;
+}
+.fab-actions .fab-button i {
+  vertical-align: middle;
 }
 </style>

@@ -9,6 +9,7 @@ import { AnalyticsLogsRoutes } from "./analytics/AnalyticsLogsRoutes";
 import { AnalyticsMetricsRoutes } from "./analytics/AnalyticsMetricsRoutes";
 import { AnalyticsServicesRoutes } from "./analytics/AnalyticsServicesRoutes";
 import { AnalyticsCacheInit } from "./analytics/AnalyticsCache";
+import { AnalyticsExportInit } from "./analytics/AnalyticsExport";
 import { AnalyticsStatsRoutes } from "./analytics/AnalyticsStatsRoutes";
 import { AnalyticsStatsInit } from "./analytics/AnalyticsStatsCache";
 import { AnalyticsTracesRoutes } from "./analytics/AnalyticsTracesRoutes";
@@ -25,6 +26,7 @@ import { LongestTracesReportInit } from "./reports/LongestTracesReport";
 import { MostCalledTracesReportInit } from "./reports/MostCalledTracesReport";
 import { NotificationInit } from "./NotificationService";
 import { RateLimitsInit } from "./RateLimits";
+import { SavedViewsRoutes } from "./savedviews/SavedViewsRoutes";
 import {
   OTelLogger,
   OTelSetMeter,
@@ -78,6 +80,7 @@ Promise.resolve().then(async () => {
   await SignalUtilsInit(span, config);
   await AnalyticsUtilsInit(span, config);
   await AnalyticsStatsInit(span, config);
+  await AnalyticsExportInit(span, config);
   const migrationsStartedAt = Date.now();
   await DbUtilsInit(
     span,
@@ -124,7 +127,8 @@ Promise.resolve().then(async () => {
   if (config.CORS_POLICY_ORIGIN) {
     fastify.register(fastifyCors, {
       origin: config.CORS_POLICY_ORIGIN,
-      methods: "GET,PUT,POST,DELETE",
+      methods: "GET,PUT,POST,PATCH,DELETE",
+      exposedHeaders: ["X-Export-Max-Rows", "X-Export-Format"],
     });
   }
 
@@ -170,6 +174,9 @@ Promise.resolve().then(async () => {
   });
   fastify.register(new SettingsRoutes().getRoutes, {
     prefix: "/api/settings",
+  });
+  fastify.register(new SavedViewsRoutes().getRoutes, {
+    prefix: "/api/saved-views",
   });
   fastify.register(new ErrorAlertsRoutes().getRoutes, {
     prefix: "/api/alerts",
