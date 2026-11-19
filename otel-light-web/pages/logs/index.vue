@@ -34,6 +34,17 @@
     <div class="fab-actions">
       <button
         class="fab-button"
+        @click="copyFilterLink"
+        title="Copy link to this filtered view"
+      >
+        <i
+          class="bi"
+          :class="copiedLink ? 'bi-clipboard-check' : 'bi-link-45deg'"
+        ></i>
+        <template v-if="copiedLink">&nbsp;Copied</template>
+      </button>
+      <button
+        class="fab-button"
         @click="exportServer('csv')"
         title="Export all filtered logs as CSV"
       >
@@ -67,6 +78,7 @@ import {
   ServerExportDownload
 } from "~~/services/ServerExport";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
+import { ClipboardWriteText } from "~~/services/Clipboard";
 import {
   SignalCursorMax,
   SignalDedupeById,
@@ -92,6 +104,8 @@ export default {
       selectedLog: null,
       fetchTime: null,
       observer: null,
+      copiedLink: false,
+      copiedLinkTimer: null,
     };
   },
   async created() {
@@ -125,6 +139,9 @@ export default {
     }
     if (this.refreshIntervalId) {
       clearInterval(this.refreshIntervalId);
+    }
+    if (this.copiedLinkTimer) {
+      clearTimeout(this.copiedLinkTimer);
     }
   },
   computed: {
@@ -206,6 +223,25 @@ export default {
             ? `Exported filtered logs (${format.toUpperCase()}, capped at ${maxRows} rows)`
             : `Exported filtered logs (${format.toUpperCase()})`,
         });
+      } catch (err) {
+        handleError(err);
+      }
+    },
+    async copyFilterLink() {
+      try {
+        await ClipboardWriteText(window.location.href);
+        this.copiedLink = true;
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "info",
+          text: "Link copied",
+        });
+        if (this.copiedLinkTimer) {
+          clearTimeout(this.copiedLinkTimer);
+        }
+        this.copiedLinkTimer = setTimeout(() => {
+          this.copiedLink = false;
+          this.copiedLinkTimer = null;
+        }, 2000);
       } catch (err) {
         handleError(err);
       }

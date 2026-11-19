@@ -71,6 +71,11 @@ export function TraceApiLogsUrl(baseUrl: string, traceId: string): string {
   return `${baseUrl}/analytics/traces/${encodeURIComponent(traceId)}/logs`;
 }
 
+// Client-side route of the trace detail page.
+export function TracePagePath(traceId: string): string {
+  return "/traces/" + encodeURIComponent(traceId);
+}
+
 // Expands an aggregated-stats group in the Traces list: keep the active
 // filters and narrow to the group's service, version and exact trace name.
 export function TraceGroupToAnalyticsParams(

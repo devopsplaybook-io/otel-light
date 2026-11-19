@@ -1,4 +1,5 @@
 import { analyticsGet } from "~~/services/AnalyticsQueue";
+import type { AnalyticsEnqueueOptions } from "~~/services/AnalyticsQueue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { UtilsDecompressJson } from "~~/services/Utils";
@@ -18,6 +19,7 @@ export async function MetricsServiceFetchMetricData(
   serviceName: string,
   name: string,
   filterQueryString: string,
+  options?: AnalyticsEnqueueOptions,
 ): Promise<any[]> {
   const params = new URLSearchParams(filterQueryString || "");
   params.delete("serviceName");
@@ -27,6 +29,10 @@ export async function MetricsServiceFetchMetricData(
   params.set("name", name);
   params.set("maxPoints", String(METRICS_FETCH_MAX_POINTS));
   const url = `${SERVER_URL}/analytics/metrics?${params.toString()}`;
-  const response = await analyticsGet(url, await AuthService.getAuthHeader());
+  const response = await analyticsGet(
+    url,
+    await AuthService.getAuthHeader(),
+    options,
+  );
   return await UtilsDecompressJson(response.data.metrics);
 }

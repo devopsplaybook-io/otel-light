@@ -1,6 +1,7 @@
 <template>
   <div>
     <h3>Signal Deletion Settings</h3>
+    <div class="cleanup-run-status">{{ lastRunText() }}</div>
     <form id="settings">
       <div
         v-for="(rule, idx) in settings.deleteRules"
@@ -44,9 +45,17 @@
         >
           <i class="bi bi-trash" />
         </button>
+        <div class="cleanup-rule-run">{{ ruleRunText(rule) }}</div>
         <div v-if="ruleIssues(rule).length" class="delete-rule-invalid">
           <i class="bi bi-exclamation-triangle" />
           This rule will be skipped: {{ ruleIssues(rule).join(", ") }}
+          <button
+            type="button"
+            class="delete-rule-fix"
+            @click="fixRule(idx)"
+          >
+            Fix
+          </button>
         </div>
       </div>
       <button type="button" @click="addRule">Add Rule</button>
@@ -62,7 +71,7 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { EventBus, EventTypes, handleError } from "~~/services/EventBus";
-import { cleanupRuleIssues, validateCleanupRules } from "~~/services/CleanupRules";
+import { cleanupRuleIssues, validateCleanupRules, cleanupRuleFix, cleanupRuleKey, CLEANUP_RUN_STATUS_CATEGORY } from "~~/services/CleanupRules";
 
 export default {
   components: { SearchOptions },
@@ -72,6 +81,7 @@ export default {
       settings: {
         deleteRules: [],
       },
+      runStatus: null,
     };
   },
   async created() {
@@ -83,11 +93,53 @@ export default {
       return;
     }
     this.fetchSettings();
+    this.fetchRunStatus();
     this.fetchServices();
   },
   methods: {
     ruleIssues(rule) {
       return cleanupRuleIssues(rule);
+    },
+    lastRunText() {
+      const runAt = this.runStatus?.runAt;
+      if (!runAt) {
+        return "No cleanup run recorded yet";
+      }
+      const date = new Date(runAt);
+      if (!Number.isFinite(date.getTime())) {
+        return "No cleanup run recorded yet";
+      }
+      return `Last cleanup run: ${date.toLocaleString()}`;
+    },
+    ruleRunText(rule) {
+      const key = cleanupRuleKey(rule);
+      const outcome = (this.runStatus?.rules || []).find(
+        (item) => item.key === key,
+      );
+      if (!outcome) {
+        return "No run recorded for this rule yet";
+      }
+      if (outcome.status === "deleted") {
+        return `Last run: deleted ${outcome.deletedRows} row(s)`;
+      }
+      if (outcome.status === "skipped") {
+        return `Last run skipped: ${outcome.message}`;
+      }
+      if (outcome.status === "error") {
+        return `Last run failed: ${outcome.message}`;
+      }
+      return "No run recorded for this rule yet";
+    },
+    fixRule(idx) {
+      this.settings.deleteRules.splice(
+        idx,
+        1,
+        cleanupRuleFix(this.settings.deleteRules[idx]),
+      );
+      EventBus.emit(EventTypes.ALERT_MESSAGE, {
+        type: "info",
+        text: `Rule ${idx + 1} fixed — review and Save`,
+      });
     },
     addRule() {
       this.settings.deleteRules.push({
@@ -140,6 +192,17 @@ export default {
           };
         })
         .catch(handleError);
+    },
+    async fetchRunStatus() {
+      try {
+        const response = await axios.get(
+          `${SERVER_URL}/settings/${CLEANUP_RUN_STATUS_CATEGORY}`,
+          await AuthService.getAuthHeader(),
+        );
+        this.runStatus = response.data.settings.content || {};
+      } catch (err) {
+        handleError(err);
+      }
     },
     async saveSettings() {
       const issues = validateCleanupRules(this.settings.deleteRules);
@@ -200,6 +263,26 @@ export default {
   grid-column: 1 / -1;
   color: #b45309;
   font-size: 0.8rem;
+}
+
+.delete-rule-fix {
+  margin: 0 0 0 0.5rem;
+  padding: 0.1rem 0.6rem;
+  width: auto;
+  font-size: 0.8rem;
+  line-height: 1.4;
+}
+
+.cleanup-run-status {
+  font-size: 0.8rem;
+  opacity: 0.7;
+  margin-bottom: 1rem;
+}
+
+.cleanup-rule-run {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  opacity: 0.65;
 }
 
 @media (max-width: 600px) {

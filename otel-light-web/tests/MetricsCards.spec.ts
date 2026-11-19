@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  METRICS_CARDS_STALE_TOLERANCE_NS,
   MetricsCardsFormatValue,
+  MetricsCardsIsStale,
+  MetricsCardsLastSeenAdvanced,
   MetricsCardsLatestInfo,
   MetricsCardsSortAutoLoadLast,
 } from "../services/MetricsCards";
@@ -145,5 +148,51 @@ describe("MetricsCardsSortAutoLoadLast", () => {
 
   it("returns an empty array for empty input", () => {
     expect(MetricsCardsSortAutoLoadLast([])).toEqual([]);
+  });
+});
+
+describe("MetricsCardsIsStale", () => {
+  const tolerance = METRICS_CARDS_STALE_TOLERANCE_NS;
+
+  it("returns false when no rendered point is known", () => {
+    expect(MetricsCardsIsStale(10_000_000_000, null)).toBe(false);
+    expect(MetricsCardsIsStale(10_000_000_000, undefined)).toBe(false);
+    expect(MetricsCardsIsStale(10_000_000_000, Number.NaN)).toBe(false);
+  });
+
+  it("returns false within the tolerance boundary", () => {
+    const latest = 1_000_000_000;
+    expect(MetricsCardsIsStale(latest + tolerance, latest)).toBe(false);
+  });
+
+  it("returns true when last-seen is more than the tolerance behind", () => {
+    const latest = 1_000_000_000;
+    expect(MetricsCardsIsStale(latest + tolerance + 1, latest)).toBe(true);
+  });
+
+  it("returns false when last-seen is behind the rendered point", () => {
+    expect(MetricsCardsIsStale(1_000_000_000, 2_000_000_000)).toBe(false);
+  });
+
+  it("honours a custom tolerance", () => {
+    expect(MetricsCardsIsStale(2_000_000_000, 1_000_000_000, 2_000_000_000)).toBe(false);
+  });
+});
+
+describe("MetricsCardsLastSeenAdvanced", () => {
+  it("returns true only for a higher finite value", () => {
+    expect(MetricsCardsLastSeenAdvanced(10, 11)).toBe(true);
+    expect(MetricsCardsLastSeenAdvanced("10", "11")).toBe(true);
+  });
+
+  it("returns false for equal or lower values", () => {
+    expect(MetricsCardsLastSeenAdvanced(10, 10)).toBe(false);
+    expect(MetricsCardsLastSeenAdvanced(11, 10)).toBe(false);
+  });
+
+  it("returns false for non-numeric values", () => {
+    expect(MetricsCardsLastSeenAdvanced(undefined, 10)).toBe(false);
+    expect(MetricsCardsLastSeenAdvanced(10, null)).toBe(false);
+    expect(MetricsCardsLastSeenAdvanced("abc", 10)).toBe(false);
   });
 });

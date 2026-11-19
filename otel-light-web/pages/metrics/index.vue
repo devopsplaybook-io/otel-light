@@ -8,7 +8,7 @@
     <div id="metrics-list">
       <article
         v-for="metric of visibleMetrics"
-        :key="metric.serviceName + metric.name + refreshCounter"
+        :key="cardKey(metric)"
       >
         <header>
           <div class="metric-header">
@@ -24,14 +24,45 @@
             <span class="metric-service-name">{{ metric.serviceName }}</span>
           </div>
           <div
-            v-if="latestInfo[getMetricKey(metric)]"
+            v-if="latestInfo[cardKey(metric)]"
             class="metric-latest"
-            :title="latestInfo[getMetricKey(metric)].seriesName"
+            :title="latestInfo[cardKey(metric)].seriesName"
           >
-            {{ latestText(latestInfo[getMetricKey(metric)]) }}
+            {{ latestText(latestInfo[cardKey(metric)]) }}
           </div>
           <div v-else class="metric-latest metric-latest-unknown">
             last update {{ relativeTime(metric.lastSeen) }}
+          </div>
+          <div
+            v-if="metric.load && cardStates[cardKey(metric)]"
+            class="metric-load-state"
+          >
+            <template v-if="cardStates[cardKey(metric)] === 'queued'">
+              Queued…
+            </template>
+            <template v-else-if="cardStates[cardKey(metric)] === 'loading'">
+              Loading…
+            </template>
+            <template v-else-if="cardStates[cardKey(metric)] === 'error'">
+              Failed to load
+              <button
+                type="button"
+                class="metric-state-action"
+                @click="retryMetric(metric)"
+              >
+                Retry
+              </button>
+            </template>
+            <template v-else-if="isCardStale(metric)">
+              Newer data available
+              <button
+                type="button"
+                class="metric-state-action"
+                @click="retryMetric(metric)"
+              >
+                Refresh
+              </button>
+            </template>
           </div>
         </header>
 
@@ -43,8 +74,10 @@
           :serviceName="metric.serviceName"
           :name="metric.name"
           :filter="filter"
-          @latest="onMetricLatest(getMetricKey(metric), $event)"
-          @loadState="onMetricLoadState(getMetricKey(metric), $event)"
+          :reloadToken="reloadTokens[cardKey(metric)] || 0"
+          :priority="!!priorityKeys[cardKey(metric)]"
+          @latest="onMetricLatest(cardKey(metric), $event)"
+          @loadState="onMetricLoadState(cardKey(metric), $event)"
           hydrate-on-visible
         />
         <LazyMetricDataHistogram
@@ -52,8 +85,10 @@
           :serviceName="metric.serviceName"
           :name="metric.name"
           :filter="filter"
-          @latest="onMetricLatest(getMetricKey(metric), $event)"
-          @loadState="onMetricLoadState(getMetricKey(metric), $event)"
+          :reloadToken="reloadTokens[cardKey(metric)] || 0"
+          :priority="!!priorityKeys[cardKey(metric)]"
+          @latest="onMetricLatest(cardKey(metric), $event)"
+          @loadState="onMetricLoadState(cardKey(metric), $event)"
           hydrate-on-visible
         />
         <LazyMetricDataSum
@@ -61,8 +96,10 @@
           :serviceName="metric.serviceName"
           :name="metric.name"
           :filter="filter"
-          @latest="onMetricLatest(getMetricKey(metric), $event)"
-          @loadState="onMetricLoadState(getMetricKey(metric), $event)"
+          :reloadToken="reloadTokens[cardKey(metric)] || 0"
+          :priority="!!priorityKeys[cardKey(metric)]"
+          @latest="onMetricLatest(cardKey(metric), $event)"
+          @loadState="onMetricLoadState(cardKey(metric), $event)"
           hydrate-on-visible
         />
       </article>
@@ -89,7 +126,7 @@ import SearchOptions from "~/components/SearchOptions.vue";
 import Loading from "~/components/Loading.vue";
 import FirstRunGuidance from "~/components/FirstRunGuidance.vue";
 import { ServicesStore } from "~/stores/ServicesStore";
-import { MetricsCardsFormatValue, MetricsCardsSortAutoLoadLast } from "~~/services/MetricsCards";
+import { MetricsCardsFormatValue, MetricsCardsIsStale, MetricsCardsLastSeenAdvanced, MetricsCardsSortAutoLoadLast } from "~~/services/MetricsCards";
 import { UtilsDecompressJson, UtilsRelativeTime } from "~/services/Utils";
 import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
@@ -102,7 +139,6 @@ export default {
   data() {
     return {
       metricsNames: [],
-      refreshCounter: 0,
       traceSpans: {},
       filter: {
         queryString: "",
@@ -112,10 +148,14 @@ export default {
       fetchTime: null,
       refreshIntervalId: null,
       refreshIntervalValue: RefreshIntervalService.get(),
-      lastNamesSnapshot: null,
+      refreshPending: false,
+      visibilityHandler: null,
       manuallyLoaded: new Set(),
       latestInfo: {},
       cardStates: {},
+      reloadTokens: {},
+      priorityKeys: {},
+      lastSeenByKey: {},
     };
   },
   async created() {
@@ -129,13 +169,30 @@ export default {
     const interval = parseInt(this.refreshIntervalValue, 10);
     if (interval > 0) {
       this.refreshIntervalId = setInterval(() => {
+        // Pause the auto-refresh while the tab is hidden; the names list is
+        // refreshed once when it becomes visible again.
+        if (document.hidden) {
+          this.refreshPending = true;
+          return;
+        }
         this.fetchMetricsNames();
       }, interval);
     }
+    this.visibilityHandler = () => {
+      if (document.hidden || !this.refreshPending) {
+        return;
+      }
+      this.refreshPending = false;
+      this.fetchMetricsNames();
+    };
+    document.addEventListener("visibilitychange", this.visibilityHandler);
   },
   beforeUnmount() {
     if (this.refreshIntervalId) {
       clearInterval(this.refreshIntervalId);
+    }
+    if (this.visibilityHandler) {
+      document.removeEventListener("visibilitychange", this.visibilityHandler);
     }
   },
   computed: {
@@ -157,33 +214,43 @@ export default {
       let loaded = 0;
       let errors = 0;
       let inFlight = 0;
+      let queued = 0;
+      let stale = 0;
       for (const metric of this.visibleMetrics) {
-        const key = this.getMetricKey(metric);
+        const key = this.cardKey(metric);
         if (metric.load) {
           toLoad++;
         }
         const state = this.cardStates[key];
         if (state === "loaded") {
           loaded++;
+          if (this.isCardStale(metric)) {
+            stale++;
+          }
         } else if (state === "error") {
           errors++;
         } else if (state === "loading") {
           inFlight++;
+        } else if (state === "queued") {
+          queued++;
         }
       }
       const done = loaded + errors;
       const errorSuffix =
         errors > 0 ? ` — ${errors} charts failed to load` : "";
-      if (inFlight > 0) {
-        return `Loading ${done} of ${toLoad} metric charts…`;
+      const staleSuffix =
+        stale > 0 ? ` — ${stale} with newer data` : "";
+      if (inFlight > 0 || queued > 0) {
+        const queuedSuffix = queued > 0 ? ` (${queued} queued)` : "";
+        return `Loading ${done} of ${toLoad} metric charts…${queuedSuffix}${errorSuffix}`;
       }
       if (toLoad === 0) {
         return "";
       }
       if (done < toLoad) {
-        return `${done} of ${toLoad} charts loaded — scroll to load more${errorSuffix}`;
+        return `${done} of ${toLoad} charts loaded — scroll to load more${errorSuffix}${staleSuffix}`;
       }
-      return `${toLoad} metric charts${errorSuffix}`;
+      return `${toLoad} metric charts${errorSuffix}${staleSuffix}`;
     },
   },
   methods: {
@@ -203,7 +270,9 @@ export default {
     },
     onFilterChanged(filter) {
       this.filter = { ...filter };
-      this.refreshCounter++;
+      this.lastSeenByKey = {};
+      this.reloadTokens = {};
+      this.priorityKeys = {};
       this.fetchMetricsNames();
     },
     async fetchMetricsNames() {
@@ -219,19 +288,32 @@ export default {
             return;
           }
           const metrics = await UtilsDecompressJson(response.data.metricsNames);
+          const nextLastSeen = {};
+          const nextReloadTokens = { ...this.reloadTokens };
           for (const metric of metrics) {
             const key = this.getMetricKey(metric);
             metric.autoLoad = PreferencesService.getMetricAutoLoad(key);
             metric.load = metric.autoLoad || this.manuallyLoaded.has(key);
+            // Cards are keyed by identity: the names list may contain the
+            // same service+name with several types.
+            const cardIdentity = this.cardKey(metric);
+            const lastSeen = Number(metric.lastSeen) || 0;
+            nextLastSeen[cardIdentity] = lastSeen;
+            const previous = this.lastSeenByKey[cardIdentity];
+            // Only charts that already rendered and whose data actually
+            // advanced are reloaded; a names refresh never remounts cards.
+            if (
+              previous !== undefined &&
+              MetricsCardsLastSeenAdvanced(previous, lastSeen) &&
+              this.cardStates[cardIdentity] === "loaded"
+            ) {
+              nextReloadTokens[cardIdentity] =
+                (nextReloadTokens[cardIdentity] || 0) + 1;
+            }
           }
           this.metricsNames = metrics;
-          const snapshot = metrics
-            .map((metric) => `${metric.serviceName}|${metric.name}|${metric.lastSeen}`)
-            .join(",");
-          if (snapshot !== this.lastNamesSnapshot) {
-            this.lastNamesSnapshot = snapshot;
-            this.refreshCounter++;
-          }
+          this.lastSeenByKey = nextLastSeen;
+          this.reloadTokens = nextReloadTokens;
         })
         .catch(handleError)
         .finally(() => {
@@ -239,12 +321,34 @@ export default {
           this.loadedOnce = true;
         });
     },
+    cardKey(metric) {
+      return JSON.stringify([metric.serviceName, metric.name, metric.type]);
+    },
     getMetricKey(metric) {
       return `${metric.serviceName}-${metric.name}`;
+    },
+    isCardStale(metric) {
+      const key = this.cardKey(metric);
+      return (
+        this.cardStates[key] === "loaded" &&
+        MetricsCardsIsStale(
+          Number(metric.lastSeen),
+          this.latestInfo[key]?.timeUnixNano,
+        )
+      );
+    },
+    retryMetric(metric) {
+      const key = this.cardKey(metric);
+      this.priorityKeys = { ...this.priorityKeys, [key]: true };
+      this.reloadTokens = {
+        ...this.reloadTokens,
+        [key]: (this.reloadTokens[key] || 0) + 1,
+      };
     },
     toggleMetricAutoLoad(metric, event) {
       const autoLoad = event.target.checked;
       const key = this.getMetricKey(metric);
+      const cardIdentity = this.cardKey(metric);
       PreferencesService.setMetricAutoLoad(key, autoLoad);
       metric.autoLoad = autoLoad;
       metric.load = autoLoad;
@@ -252,8 +356,8 @@ export default {
         this.manuallyLoaded.add(key);
       } else {
         this.manuallyLoaded.delete(key);
-        delete this.cardStates[key];
-        delete this.latestInfo[key];
+        delete this.cardStates[cardIdentity];
+        delete this.latestInfo[cardIdentity];
       }
     },
     loadMetric(metric) {
@@ -265,6 +369,11 @@ export default {
     },
     onMetricLoadState(key, state) {
       this.cardStates = { ...this.cardStates, [key]: state };
+      if (state === "loaded" || state === "error") {
+        const priorityKeys = { ...this.priorityKeys };
+        delete priorityKeys[key];
+        this.priorityKeys = priorityKeys;
+      }
     },
   },
 };
@@ -324,6 +433,20 @@ export default {
 
 .metric-latest-unknown {
   opacity: 0.45;
+}
+
+.metric-load-state {
+  font-size: 0.7em;
+  opacity: 0.7;
+  margin-top: 0.15rem;
+}
+
+.metric-state-action {
+  margin: 0 0 0 0.35rem;
+  padding: 0.05rem 0.45rem;
+  width: auto;
+  font-size: 0.9em;
+  line-height: 1.4;
 }
 
 .metric-manual-load {

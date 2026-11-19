@@ -109,4 +109,70 @@ describe("AnalyticsQueue", () => {
     await expect(second).resolves.toBe("second");
     expect(vi.getTimerCount()).toBe(0);
   });
+
+  it("runs a priority request before earlier normal ones", async () => {
+    const queue = new AnalyticsQueue({ maxConcurrent: 1, timeoutMs: 1000 });
+    let releaseBlocker: () => void = () => {};
+    const blocker = queue.enqueue(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseBlocker = resolve;
+        }),
+    );
+    await Promise.resolve();
+
+    const order: string[] = [];
+    const first = queue.enqueue(() => {
+      order.push("normal-1");
+      return Promise.resolve(1);
+    });
+    const second = queue.enqueue(() => {
+      order.push("normal-2");
+      return Promise.resolve(2);
+    });
+    const priority = queue.enqueue(
+      () => {
+        order.push("priority");
+        return Promise.resolve(3);
+      },
+      { priority: true },
+    );
+
+    releaseBlocker();
+    await Promise.all([blocker, first, second, priority]);
+    expect(order).toEqual(["priority", "normal-1", "normal-2"]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("calls onStart once, before the request starts", async () => {
+    const queue = new AnalyticsQueue({ maxConcurrent: 1, timeoutMs: 1000 });
+    const calls: string[] = [];
+
+    await expect(
+      queue.enqueue(
+        () => {
+          calls.push("request");
+          return Promise.resolve("ok");
+        },
+        { onStart: () => calls.push("onStart") },
+      ),
+    ).resolves.toBe("ok");
+
+    expect(calls).toEqual(["onStart", "request"]);
+  });
+
+  it("keeps the queue running when onStart throws", async () => {
+    const queue = new AnalyticsQueue({ maxConcurrent: 1, timeoutMs: 1000 });
+
+    const first = queue.enqueue(() => Promise.resolve("first"), {
+      onStart: () => {
+        throw new Error("ui callback failure");
+      },
+    });
+    const second = queue.enqueue(() => Promise.resolve("second"));
+
+    await expect(first).resolves.toBe("first");
+    await expect(second).resolves.toBe("second");
+    expect(vi.getTimerCount()).toBe(0);
+  });
 });

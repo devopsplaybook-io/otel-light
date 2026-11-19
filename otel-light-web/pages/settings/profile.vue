@@ -144,6 +144,18 @@
               @keyup.enter="createApiToken()"
             />
           </label>
+          <label>
+            Expires In
+            <select v-model.number="newApiToken.expiryDays">
+              <option
+                v-for="option in apiTokenExpiryOptions"
+                :key="option.days"
+                :value="option.days"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </label>
           <div class="article-actions">
             <button class="secondary" @click="createApiTokenStart(false)">
               Cancel
@@ -159,7 +171,9 @@
             <tr>
               <th>Name</th>
               <th>Created</th>
-              <th></th>
+              <th>Last used</th>
+              <th>Expires</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -167,13 +181,50 @@
               <td>{{ apiToken.name }}</td>
               <td>{{ new Date(apiToken.dateCreated).toLocaleString() }}</td>
               <td>
-                <button class="secondary" @click="revokeApiToken(apiToken.id)">
+                {{
+                  apiToken.lastUsedAt
+                    ? ApiTokensFormatDate(apiToken.lastUsedAt)
+                    : "Never"
+                }}
+              </td>
+              <td>
+                {{
+                  apiToken.expiresAt
+                    ? ApiTokensFormatDate(apiToken.expiresAt)
+                    : "Never"
+                }}
+                <span
+                  v-if="ApiTokensIsExpired(apiToken.expiresAt)"
+                  class="badge badge-expired"
+                  >Expired</span
+                >
+              </td>
+              <td>
+                <template v-if="pendingRevokeId === apiToken.id">
+                  <button
+                    class="secondary"
+                    @click="revokeApiToken(apiToken.id)"
+                  >
+                    <i class="bi bi-check-lg"></i> Confirm
+                  </button>
+                  <button class="secondary" @click="pendingRevokeId = null">
+                    Cancel
+                  </button>
+                </template>
+                <button
+                  v-else
+                  class="secondary"
+                  @click="confirmRevoke(apiToken.id)"
+                >
                   <i class="bi bi-trash"></i> Revoke
                 </button>
               </td>
             </tr>
           </tbody>
         </table>
+        <p v-if="apiTokens.length > 0" class="api-token-note">
+          Last use is updated at most once per hour.
+        </p>
       </article>
 
       <!-- Preferences -->
@@ -262,6 +313,13 @@ import { SERVER_URL } from "~~/services/Config.ts";
 import { AuthService } from "~~/services/AuthService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UserService } from "~~/services/UserService";
+import {
+  API_TOKENS_DEFAULT_EXPIRY_DAYS,
+  ApiTokensExpiryIso,
+  ApiTokensExpiryOptions,
+  ApiTokensFormatDate,
+  ApiTokensIsExpired,
+} from "~~/services/ApiTokens";
 import { ServicesStore } from "~~/stores/ServicesStore";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import {
@@ -281,10 +339,12 @@ export default {
       savingPassword: false,
       apiTokens: [],
       isApiTokenCreationStarted: false,
-      newApiToken: {},
+      newApiToken: { expiryDays: API_TOKENS_DEFAULT_EXPIRY_DAYS },
+      apiTokenExpiryOptions: ApiTokensExpiryOptions,
       savingApiToken: false,
       createdApiToken: null,
       copiedApiToken: false,
+      pendingRevokeId: null,
       isDark: PreferencesService.isDark(),
       refreshInterval: RefreshIntervalService.get(),
       defaultTimeWindow: {
@@ -308,6 +368,8 @@ export default {
     this.defaultTimeWindow.logs = getDefaultTimeWindow("logs");
   },
   methods: {
+    ApiTokensFormatDate,
+    ApiTokensIsExpired,
     async saveNew() {
       if (this.user.name && this.user.password) {
         this.loggingIn = true;
@@ -398,38 +460,50 @@ export default {
     async listApiTokens() {
       try {
         this.apiTokens = (await UserService.listApiTokens()).data;
+        this.pendingRevokeId = null;
       } catch (err) {
         handleError(err);
       }
     },
     createApiTokenStart(enable) {
       this.isApiTokenCreationStarted = enable;
-      this.newApiToken = {};
+      this.newApiToken = { expiryDays: API_TOKENS_DEFAULT_EXPIRY_DAYS };
       if (!enable) {
         this.createdApiToken = null;
         this.copiedApiToken = false;
       }
     },
     async createApiToken() {
-      if (this.newApiToken.name) {
-        this.savingApiToken = true;
-        try {
-          const res = await UserService.createApiToken(this.newApiToken.name);
-          this.createdApiToken = res.data.token;
-          this.copiedApiToken = false;
-          this.newApiToken = {};
-          this.isApiTokenCreationStarted = false;
-          await this.listApiTokens();
-        } catch (err) {
-          handleError(err);
-        } finally {
-          this.savingApiToken = false;
-        }
-      } else {
+      if (!this.newApiToken.name) {
         EventBus.emit(EventTypes.ALERT_MESSAGE, {
           type: "error",
           text: "Token name missing",
         });
+        return;
+      }
+      const expiresAt = ApiTokensExpiryIso(this.newApiToken.expiryDays);
+      if (!expiresAt) {
+        EventBus.emit(EventTypes.ALERT_MESSAGE, {
+          type: "error",
+          text: "Select a token expiry",
+        });
+        return;
+      }
+      this.savingApiToken = true;
+      try {
+        const res = await UserService.createApiToken(
+          this.newApiToken.name,
+          expiresAt,
+        );
+        this.createdApiToken = res.data.token;
+        this.copiedApiToken = false;
+        this.newApiToken = { expiryDays: API_TOKENS_DEFAULT_EXPIRY_DAYS };
+        this.isApiTokenCreationStarted = false;
+        await this.listApiTokens();
+      } catch (err) {
+        handleError(err);
+      } finally {
+        this.savingApiToken = false;
       }
     },
     async copyApiToken() {
@@ -440,9 +514,13 @@ export default {
         handleError(err);
       }
     },
+    confirmRevoke(id) {
+      this.pendingRevokeId = id;
+    },
     async revokeApiToken(id) {
       try {
         await UserService.deleteApiToken(id);
+        this.pendingRevokeId = null;
         EventBus.emit(EventTypes.ALERT_MESSAGE, {
           type: "info",
           text: "API Token Revoked",
@@ -568,10 +646,30 @@ article h4:first-child {
 
 .api-token-list {
   margin-top: 1rem;
+  display: block;
+  overflow-x: auto;
+  white-space: nowrap;
 }
 
 .api-token-list td:last-child,
 .api-token-list th:last-child {
   text-align: right;
+}
+
+.api-token-list td:last-child button {
+  margin: 0 0 0 0.35rem;
+  width: auto;
+  font-size: 0.8rem;
+}
+
+.api-token-note {
+  margin-top: 0.5rem;
+  font-size: 0.8em;
+  opacity: 0.65;
+}
+
+.badge-expired {
+  color: var(--pico-del-color);
+  background: color-mix(in srgb, var(--pico-del-color) 15%, transparent);
 }
 </style>
