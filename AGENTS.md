@@ -32,8 +32,8 @@ otel-light/
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
-│   │   ├── sqlite/init-0000..0014.sql  # 15 migration files (CREATE tables, indexes, ALTER columns, data backfills)
-│   │   └── postgres/init-0000..0014.sql # Parallel migrations for PostgreSQL
+│   │   ├── sqlite/init-0000..0015.sql  # 16 migration files (CREATE tables, indexes, ALTER columns, data backfills)
+│   │   └── postgres/init-0000..0015.sql # Parallel migrations for PostgreSQL
 │   └── src/
 │       ├── App.ts                      # Entry point: config init, OTel setup, DB init, Fastify routes
 │       ├── Config.ts                   # Extends ConfigBase from common-utils
@@ -46,13 +46,16 @@ otel-light/
 │       │   └── traces/TracesRoutes.ts   # POST /v1/traces
 │       ├── analytics/                   # Query & visualization APIs
 │       │   ├── AnalyticsCache.ts        # Cached service/metric lists with adaptive refresh
-│       │   ├── AnalyticsLogsRoutes.ts   # GET /api/analytics/logs
+│       │   ├── AnalyticsFilters.ts      # Shared keyword/attribute/status/duration parsing + dual-dialect SQL
+│       │   ├── AnalyticsLogsRoutes.ts   # GET /api/analytics/logs, /api/analytics/logs/export
 │       │   ├── AnalyticsMetricsRoutes.ts # GET /api/analytics/metrics
-│       │   ├── AnalyticsTracesRoutes.ts # GET /api/analytics/traces
+│       │   ├── AnalyticsTracesRoutes.ts # GET /api/analytics/traces, /api/analytics/traces/export
 │       │   ├── AnalyticsServicesRoutes.ts # GET /api/analytics/services
 │       │   ├── AnalyticsStatsRoutes.ts  # GET /api/analytics (dashboard stats)
+│       │   ├── AnalyticsExport.ts       # Streamed CSV/JSONL export helpers (cap, neutralization)
 │       │   ├── SelfMetrics.ts           # Observable gauges: signal counts per service
 │       │   └── AnalyticsUtils.ts        # Shared query helpers
+│       ├── savedviews/SavedViewsRoutes.ts # GET/POST/PATCH/DELETE /api/saved-views
 │       ├── reports/                     # Scheduled reports & LLM recommendations
 │       │   ├── Recommendation.ts        # LLM-powered daily analysis (DeepSeek/OpenAI-compatible)
 │       │   ├── RecommendationRoutes.ts  # GET/POST /api/recommendation
@@ -61,7 +64,7 @@ otel-light/
 │       │   ├── ReportsRoutes.ts        # GET/POST /api/reports/*
 │       │   └── TraceGroupReportTypes.ts # Shared types for trace grouping
 │       ├── settings/SettingsRoutes.ts  # GET/PUT /api/settings (maintenance rules)
-│       ├── model/                       # Data models (Span, Trace, Log, Metric, Settings)
+│       ├── model/                       # Data models (Span, Trace, Log, Metric, Settings, SavedView)
 │       └── utils-std-ts/               # Re-exports from @devopsplaybook.io/common-utils
 │           ├── DbUtils.ts              # → DbUtilsSetOTel, DbUtilsInit, DbUtilsExecSQL, DbUtilsQuerySQL, ...
 │           ├── DbUtilsNoTelemetry.ts   # → DbUtilsNoTelemetrySetLogger, DbUtilsNoTelemetryBatchInsert, ...
@@ -110,15 +113,16 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 7. `SignalUtilsInit` — ingestion auth header + body limit
 8. `AnalyticsUtilsInit` — apply `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`
 9. `AnalyticsStatsInit` — apply traces-stats sample cap / cache TTL / max entries, clear the cache
-10. `DbUtilsInit(span, config, sqlDir)` — run SQL migrations, open DB connection
-11. `AuthSetOTel` / `UsersDataSetOTel` + `AuthInit(span, config, scopes)` (from common-utils) — register app scopes, generate or load JWT signing key from DB
-12. `SignalRollupsInit` — one-time recount of the incremental rollups when empty
-13. `MaintenanceInit` — start signal cleanup + metrics compression scheduler
-14. `SelfMetricsInit` — register observable gauges for signal counts
-15. `AnalyticsCacheInit` — load cached analytics from file, refresh, start refresh scheduler
-16. `RecommendationInit` — schedule LLM recommendation generation via cron
-17. `LongestTracesReportInit` / `MostCalledTracesReportInit` — schedule static report generation
-18. Register Fastify routes, start listening on `config.API_PORT`
+10. `AnalyticsExportInit` — apply `ANALYTICS_EXPORT_MAX_ROWS`
+11. `DbUtilsInit(span, config, sqlDir)` — run SQL migrations, open DB connection
+12. `AuthSetOTel` / `UsersDataSetOTel` + `AuthInit(span, config, scopes)` (from common-utils) — register app scopes, generate or load JWT signing key from DB
+13. `SignalRollupsInit` — one-time recount of the incremental rollups when empty
+14. `MaintenanceInit` — start signal cleanup + metrics compression scheduler
+15. `SelfMetricsInit` — register observable gauges for signal counts
+16. `AnalyticsCacheInit` — load cached analytics from file, refresh, start refresh scheduler
+17. `RecommendationInit` — schedule LLM recommendation generation via cron
+18. `LongestTracesReportInit` / `MostCalledTracesReportInit` — schedule static report generation
+19. Register Fastify routes, start listening on `config.API_PORT`
 
 ## Database Schema
 
@@ -130,8 +134,9 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 | `traces`   | traceId, spanId, parentSpanId, name, serviceName, serviceVersion, startTime, endTime, statusCode, attributes, rawSpan, keywords | Ingested trace spans             |
 | `metrics`  | name, serviceName, serviceVersion, type, time, attributes, rawMetric, keywords                                                  | Ingested metric data points      |
 | `logs`     | serviceName, serviceVersion, severity, time, logText, attributes, keywords, traceId, spanId                                     | Ingested log records             |
+| `saved_views` | id, userId, name, signalType, query, shared, dateCreated, dateUpdated                                                        | Named search views (private or shared) |
 
-Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0014). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
+Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0015). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
 ## Key Conventions
 
@@ -267,6 +272,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 | `ANALYTICS_STATS_SAMPLE_CAP`                 | `20000`                                     | Max traces sampled for traces-stats percentiles |
 | `ANALYTICS_STATS_CACHE_TTL_SECONDS`          | `30`                                        | Traces-stats response cache TTL (0 = off)      |
 | `ANALYTICS_STATS_CACHE_MAX_ENTRIES`          | `100`                                       | Traces-stats response cache size               |
+| `ANALYTICS_EXPORT_MAX_ROWS`                  | `100000`                                    | Hard cap on rows per streamed analytics export (clamped 1–1,000,000) |
 | `LLM_API_KEY`                                | (empty)                                     | API key for LLM (empty = disabled)             |
 | `LLM_API_URL`                                | `https://api.deepseek.com/chat/completions` | OpenAI-compatible endpoint                     |
 | `LLM_MODEL`                                  | `deepseek-chat`                             | Model name                                     |
@@ -304,7 +310,10 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **Scheduled heavy jobs**: maintenance, LLM recommendation and static reports run through `ScheduledJobRunDelayed` / `ScheduledJobRegisterCron`, which add `SCHEDULED_JOB_JITTER_MINUTES` of random delay and serialize with an in-process mutex (`ScheduledJobRunExclusive`, waits up to `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES` then skips). There is no distributed lock: the guard assumes a single server instance, and the staggered cron defaults mitigate cross-instance overlap.
 - **Traces-stats determinism**: `/api/analytics/traces/stats` rounds windows to whole minutes and samples with a deterministic stride (`ANALYTICS_STATS_SAMPLE_CAP`), so percentiles are stable across identical requests. Responses are cached by rounded window + filters (`ANALYTICS_STATS_CACHE_TTL_SECONDS`, max entries). The cache module defaults to TTL 0 until `AnalyticsStatsInit` runs, keeping tests isolated.
 - **Traces summary semantics**: `/api/analytics/traces/summary` (home KPI strip, Aggregated view) aggregates root spans only (`parentSpanId IS NULL`), so `traceCount`/`avgDuration`/P90/P95 describe whole traces and `nbErrors` counts traces whose root span failed. This intentionally differs from `/traces/stats`, which aggregates every matching span; `errorsOnly=true` keeps the list semantics (a trace is included when any span errored). Both routes share `buildTracesRootsFilter`, the gzip+`AnalyticsStatsCache` contract and the deterministic stride sample; the cache key tags the summary mode so a stats request with an exact `name` cannot collide with a summary request. `init-0014` adds the covering `idx_traces_stats_summary` index used by both. Do not switch the summary to an all-span join without re-measuring the 24 h latency budget.
-- **Analytics filters and bounds**: paging `offset` is parsed with `AnalyticsUtilsParseOffset` (integer `[0, 1_000_000]`, 400 otherwise) and `LIMIT`/`OFFSET` are bound — never interpolate them. Every analytics `keywords` LIKE uses `ESCAPE '\'` with `AnalyticsUtilsEscapeLike`, so `%`/`_`/`\` match literally. `/logs/stats` defaults `from` to 24 h ago and rejects `bucketNs` below 1 s or windows over 1,000 buckets. `/traces/stats` accepts the same `keywords`/`errorsOnly` filters as `/traces`, and the cache key must include them.
+- **Analytics filters and bounds**: paging `offset` is parsed with `AnalyticsUtilsParseOffset` (integer `[0, 1_000_000]`, 400 otherwise) and `LIMIT`/`OFFSET` are bound — never interpolate them. Every analytics `keywords` LIKE uses `ESCAPE '\'` with `AnalyticsUtilsEscapeLike`, so `%`/`_`/`\` match literally. `/logs/stats` defaults `from` to 24 h ago and rejects `bucketNs` below 1 s or windows over 1,000 buckets. `/traces/stats` and `/traces/summary` accept the same filters as `/traces`, and the cache key must include `AnalyticsFiltersFingerprint` of them.
+- **Structured search filters (`AnalyticsFilters.ts`)**: list, stats, summary and export routes all build their `WHERE` through the same module. `keywords` is split into terms (quoted phrases keep spaces) and ANDed as literal `LIKE … ESCAPE '\'` predicates. `attr` is repeatable `key:op[:value]` with `=`, `!=`, `contains`, `exists` (max 20 filters, key ≤256, value ≤4096); SQL is dual-dialect over the OTLP KeyValue array — SQLite `json_each`/`json_extract`, Postgres `jsonb_array_elements`/`#>>`. `contains` is case-insensitive, `!=` also matches rows without the key, and trace `durationMin`/`durationMax` (ms) filter on the whole trace via `MAX(endTime)-MIN(startTime)` against root spans. No expression indexes are created on `attributes` (documented in the README); changing this SQL means updating the parser/builder tests for both dialects.
+- **Saved views**: `saved_views` (migration `init-0015`) stores the API query string (absolute ns bounds) per user; listing returns own **or** `shared` views, while rename/delete are owner-only (404 unknown, 403 other owner). The web `SearchQueryStateFromParams` converts stored absolute bounds back to the seconds-ago route window, so applying a view keeps its time window. The URL remains the source of truth — a view is applied by replacing the route query.
+- **Streamed analytics export**: `/api/analytics/{logs,traces}/export` sends `Readable.from` async generators over keyset chunks (`(time, recordId)` / `(startTime, traceId)`, 1,000 rows), newest first; nothing is buffered. `ANALYTICS_EXPORT_MAX_ROWS` caps rows, and since headers are sent before the first chunk the response always carries `X-Export-Max-Rows`/`X-Export-Format` (CORS `exposedHeaders`) and a trailing truncation marker inside the body. CSV keeps the formula neutralization from the client exporter and includes `attributes`; JSONL emits attributes as parsed arrays. `format` must be `csv` or `jsonl`, and the route `scope` must match the signal type.
 - **Metric series identity**: `metrics.attributes` stores canonicalized resource attributes (`SignalUtilsCanonicalizeAttributes`: sorted by key, `JSON.stringify`), so compression can compare the TEXT column directly. The compression series identity is `(serviceName, serviceVersion, name, type, attributes, bucket)` in both dialects — do not remove any of these from the GROUP BY/delete predicates.
 - **Raw JSON storage**: `rawSpan`, `rawMetric` columns store the full OTLP JSON for each signal. These are returned by analytics endpoints for client-side rendering.
 - **Nanoseosecond timestamps**: OTel uses nanosecond timestamps. Maintenance calculations multiply JavaScript milliseconds by `1_000_000` to convert. Time-based queries use nanosecond ranges.

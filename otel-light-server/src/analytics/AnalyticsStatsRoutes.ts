@@ -4,7 +4,6 @@ import { DbUtilsNoTelemetryQuerySQL } from "../utils-std-ts/DbUtilsNoTelemetry";
 import { SpanStatusCode } from "@opentelemetry/api";
 import {
   AnalyticsUtilsCompressJson,
-  AnalyticsUtilsEscapeLike,
   AnalyticsUtilsGetDefaultFromTime24h,
   AnalyticsUtilsGetSQLVariable,
   AnalyticsUtilsGetTimeParam,
@@ -16,7 +15,14 @@ import {
   AnalyticsStatsGetSampleCap,
 } from "./AnalyticsStatsCache";
 import { DbUtilsGetType } from "../utils-std-ts/DbUtils";
-import { SignalNormalizationSeverity } from "../SignalNormalization";
+import {
+  AnalyticsFiltersAttributesSql,
+  AnalyticsFiltersDurationSql,
+  AnalyticsFiltersFingerprint,
+  AnalyticsFiltersKeywordsSql,
+  AnalyticsFiltersParse,
+  AnalyticsRequestFilters,
+} from "./AnalyticsFilters";
 
 const DEFAULT_LOGS_STATS_BUCKET_NS = 3600 * 1_000_000_000;
 const MIN_LOGS_STATS_BUCKET_NS = 1_000_000_000;
@@ -47,7 +53,11 @@ interface TracesRootsQuery {
   from?: number;
   to?: number;
   keywords?: string;
+  attr?: string | string[];
   errorsOnly?: string;
+  status?: string;
+  durationMin?: string | number;
+  durationMax?: string | number;
   serviceName?: string;
   serviceVersion?: string;
   name?: string;
@@ -64,6 +74,7 @@ interface TracesRootsFilter {
   name: string;
   errorsOnly: boolean;
   includePercentiles: boolean;
+  filters: AnalyticsRequestFilters;
 }
 
 // Shared root-span WHERE builder for /traces/stats and /traces/summary: the
@@ -75,7 +86,7 @@ function buildTracesRootsFilter(
   query: TracesRootsQuery,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rootsParams: any[],
-): TracesRootsFilter {
+): TracesRootsFilter | { error: string } {
   const q = (ident: string) =>
     dbType === "postgres" ? `"${ident}"` : ident;
   let rootsWhere = `${q("parentSpanId")} IS NULL`;
@@ -83,11 +94,16 @@ function buildTracesRootsFilter(
   const includePercentiles = !["false", "0", "no"].includes(
     String(query.includePercentiles ?? "true").trim().toLowerCase(),
   );
-  const serviceName = String(query.serviceName ?? "").trim();
-  const serviceVersion = String(query.serviceVersion ?? "").trim();
-  const keywords = String(query.keywords ?? "").toLowerCase().trim();
   const name = String(query.name ?? "").trim();
   const errorsOnly = query.errorsOnly === "true";
+  const parsedFilters = AnalyticsFiltersParse(
+    query as unknown as Record<string, unknown>,
+    { traces: true },
+  );
+  if (parsedFilters.error) {
+    return { error: parsedFilters.error };
+  }
+  const filters = parsedFilters.filters;
 
   // Default window: bound the aggregation scan unless the caller asked for an
   // explicit range (the web UI always sends `from`). Windows are rounded to
@@ -112,17 +128,17 @@ function buildTracesRootsFilter(
       AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
     rootsParams.push(toTime);
   }
-  if (serviceName) {
+  if (filters.serviceName) {
     rootsWhere +=
       ` AND ${q("serviceName")} = ` +
       AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-    rootsParams.push(serviceName);
+    rootsParams.push(filters.serviceName);
   }
-  if (serviceVersion) {
+  if (filters.serviceVersion) {
     rootsWhere +=
       ` AND ${q("serviceVersion")} = ` +
       AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
-    rootsParams.push(serviceVersion);
+    rootsParams.push(filters.serviceVersion);
   }
   if (name) {
     rootsWhere +=
@@ -130,13 +146,33 @@ function buildTracesRootsFilter(
       AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
     rootsParams.push(name);
   }
-  if (keywords) {
+  const filterCtx = {
+    dbType,
+    params: rootsParams,
+    varAt: (index: number) => AnalyticsUtilsGetSQLVariable(dbType, index),
+  };
+  rootsWhere += AnalyticsFiltersKeywordsSql(
+    filterCtx,
+    q("keywords"),
+    filters.keywords,
+  );
+  rootsWhere += AnalyticsFiltersAttributesSql(
+    filterCtx,
+    `traces.${q("attributes")}`,
+    filters.attributes,
+  );
+  if (filters.status !== undefined) {
     rootsWhere +=
-      ` AND ${q("keywords")} LIKE ` +
-      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1) +
-      " ESCAPE '\\'";
-    rootsParams.push(`%${AnalyticsUtilsEscapeLike(keywords)}%`);
+      ` AND ${q("statusCode")} = ` +
+      AnalyticsUtilsGetSQLVariable(dbType, rootsParams.length + 1);
+    rootsParams.push(filters.status);
   }
+  rootsWhere += AnalyticsFiltersDurationSql(
+    filterCtx,
+    `traces.${q("traceId")}`,
+    filters.durationMinNs,
+    filters.durationMaxNs,
+  );
   // Same semantics as the traces list: any span of the trace is an error.
   if (errorsOnly) {
     rootsWhere +=
@@ -149,12 +185,13 @@ function buildTracesRootsFilter(
     rootsWhere,
     fromTime,
     toTime,
-    serviceName,
-    serviceVersion,
-    keywords,
+    serviceName: filters.serviceName,
+    serviceVersion: filters.serviceVersion,
+    keywords: filters.keywords.join(" "),
     name,
     errorsOnly,
     includePercentiles,
+    filters,
   };
 }
 
@@ -180,6 +217,7 @@ export class AnalyticsStatsRoutes {
         from?: number;
         to?: number;
         keywords?: string;
+        attr?: string | string[];
         severity?: string;
         serviceName?: string;
         serviceVersion?: string;
@@ -265,37 +303,42 @@ export class AnalyticsStatsRoutes {
         );
         sqlParams.push(toTime);
       }
-      if (req.query.keywords?.trim()) {
-        appendWhere(
-          "keywords LIKE " +
-            AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1) +
-            " ESCAPE '\\'",
-        );
-        sqlParams.push(
-          `%${AnalyticsUtilsEscapeLike(req.query.keywords.toLowerCase().trim())}%`,
-        );
+      const parsedFilters = AnalyticsFiltersParse(req.query);
+      if (parsedFilters.error) {
+        return res.status(400).send({ error: parsedFilters.error });
       }
-      const severity = SignalNormalizationSeverity(req.query.severity);
-      if (severity) {
+      const filters = parsedFilters.filters;
+      const filterCtx = { dbType, params: sqlParams, varAt: (index: number) => AnalyticsUtilsGetSQLVariable(dbType, index) };
+      sqlWhere += AnalyticsFiltersKeywordsSql(
+        filterCtx,
+        "keywords",
+        filters.keywords,
+      );
+      sqlWhere += AnalyticsFiltersAttributesSql(
+        filterCtx,
+        "attributes",
+        filters.attributes,
+      );
+      if (filters.severity) {
         appendWhere(
           "severity = " +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(severity);
+        sqlParams.push(filters.severity);
       }
-      if (req.query.serviceName && String(req.query.serviceName).trim()) {
+      if (filters.serviceName) {
         appendWhere(
           ' "serviceName" = ' +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(String(req.query.serviceName).trim());
+        sqlParams.push(filters.serviceName);
       }
-      if (req.query.serviceVersion && String(req.query.serviceVersion).trim()) {
+      if (filters.serviceVersion) {
         appendWhere(
           ' "serviceVersion" = ' +
             AnalyticsUtilsGetSQLVariable(dbType, sqlParams.length + 1),
         );
-        sqlParams.push(String(req.query.serviceVersion).trim());
+        sqlParams.push(filters.serviceVersion);
       }
 
       // The bucket size parameter is referenced exactly once (the query
@@ -358,6 +401,9 @@ export class AnalyticsStatsRoutes {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rootsParams: any[] = [];
       const filter = buildTracesRootsFilter(dbType, req.query, rootsParams);
+      if ("error" in filter) {
+        return res.status(400).send({ error: filter.error });
+      }
       const {
         rootsWhere,
         fromTime,
@@ -368,6 +414,7 @@ export class AnalyticsStatsRoutes {
         name,
         errorsOnly,
         includePercentiles,
+        filters,
       } = filter;
 
       const cacheKey = AnalyticsStatsCacheBuildKey(
@@ -379,6 +426,8 @@ export class AnalyticsStatsRoutes {
         keywords || undefined,
         errorsOnly,
         name || undefined,
+        "stats",
+        AnalyticsFiltersFingerprint(filters),
       );
       const cached = AnalyticsStatsCacheGet(cacheKey);
       if (cached) {
@@ -471,6 +520,9 @@ export class AnalyticsStatsRoutes {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rootsParams: any[] = [];
       const filter = buildTracesRootsFilter(dbType, req.query, rootsParams);
+      if ("error" in filter) {
+        return res.status(400).send({ error: filter.error });
+      }
       const {
         rootsWhere,
         fromTime,
@@ -481,6 +533,7 @@ export class AnalyticsStatsRoutes {
         name,
         errorsOnly,
         includePercentiles,
+        filters,
       } = filter;
 
       const cacheKey = AnalyticsStatsCacheBuildKey(
@@ -493,6 +546,7 @@ export class AnalyticsStatsRoutes {
         errorsOnly,
         name || undefined,
         "summary",
+        AnalyticsFiltersFingerprint(filters),
       );
       const cached = AnalyticsStatsCacheGet(cacheKey);
       if (cached) {

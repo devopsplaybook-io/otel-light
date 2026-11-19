@@ -60,6 +60,7 @@ export function AnalyticsStatsCacheBuildKey(
   errorsOnly?: boolean,
   name?: string,
   mode: "stats" | "summary" = "stats",
+  filtersFingerprint?: string,
 ): string {
   // JSON.stringify keeps user text (which may contain any separator) unambiguous.
   const key: unknown[] = [
@@ -79,6 +80,9 @@ export function AnalyticsStatsCacheBuildKey(
   }
   if (mode !== "stats") {
     key.push(`mode:${mode}`);
+  }
+  if (filtersFingerprint) {
+    key.push(`filters:${filtersFingerprint}`);
   }
   return JSON.stringify(key);
 }

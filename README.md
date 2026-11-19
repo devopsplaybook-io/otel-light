@@ -126,6 +126,7 @@ See the [ConfigMap YAML](docs/deployments/kubernetes/otel-light/base/configmap.y
 | ANALYTICS_STATS_SAMPLE_CAP                              | Max traces deterministically sampled for duration percentiles on `/api/analytics/traces/stats` and `/api/analytics/traces/summary` | 20000 | Config file or environment variable |
 | ANALYTICS_STATS_CACHE_TTL_SECONDS                       | TTL of the traces-stats response cache (0 disables)   | 30                                          | Config file or environment variable |
 | ANALYTICS_STATS_CACHE_MAX_ENTRIES                       | Max cached traces-stats responses                     | 100                                         | Config file or environment variable |
+| ANALYTICS_EXPORT_MAX_ROWS                               | Hard cap on rows returned by one streamed export (clamped to 1–1,000,000) | 100000             | Config file or environment variable |
 | LLM_API_KEY                                             | API key for the LLM service (leave empty to disable)  | (empty)                                     | Config file or environment variable |
 | LLM_API_URL                                             | LLM API endpoint (OpenAI-compatible)                  | `https://api.deepseek.com/chat/completions` | Config file or environment variable |
 | LLM_MODEL                                               | LLM model name                                        | `deepseek-chat`                             | Config file or environment variable |
@@ -155,7 +156,7 @@ Most settings from `config.json` are re-read when the file changes (and environm
 
 - Ingestion and request handling: `INGESTION_BODY_LIMIT_BYTES`, `INGESTION_RATE_LIMIT_MAX`, `INGESTION_RATE_LIMIT_WINDOW_SECONDS`, `LOGIN_RATE_LIMIT_MAX`, `LOGIN_RATE_LIMIT_WINDOW_SECONDS`, `API_TRUST_PROXY`, `CORS_POLICY_ORIGIN`.
 - Database: `DATABASE_TYPE` and the `DATABASE_POSTGRES_*` settings.
-- Analytics: `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`, `ANALYTICS_STATS_SAMPLE_CAP`, `ANALYTICS_STATS_CACHE_TTL_SECONDS`, `ANALYTICS_STATS_CACHE_MAX_ENTRIES`.
+- Analytics: `ANALYTICS_UTILS_RESULT_LIMIT_METRICS`, `ANALYTICS_STATS_SAMPLE_CAP`, `ANALYTICS_STATS_CACHE_TTL_SECONDS`, `ANALYTICS_STATS_CACHE_MAX_ENTRIES`, `ANALYTICS_EXPORT_MAX_ROWS`.
 - Scheduled work and refresh intervals: `CACHE_REFRESH_MINUTES`, `METRICS_SELF_REFRESH_MINUTES`, `NOTIFICATIONS_API`, `NOTIFICATIONS_TOKEN`, `LLM_API_KEY` (enables/disables the recommendation scheduler), `LLM_RECOMMENDATION_SCHEDULE_CRON`, `LLM_RECOMMENDATION_STARTUP_DELAY_MINUTES`, `STATIC_REPORT_SCHEDULE_CRON`, `MOST_CALLED_TRACES_SCHEDULE_CRON`, `LONGEST_TRACES_STARTUP_DELAY_MINUTES`, `MOST_CALLED_TRACES_STARTUP_DELAY_MINUTES`, `ERROR_ALERTS_STARTUP_DELAY_MINUTES`, `SCHEDULED_JOB_JITTER_MINUTES`, `SCHEDULED_JOB_OVERLAP_WAIT_MINUTES`.
 
 Rate-limit counters are in-memory and per process, so a restart also resets them.
@@ -175,6 +176,44 @@ Periodic metric compression keeps one data point per minute (then per hour) buck
 All analytics list endpoints bind and validate their paging parameters: `offset` must be a non-negative integer up to 1,000,000 and a malformed value returns `400`. `GET /api/analytics/logs/stats` requires a bounded window: `from` defaults to 24 hours ago, `bucketNs` must be an integer of at least one second, and the window may not exceed 1,000 buckets (otherwise `400`). Analytics `keywords` filters treat `%`, `_` and `\` literally.
 
 `GET /api/analytics/traces` accepts an exact-match `name` filter on the trace name, which drilldowns use when expanding a group, a report row or a recommendation bullet.
+
+## Search Filters, Saved Views and Export
+
+`GET /api/analytics/logs`, `GET /api/analytics/traces` and their `stats`/`export` variants share one filter contract (filters combine with AND):
+
+| Parameter        | Signal   | Meaning                                                                                                                                         |
+| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `keywords`       | both     | Multi-term search, terms combine with AND. Wrap a phrase in double quotes to keep its spaces (`keywords='"connection refused" timeout'`). `%`, `_` and `\` are literal. |
+| `attr`           | both     | Repeatable attribute filter, `key:operator[:value]`. Operators: `=` (exact), `!=` (attribute missing or different), `contains` (case-insensitive substring) and `exists` (no value). Up to 20 filters. |
+| `serviceName`    | both     | Exact service name.                                                                                                                             |
+| `serviceVersion` | both     | Exact service version.                                                                                                                          |
+| `severity`       | logs     | Canonical uppercase severity (`TRACE`/`DEBUG`/`INFO`/`WARN`/`ERROR`/`FATAL`; lowercase input is accepted).                                       |
+| `status`         | traces   | Root span status: `unset`/`ok`/`error` or `0`/`1`/`2`. Filters the root span, like `name`.                                                       |
+| `errorsOnly`     | traces   | `true` keeps traces with at least one error span (root or child).                                                                               |
+| `durationMin`    | traces   | Minimum full-trace duration in milliseconds (`MAX(endTime) − MIN(startTime)`), at most 7 days.                                                  |
+| `durationMax`    | traces   | Maximum full-trace duration in milliseconds.                                                                                                    |
+
+Attribute matching reads the stored OTLP KeyValue arrays with `json_each` (SQLite) or `jsonb_array_elements` (PostgreSQL); keys and values stay bound parameters. No expression index is created: each attribute filter scans the rows selected by the other predicates, so keep attribute filters narrow (service, time window) on very large tables.
+
+### Saved views
+
+Named views store the filter query string (including the default time window) per user and signal type.
+
+- `GET /api/saved-views?signalType=logs|traces` — the caller's own views plus views other users marked as shared. Requires authentication.
+- `POST /api/saved-views` — `{ name, signalType, query, shared? }`; creates a private view unless `shared` is `true`.
+- `PATCH /api/saved-views/:id` — `{ name?, shared? }`; only the owner may rename or change visibility.
+- `DELETE /api/saved-views/:id` — only the owner may delete.
+
+The web search bar lists the views for the current signal and can apply, create, rename, share and delete them. The URL stays the source of truth: selecting a view rewrites the route query and the search controls.
+
+### Streamed export
+
+`GET /api/analytics/logs/export` and `GET /api/analytics/traces/export` accept the same filters plus `format=csv|jsonl` (default `csv`) and require the `logs` / `traces` scope respectively. Paging parameters are ignored: the server walks the complete filtered result newest-first in keyset-paginated chunks and streams it, so the response is never buffered in memory.
+
+- CSV keeps the RFC-4180 escaping and the spreadsheet-formula neutralization (`=`, `+`, `-`, `@`, tab, CR and LF get an apostrophe prefix) and includes the `attributes` column.
+- JSONL emits one JSON object per line with attributes as structured arrays.
+- At most `ANALYTICS_EXPORT_MAX_ROWS` rows (default 100,000) are exported. The cap is advertised in `X-Export-Max-Rows`; when more rows match, a truncation marker is appended (`# export truncated at N rows (ANALYTICS_EXPORT_MAX_ROWS)` for CSV, `{"__otel_light_export__":{"truncated":true,"maxRows":N}}` for JSONL).
+- Responses set `Content-Disposition: attachment`, `X-Export-Format` and `Cache-Control: no-store`.
 
 ## LLM Recommendation
 

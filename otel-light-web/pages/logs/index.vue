@@ -32,8 +32,19 @@
       </div>
     </div>
     <div class="fab-actions">
-      <button class="fab-button" @click="exportLogsCsv" title="Export CSV">
-        <i class="bi bi-download"></i>
+      <button
+        class="fab-button"
+        @click="exportServer('csv')"
+        title="Export all filtered logs as CSV"
+      >
+        <i class="bi bi-download"></i>&nbsp;CSV
+      </button>
+      <button
+        class="fab-button"
+        @click="exportServer('jsonl')"
+        title="Export all filtered logs as JSONL"
+      >
+        <i class="bi bi-filetype-json"></i>&nbsp;JSONL
       </button>
       <button class="fab-button" @click="goToAnalytics" title="Go to Analytics">
         <i class="bi bi-pie-chart-fill"></i>&nbsp;Stats
@@ -53,9 +64,8 @@ import { AuthService } from "~~/services/AuthService";
 import { SERVER_URL } from "~~/services/Config";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import {
-  ExportDownloadFile,
-  ExportLogsCsv,
-} from "~~/services/ExportService";
+  ServerExportDownload
+} from "~~/services/ServerExport";
 import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
 import {
   SignalCursorMax,
@@ -183,15 +193,22 @@ export default {
     goToAnalytics() {
       this.$router.push({ path: "/logs/stats", query: this.$route.query });
     },
-    exportLogsCsv() {
-      if (!this.logs || this.logs.length === 0) {
+    async exportServer(format) {
+      try {
+        const { maxRows } = await ServerExportDownload(
+          "logs",
+          this.filter.queryString,
+          format,
+        );
         EventBus.emit(EventTypes.ALERT_MESSAGE, {
           type: "info",
-          text: "No logs to export",
+          text: maxRows
+            ? `Exported filtered logs (${format.toUpperCase()}, capped at ${maxRows} rows)`
+            : `Exported filtered logs (${format.toUpperCase()})`,
         });
-        return;
+      } catch (err) {
+        handleError(err);
       }
-      ExportDownloadFile("logs.csv", ExportLogsCsv(this.logs), "text/csv");
     },
     async fetchLogsRefresh() {
       if (!this.newestCursor) return;
