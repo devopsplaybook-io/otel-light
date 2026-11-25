@@ -9,6 +9,7 @@ import {
   SESSION_RENEWAL_MIN_DELAY_MS,
   SessionRenewalDelayMs,
   SessionRenewalIsAuthError,
+  SessionRenewalIsDue,
   SessionRenewalRefresh,
 } from "../services/SessionRenewal";
 
@@ -25,30 +26,63 @@ function makeToken(expSeconds: number): string {
       userName: "admin",
       role: "admin",
       scopes: ["traces", "metrics", "logs"],
+      iat: expSeconds - 3_600,
       exp: expSeconds,
     }),
     "signature",
   ].join(".");
 }
 
-describe("SessionRenewalDelayMs", () => {
-  it("renews immediately for an expired token", () => {
-    expect(SessionRenewalDelayMs(NOW_SECONDS - 1, NOW_MS)).toBe(0);
+describe("SessionRenewalIsDue", () => {
+  const claims = {
+    iat: NOW_SECONDS,
+    exp: NOW_SECONDS + 30 * 24 * 60 * 60,
+  };
+
+  it("is not due while more than 20% of the lifetime remains", () => {
+    expect(SessionRenewalIsDue(claims, NOW_MS)).toBe(false);
+    expect(
+      SessionRenewalIsDue(claims, NOW_MS + 24 * 24 * 60 * 60 * 1_000),
+    ).toBe(true);
   });
 
-  it("renews halfway through the remaining lifetime", () => {
-    expect(SessionRenewalDelayMs(NOW_SECONDS + 100, NOW_MS)).toBe(50_000);
+  it("ignores tokens without iat or exp", () => {
+    expect(SessionRenewalIsDue({ exp: NOW_SECONDS + 100 }, NOW_MS)).toBe(false);
+    expect(SessionRenewalIsDue({}, NOW_MS)).toBe(false);
+  });
+});
+
+describe("SessionRenewalDelayMs", () => {
+  it("schedules at the 20% remaining threshold", () => {
+    expect(
+      SessionRenewalDelayMs(
+        { iat: NOW_SECONDS, exp: NOW_SECONDS + 10 * 60 * 60 },
+        NOW_MS,
+      ),
+    ).toBe(8 * 60 * 60 * 1_000);
   });
 
   it("caps the delay at 24 hours", () => {
     expect(
-      SessionRenewalDelayMs(NOW_SECONDS + 3 * 24 * 60 * 60, NOW_MS),
+      SessionRenewalDelayMs(
+        { iat: NOW_SECONDS, exp: NOW_SECONDS + 3 * 24 * 60 * 60 },
+        NOW_MS,
+      ),
     ).toBe(SESSION_RENEWAL_MAX_DELAY_MS);
   });
 
   it("never schedules faster than one second", () => {
-    expect(SessionRenewalDelayMs(NOW_SECONDS + 1, NOW_MS)).toBe(
-      SESSION_RENEWAL_MIN_DELAY_MS,
+    expect(
+      SessionRenewalDelayMs(
+        { iat: NOW_SECONDS - 100, exp: NOW_SECONDS + 1 },
+        NOW_MS,
+      ),
+    ).toBe(SESSION_RENEWAL_MIN_DELAY_MS);
+  });
+
+  it("falls back to the maximum delay for unknown claims", () => {
+    expect(SessionRenewalDelayMs({}, NOW_MS)).toBe(
+      SESSION_RENEWAL_MAX_DELAY_MS,
     );
   });
 });

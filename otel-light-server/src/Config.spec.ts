@@ -302,3 +302,53 @@ describe("Config background refresh and LLM sampling caps (M5/M7)", () => {
     expect(high.LLM_RECOMMENDATION_SAMPLE_CAP).toBe(1_000_000);
   });
 });
+
+describe("Config session policy", () => {
+  let tmpDir: string;
+
+  beforeEach(async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "otel-light-config-"));
+    jest.clearAllMocks();
+    delete process.env.JWT_VALIDITY_DURATION;
+    delete process.env.JWT_SESSION_MAX_DURATION;
+  });
+
+  afterEach(async () => {
+    delete process.env.JWT_VALIDITY_DURATION;
+    delete process.env.JWT_SESSION_MAX_DURATION;
+    await fs.remove(tmpDir);
+  });
+
+  const newConfig = (): Config => {
+    const config = new Config();
+    config.CONFIG_FILE = path.join(tmpDir, "config.json");
+    return config;
+  };
+
+  it("reload keeps the 30-day validity and 90-day cap", async () => {
+    const config = newConfig();
+    await config.reload();
+
+    expect(config.JWT_VALIDITY_DURATION).toBe(2592000);
+    expect(config.JWT_SESSION_MAX_DURATION).toBe(7776000);
+  });
+
+  it("reload does not restore a library default after the values were used", async () => {
+    const config = newConfig();
+    await config.reload();
+    await config.reload();
+
+    expect(config.JWT_VALIDITY_DURATION).toBe(2592000);
+    expect(config.JWT_SESSION_MAX_DURATION).toBe(7776000);
+  });
+
+  it("environment values override the defaults", async () => {
+    process.env.JWT_VALIDITY_DURATION = "3600";
+    process.env.JWT_SESSION_MAX_DURATION = "7200";
+    const config = newConfig();
+    await config.reload();
+
+    expect(config.JWT_VALIDITY_DURATION).toBe(3600);
+    expect(config.JWT_SESSION_MAX_DURATION).toBe(7200);
+  });
+});
