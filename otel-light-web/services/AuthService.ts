@@ -6,6 +6,7 @@ export interface JwtTokenInfo {
   role: string;
   scopes: string[];
   exp: number;
+  iat?: number;
 }
 
 export type UserScope = "traces" | "metrics" | "logs";

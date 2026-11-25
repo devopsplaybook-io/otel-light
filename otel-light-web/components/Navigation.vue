@@ -79,6 +79,7 @@ import { EventBus, EventTypes } from "~~/services/EventBus";
 import {
   SessionRenewalDelayMs,
   SessionRenewalIsAuthError,
+  SessionRenewalIsDue,
   SessionRenewalRefresh,
 } from "~~/services/SessionRenewal";
 
@@ -98,6 +99,8 @@ export default {
   },
   async created() {
     this.routeUpdated(this.$route);
+    document.addEventListener("visibilitychange", this.renewIfDueOnVisible);
+    window.addEventListener("focus", this.renewIfDue);
     if (await AuthenticationStore().ensureAuthenticated()) {
       this.scheduleRenewal();
     }
@@ -114,6 +117,11 @@ export default {
     PreferencesService.applyTheme();
   },
   beforeUnmount() {
+    document.removeEventListener(
+      "visibilitychange",
+      this.renewIfDueOnVisible,
+    );
+    window.removeEventListener("focus", this.renewIfDue);
     this.clearRenewal();
     if (this._stopAuthWatch) {
       this._stopAuthWatch();
@@ -131,14 +139,29 @@ export default {
         this._renewTimer = null;
       }
     },
+    renewIfDueOnVisible() {
+      if (document.visibilityState === "visible") {
+        this.renewIfDue();
+      }
+    },
+    renewIfDue() {
+      if (!AuthenticationStore().isAuthenticated) {
+        return;
+      }
+      const tokenInfo = AuthService.getTokenInfo();
+      if (tokenInfo && SessionRenewalIsDue(tokenInfo, Date.now())) {
+        this.renewSession();
+      } else {
+        this.scheduleRenewal();
+      }
+    },
     scheduleRenewal(delayMs) {
       this.clearRenewal();
       const tokenInfo = AuthService.getTokenInfo();
       if (!tokenInfo) {
         return;
       }
-      const delay =
-        delayMs ?? SessionRenewalDelayMs(tokenInfo.exp, Date.now());
+      const delay = delayMs ?? SessionRenewalDelayMs(tokenInfo, Date.now());
       this._renewTimer = setTimeout(() => this.renewSession(), delay);
     },
     async renewSession() {

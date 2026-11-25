@@ -116,6 +116,14 @@ export class Config extends ConfigBase {
   public ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES = 15;
   public ERROR_ALERTS_STARTUP_DELAY_MINUTES = 1;
 
+  // Session policy: a token lives 30 days and the absolute session (from the
+  // first login) is capped at 90 days. Both fields are inherited from
+  // ConfigBase; they are re-declared here and re-registered below so the
+  // values also survive a common-utils downgrade (whose ConfigBase captured
+  // its 1-hour default in the base constructor).
+  public JWT_VALIDITY_DURATION = 2592000;
+  public JWT_SESSION_MAX_DURATION = 7776000;
+
   constructor() {
     super("otel-light-server");
 
@@ -175,6 +183,8 @@ export class Config extends ConfigBase {
       field: "ERROR_ALERTS_EVALUATION_FREQUENCY_MINUTES",
     });
     this.addConfigField({ field: "ERROR_ALERTS_STARTUP_DELAY_MINUTES" });
+    this.addConfigField({ field: "JWT_VALIDITY_DURATION" });
+    this.addConfigField({ field: "JWT_SESSION_MAX_DURATION" });
   }
 
   public async reload(): Promise<void> {
