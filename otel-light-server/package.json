@@ -1,6 +1,6 @@
 {
   "name": "otel-light-server",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "author": "",
   "license": "MIT",
   "scripts": {
@@ -13,7 +13,7 @@
     "dev:test": "NODE_ENV=dev jest --watch --config='jest.config.js'"
   },
   "dependencies": {
-    "@devopsplaybook.io/common-utils": "^2.10.1",
+    "@devopsplaybook.io/common-utils": "^2.11.0",
     "@devopsplaybook.io/otel-utils": "^1.14.2",
     "@devopsplaybook.io/otel-utils-fastify": "^1.11.2",
     "@fastify/compress": "^9.3.0",

@@ -20,6 +20,11 @@ jest.mock("./OTelContext", () => {
 import * as fs from "fs-extra";
 import * as os from "os";
 import * as path from "path";
+import {
+  AuthSessionPolicyCheck,
+  AuthSessionPolicyLog,
+  ConfigBase,
+} from "@devopsplaybook.io/common-utils";
 import { Config } from "./Config";
 
 const mockModuleLogger = (
@@ -350,5 +355,53 @@ describe("Config session policy", () => {
 
     expect(config.JWT_VALIDITY_DURATION).toBe(3600);
     expect(config.JWT_SESSION_MAX_DURATION).toBe(7200);
+  });
+
+  it("matches the documented session policy", async () => {
+    const config = newConfig();
+    await config.reload();
+
+    const result = AuthSessionPolicyCheck(config, { app: "otel-light" });
+    expect(result.errors).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it("logs the effective session values and the policy line at startup", async () => {
+    const config = newConfig();
+    const lines: string[] = [];
+    await ConfigBase.prototype.reload.call(config, (message: string) =>
+      lines.push(message),
+    );
+    AuthSessionPolicyLog(config, {
+      app: "otel-light",
+      logger: (message: string) => lines.push(message),
+    });
+
+    expect(lines).toContain(
+      "Configuration Value: JWT_VALIDITY_DURATION: 2592000 (from defaults)",
+    );
+    expect(lines).toContain(
+      "Configuration Value: JWT_SESSION_MAX_DURATION: 7776000 (from defaults)",
+    );
+    expect(lines).toContain(
+      "Auth session policy: app=otel-light validity=2592000s cap=7776000s renewal=sliding status=ok",
+    );
+  });
+
+  it("reports an error line when the validity is below the minimum", async () => {
+    process.env.JWT_VALIDITY_DURATION = "60";
+    const config = newConfig();
+    const lines: string[] = [];
+    await ConfigBase.prototype.reload.call(config, (message: string) =>
+      lines.push(message),
+    );
+    AuthSessionPolicyLog(config, {
+      app: "otel-light",
+      logger: (message: string) => lines.push(message),
+    });
+
+    expect(lines).toContain(
+      "Auth session policy error: JWT_VALIDITY_DURATION 60s is below the 3600s minimum; declare an explicit exception for a deliberately short session",
+    );
   });
 });

@@ -36,6 +36,7 @@ import {
 import { SettingsRoutes } from "./settings/SettingsRoutes";
 import {
   AuthInit,
+  AuthSessionPolicyLog,
   AuthSetOTel,
   UsersApiTokensDataSetOTel,
   UsersDataSetOTel,
@@ -58,6 +59,10 @@ Promise.resolve().then(async () => {
   //
   const config = new Config();
   await config.reload();
+  AuthSessionPolicyLog(config, {
+    app: "otel-light",
+    logger: (message: string) => logger.info(message),
+  });
   watchFile(config.CONFIG_FILE, () => {
     logger.info(`Config updated: ${config.CONFIG_FILE}`);
     // common-utils 2.x rejects reload() on an invalid value: keep serving

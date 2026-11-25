@@ -318,6 +318,14 @@ Authorization: Bearer <your API token>
 
 > **Note:** Ingestion endpoints (`POST /v1/traces`, `POST /v1/metrics`, `POST /v1/logs`) are not affected: they keep using the static `OPENTELEMETRY_COLLECT_AUTHORIZATION_HEADER` value.
 
+## Authentication sessions
+
+Sessions follow the standard policy documented in [`common-utils`](https://github.com/devopsplaybook-io/common-utils/blob/main/docs/auth-session-policy.md): `JWT_VALIDITY_DURATION` (30 days) is a sliding validity renewed while the user is active, and `JWT_SESSION_MAX_DURATION` (90 days) is the absolute cap after which a new login is required. Both are declared with `addConfigField` so a value from `config.json` or the environment survives a reload.
+
+At startup the server logs the effective values and validates them with `AuthSessionPolicyLog(config, { app: "otel-light", ... })`; an invalid combination (for example a validity below one hour) is reported with an `Auth session policy error:` line. Run `curl -s http://<otel-light-url>/api/config | jq '{JWT_VALIDITY_DURATION, JWT_SESSION_MAX_DURATION}'` to check the effective values of a deployment.
+
+> **Pitfall:** on `@devopsplaybook.io/common-utils` <= 2.9.2, a subclass field override is silently discarded on `reload()` unless the field is also declared with `this.addConfigField({ field: "..." })`. This app requires `^2.11.0`.
+
 ## Client Application
 
 To send telemetry data, configure your application to send Traces, Metrics, and Logs to the following HTTP endpoints:
