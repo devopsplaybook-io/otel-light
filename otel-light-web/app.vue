@@ -8,6 +8,7 @@
       <NuxtPage />
       <AlertMessages id="page-alert-messages" />
     </main>
+    <AppUpdatePrompt />
   </div>
 </template>
 
@@ -33,7 +34,7 @@ onUnmounted(() => {
 #page-layout {
   display: grid;
   grid-template-columns: 1fr;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   width: 100vw;
   height: var(--app-height, 100dvh);
   overflow: hidden !important;
