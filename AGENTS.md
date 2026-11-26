@@ -200,8 +200,8 @@ All three checks (`build`, `lint`, `test`) must pass before committing. CI runs 
 
 GitHub Actions workflows are callers that reference reusable workflows from `devopsplaybook-io/common-utils`:
 
-- **`main-build.yml`** (push to main): calls `reusable-merge-build.yml` — lint, test, build, Docker build with version tags, push to Docker Hub
-- **`pr-check.yml`** (pull request): calls `reusable-pr-verify.yml` — matrix Node.js versions + multi-platform Docker build
+- **`main-build.yml`** (push to main): calls `reusable-merge-build.yml` — promotes the image validated by the merged pull request to the version, major, minor, `latest` and `beta` tags (no build); a full build is only the fallback when no verified PR image can be promoted
+- **`pr-check.yml`** (pull request): calls `reusable-pr-verify.yml` — version check, Node.js build/lint/test, dependency audit, and one multi-platform Docker build pushing `beta-pr-<PR number>` and `beta`, reusing a shared registry layer cache
 
 Both pass `node_app_directories: '["otel-light-server", "otel-light-web"]'` to tell the reusable workflow where to find the Node.js applications.
 
