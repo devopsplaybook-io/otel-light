@@ -271,12 +271,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 17 and creates the rollup, saved-view, alert and token tables", async () => {
+    it("applies all migrations up to version 18 and creates the rollup, saved-view, alert and token tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(17);
+      expect(Number(versionRows[0].maxVersion)).toBe(18);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -295,6 +295,7 @@ describe("SQL-level integration (sqlite)", () => {
           "saved_views",
           "alert_rule_state",
           "alert_events",
+          "users_login_codes",
         ]),
       );
 
@@ -324,6 +325,15 @@ describe("SQL-level integration (sqlite)", () => {
         [],
       );
       expect(summaryIndexRows.length).toBe(1);
+
+      const loginCodeIndexRows = await query(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'users_login_codes_%'",
+        [],
+      );
+      expect(loginCodeIndexRows.map((row) => row.name).sort()).toEqual([
+        "users_login_codes_code_hash",
+        "users_login_codes_status_expires",
+      ]);
 
       const tokenColumns = await query(
         "SELECT name FROM pragma_table_info('users_api_tokens')",
@@ -3158,7 +3168,7 @@ describe("SQL-level integration (sqlite)", () => {
         "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionsBefore[0].v)).toBe(17);
+      expect(Number(versionsBefore[0].v)).toBe(18);
 
       // Migrations are logged through the shared module logger mock.
       const migrationLogger = OTelLogger().createModuleLogger("RestartProbe");
@@ -3193,7 +3203,7 @@ describe("SQL-level integration (sqlite)", () => {
       // Neither the version rows nor their maximum changed: no init file was
       // re-executed on an up-to-date database.
       expect(Number(versionsAfter[0].c)).toBe(Number(versionsBefore[0].c));
-      expect(Number(versionsAfter[0].v)).toBe(17);
+      expect(Number(versionsAfter[0].v)).toBe(18);
       const migrationInfoCalls = migrationInfo.mock.calls
         .map((call: unknown[]) => String(call[0]))
         .filter((message) => message.includes("Loading init file"));

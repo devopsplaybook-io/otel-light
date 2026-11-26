@@ -44,6 +44,15 @@
           {{ loggingIn ? "Creating…" : "Create" }}
         </button>
       </div>
+      <LoginWithCodeCard
+        v-if="isInitialized && isLoginCodeAvailable"
+        :service="loginCodeService"
+        variant="plain"
+        :heading-level="3"
+        class="profile-code-card"
+        @approved="onCodeLoginApproved"
+        @use-password="hideLoginCode"
+      />
     </article>
 
     <!-- AUTHENTICATED: Profile Section -->
@@ -299,6 +308,16 @@
           </option>
         </select>
       </article>
+
+      <!-- Approve a login code on another device -->
+      <article v-if="isLoginCodeAvailable">
+        <AuthorizeDeviceCard
+          :service="loginCodeService"
+          variant="plain"
+          :heading-level="3"
+          :labels="{ title: 'Log in on another device' }"
+        />
+      </article>
     </div>
   </div>
 </template>
@@ -309,10 +328,18 @@ const authenticationStore = AuthenticationStore();
 
 <script>
 import axios from "axios";
+import { markRaw } from "vue";
 import { SERVER_URL } from "~~/services/Config.ts";
 import { AuthService } from "~~/services/AuthService";
 import { handleError, EventBus, EventTypes } from "~~/services/EventBus";
 import { UserService } from "~~/services/UserService";
+import {
+  loginCodeService,
+  loginCodesAvailable,
+  setLoginCodeSessionListener,
+} from "~~/services/LoginCodes";
+import LoginWithCodeCard from "@devopsplaybook.io/common-web/components/LoginWithCodeCard.vue";
+import AuthorizeDeviceCard from "@devopsplaybook.io/common-web/components/AuthorizeDeviceCard.vue";
 import {
   API_TOKENS_DEFAULT_EXPIRY_DAYS,
   ApiTokensExpiryIso,
@@ -330,10 +357,18 @@ import {
 } from "~/services/PreferencesService";
 
 export default {
+  components: {
+    LoginWithCodeCard,
+    AuthorizeDeviceCard,
+  },
   data() {
     return {
       user: {},
       isInitialized: true,
+      isLoginCodeAvailable: false,
+      loginCodeService: markRaw(loginCodeService),
+      codeLoginHandled: false,
+      stopLoginCodeSessionListener: null,
       isChangePasswordStarted: false,
       loggingIn: false,
       savingPassword: false,
@@ -356,7 +391,11 @@ export default {
     };
   },
   async created() {
+    this.stopLoginCodeSessionListener = setLoginCodeSessionListener(() =>
+      this.onCodeLoginApproved(),
+    );
     this.isInitialized = await UserService.isInitialized();
+    this.isLoginCodeAvailable = await loginCodesAvailable();
     AuthenticationStore().isAuthenticated = await AuthService.isAuthenticated();
     if (AuthenticationStore().isAuthenticated) {
       await AuthenticationStore().refreshFromToken();
@@ -366,6 +405,9 @@ export default {
     this.defaultTimeWindow.traces = getDefaultTimeWindow("traces");
     this.defaultTimeWindow.metrics = getDefaultTimeWindow("metrics");
     this.defaultTimeWindow.logs = getDefaultTimeWindow("logs");
+  },
+  beforeUnmount() {
+    this.stopLoginCodeSessionListener?.();
   },
   methods: {
     ApiTokensFormatDate,
@@ -452,6 +494,18 @@ export default {
     async logout() {
       AuthenticationStore().signOut();
       useRouter().push({ path: "/settings/profile" });
+    },
+    onCodeLoginApproved() {
+      if (this.codeLoginHandled) return;
+      this.codeLoginHandled = true;
+      EventBus.emit(EventTypes.ALERT_MESSAGE, {
+        type: "info",
+        text: "User Logged In",
+      });
+      useRouter().push({ path: "/" });
+    },
+    hideLoginCode() {
+      this.isLoginCodeAvailable = false;
     },
     changePasswordStart(enable) {
       this.isChangePasswordStarted = enable;
@@ -596,6 +650,10 @@ export default {
   display: flex;
   flex-direction: column;
   gap: 1rem;
+}
+
+.profile-code-card {
+  margin-top: 1rem;
 }
 
 .badge {
