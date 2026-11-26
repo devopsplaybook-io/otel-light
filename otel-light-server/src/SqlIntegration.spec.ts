@@ -271,12 +271,12 @@ describe("SQL-level integration (sqlite)", () => {
   // Migrations
   // =========================================================================
   describe("Database migrations", () => {
-    it("applies all migrations up to version 18 and creates the rollup, saved-view, alert and token tables", async () => {
+    it("applies all migrations up to version 19 and creates the rollup, saved-view, alert and token tables", async () => {
       const versionRows = await query(
         "SELECT MAX(value) AS maxVersion FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionRows[0].maxVersion)).toBe(18);
+      expect(Number(versionRows[0].maxVersion)).toBe(19);
 
       const tableRows = await query(
         "SELECT name FROM sqlite_master WHERE type = 'table'",
@@ -3168,7 +3168,7 @@ describe("SQL-level integration (sqlite)", () => {
         "SELECT COUNT(*) AS c, MAX(CAST(value AS INTEGER)) AS v FROM metadata WHERE type = 'db_version'",
         [],
       );
-      expect(Number(versionsBefore[0].v)).toBe(18);
+      expect(Number(versionsBefore[0].v)).toBe(19);
 
       // Migrations are logged through the shared module logger mock.
       const migrationLogger = OTelLogger().createModuleLogger("RestartProbe");
@@ -3203,7 +3203,7 @@ describe("SQL-level integration (sqlite)", () => {
       // Neither the version rows nor their maximum changed: no init file was
       // re-executed on an up-to-date database.
       expect(Number(versionsAfter[0].c)).toBe(Number(versionsBefore[0].c));
-      expect(Number(versionsAfter[0].v)).toBe(18);
+      expect(Number(versionsAfter[0].v)).toBe(19);
       const migrationInfoCalls = migrationInfo.mock.calls
         .map((call: unknown[]) => String(call[0]))
         .filter((message) => message.includes("Loading init file"));

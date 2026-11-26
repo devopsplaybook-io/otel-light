@@ -147,7 +147,7 @@ export default {
       loadedOnce: false,
       fetchTime: null,
       refreshIntervalId: null,
-      refreshIntervalValue: RefreshIntervalService.get(),
+      refreshIntervalValue: RefreshIntervalService.getMetrics(),
       refreshPending: false,
       visibilityHandler: null,
       manuallyLoaded: new Set(),
@@ -162,7 +162,7 @@ export default {
     if (!(await AuthenticationStore().ensureAuthenticated())) {
       useRouter().push({ path: "/settings/profile" });
     }
-    this.refreshIntervalValue = RefreshIntervalService.get();
+    this.refreshIntervalValue = RefreshIntervalService.getMetrics();
     this.fetchMetricsNames();
   },
   mounted() {
