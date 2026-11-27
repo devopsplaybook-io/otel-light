@@ -21,15 +21,15 @@ export interface AnalyticsEnqueueOptions {
   onStart?: () => void;
 }
 
-const DEFAULT_MAX_CONCURRENT = 4;
+const DEFAULT_MAX_CONCURRENT = 2;
 const DEFAULT_MAX_QUEUED = 100;
 const DEFAULT_TIMEOUT_MS = 60_000;
 
 /**
  * Bounded-concurrency queue for analytics API requests (traces, logs, metrics).
- * Only 4 requests execute concurrently: enough for metric charts to load in
- * parallel, while still bounding server memory (each in-flight response is
- * buffered, compressed and decompressed). Server-side downsampling
+ * Only 2 requests execute concurrently: enough for metric charts to load
+ * progressively, while keeping the server (which runs each metric query over
+ * an indexed time range) below its CPU budget. Server-side downsampling
  * (maxPoints) keeps individual responses small. Failed / timed-out requests
  * are released from the active slot immediately so queued requests can
  * proceed.
@@ -132,7 +132,7 @@ export const analyticsQueue = new AnalyticsQueue();
 
 /**
  * Drop-in replacement for `axios.get` that queues requests targeting
- * analytics endpoints (traces, logs, metrics). Only 4 concurrent
+ * analytics endpoints (traces, logs, metrics). Only 2 concurrent
  * requests are allowed.
  */
 export function analyticsGet(
@@ -148,7 +148,7 @@ export function analyticsGet(
 
 /**
  * Drop-in replacement for `fetch` that queues requests targeting
- * analytics endpoints. Only 4 concurrent requests are allowed.
+ * analytics endpoints. Only 2 concurrent requests are allowed.
  */
 export function analyticsFetch(
   url: string,

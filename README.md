@@ -8,7 +8,7 @@
 - User interface to visualize telemetry signals
 - Filter signals by service name and service version
 - Shareable trace pages (deep-linkable `/traces/{traceId}` URLs) with trace JSON copy/download, CSV export of the filtered logs view, and one-click navigation between logs, aggregated trace groups and traces
-- Metrics page with auto-refreshing card grid, per-card latest value with unit and timestamp, per-card queued/loading/stale/error states with retry, stable cards while the metric-name list refreshes, and auto-refresh paused while the tab is hidden; metrics excluded from auto-load are listed last
+- Metrics page with auto-refreshing card grid, per-card latest value with unit and timestamp, per-card queued/loading/stale/error states with retry, stable cards while the metric-name list refreshes, and auto-refresh paused while the tab is hidden; each chart is a range query, so metrics run on their own slower auto-refresh interval (configurable in the profile preferences, default 5 minutes) and load with bounded parallelism; metrics excluded from auto-load are listed last
 - Dynamic paging with infinite scroll for Traces and Logs
 - Administration interface for login and maintenance rule management
 - Maintenance rules support optional service-name filtering

@@ -8,9 +8,11 @@ import { UtilsDecompressJson } from "~~/services/Utils";
  * Maximum number of data rows requested per metric chart. The server
  * downsamples evenly across the time range when more rows exist, so the
  * UI transfers a bounded payload instead of paginating through the full
- * data set only to downsample it locally before rendering.
+ * data set only to downsample it locally before rendering. The charts
+ * sample to 500 points before rendering, so requesting more rows only
+ * inflates the response each card has to download and decompress.
  */
-const METRICS_FETCH_MAX_POINTS = 1000;
+const METRICS_FETCH_MAX_POINTS = 500;
 
 /**
  * Fetches the (server-side downsampled) data rows for a single metric.

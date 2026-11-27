@@ -32,8 +32,8 @@ otel-light/
 │   ├── tsconfig.spec.json              # Jest test config (includes jest types)
 │   ├── jest.config.js                  # @swc/jest transform, v8 coverage, uuid mock, src/**/*.spec.ts
 │   ├── sql/
-│   │   ├── sqlite/init-0000..0018.sql  # 19 migration files (CREATE tables, indexes, ALTER columns, data backfills)
-│   │   └── postgres/init-0000..0018.sql # Parallel migrations for PostgreSQL
+│   │   ├── sqlite/init-0000..0019.sql  # 20 migration files (CREATE tables, indexes, ALTER columns, data backfills)
+│   │   └── postgres/init-0000..0019.sql # Parallel migrations for PostgreSQL
 │   └── src/
 │       ├── App.ts                      # Entry point: config init, OTel setup, DB init, Fastify routes
 │       ├── Config.ts                   # Extends ConfigBase from common-utils
@@ -138,7 +138,7 @@ Cron trigger → collect stats (logs/traces/metrics) → POST to LLM API → cac
 | `alert_rule_state` | ruleId (PK), stateValue (JSON), updatedAt                                                                              | Alert rule lifecycle/state (alerting 2.0) |
 | `alert_events` | id, ruleId, ruleName, ruleType, serviceName, status, severity, observedValue, thresholdValue, message, signalType, signalPath, signalQuery, eventTime, notifiedAt, error | Alert history (fired/notified/resolved/suppressed/error) |
 
-Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0018). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
+Migrations are in `sql/{sqlite|postgres}/init-NNNN.sql` (0000-0019). The `metadata` table tracks applied versions for idempotency. Both dialects have parallel migration files.
 
 ## Key Conventions
 
@@ -322,6 +322,7 @@ Key config fields (in addition to those inherited from ConfigBase):
 - **Nanoseosecond timestamps**: OTel uses nanosecond timestamps. Maintenance calculations multiply JavaScript milliseconds by `1_000_000` to convert. Time-based queries use nanosecond ranges.
 - **Timestamp precision in queries**: Nanosecond timestamps exceed `Number.MAX_SAFE_INTEGER`, so stored values are JS doubles. Analytics routes run query-string times through `AnalyticsUtilsGetTimeParam` before binding: binding the raw digits as text makes SQLite parse them as exact 64-bit integers that no longer equal the stored value, silently breaking equality and composite-cursor predicates.
 - **AnalyticsCache adaptive refresh**: The cache refreshes every 10 minutes when recently accessed (within 1 hour), otherwise every hour. This minimizes DB load during idle periods.
+- **Metrics page refresh budget**: every metric card runs its own `/analytics/metrics` range query, so the web app gives metrics a separate auto-refresh interval (`RefreshIntervalService.getMetrics()`, `REFRESH_INTERVAL_METRICS`, default 5 minutes) and caps chart requests at `METRICS_FETCH_MAX_POINTS` (500, matching the client-side sample). The shared analytics queue allows only 2 concurrent requests. Do not tie metrics back to the traces/logs interval or raise the queue concurrency: dozens of charts re-querying every 10 s saturate the server (500m CPU in production) and surface as 502s behind the reverse proxy. `init-0019` adds the `(serviceName, name, time)` index those chart queries rely on.
 - **Single-container production**: In production, the server serves pre-built web assets via `@fastify/static`. The Traefik proxy is NOT used. Only `dist/`, `node_modules/`, `sql/`, `config.json`, and `web/` are copied into the Docker image.
 - **Test mocks intercept re-exports**: Tests mock `../../utils-std-ts/DbUtils` etc., which are now re-export files. Jest intercepts the import at the re-export file path, so mocks work without changes. Do not mock `@devopsplaybook.io/common-utils` directly.
 - **LLM thinking mode**: Reasoning/thinking models (e.g. DeepSeek `-flash`/`-pro` variants) spend `max_tokens` on their internal chain-of-thought, which can leave `content` empty and trigger "LLM returned an empty response." `Recommendation.ts` sends `thinking.type=disabled` by default; set `LLM_THINKING_MODE=enabled` only when chain-of-thought is wanted (also raises the request timeout). `LLM_THINKING_MODE=omit` leaves the DeepSeek-specific `thinking` field out entirely for strict OpenAI-compatible providers.

@@ -58,7 +58,7 @@
     <!-- AUTHENTICATED: Profile Section -->
     <div v-else class="profile-content">
       <!-- Account Info -->
-      <article>
+      <article class="card-account">
         <h3>
           <i class="bi bi-person-circle"></i>
           Account
@@ -78,7 +78,7 @@
       </article>
 
       <!-- Change Password -->
-      <article>
+      <article class="card-password">
         <h3>
           <i class="bi bi-key"></i>
           Change Password
@@ -120,7 +120,7 @@
       </article>
 
       <!-- API Tokens -->
-      <article>
+      <article class="card-tokens">
         <h3>
           <i class="bi bi-shield-lock"></i>
           API Tokens
@@ -237,80 +237,114 @@
       </article>
 
       <!-- Preferences -->
-      <article>
+      <article class="card-preferences">
         <h3>
           <i class="bi bi-sliders"></i>
           Preferences
         </h3>
-        <h4>Refresh</h4>
-        <label for="refresh-interval">
-          Auto-refresh interval (Traces, Logs and Metrics):
-        </label>
-        <select
-          id="refresh-interval"
-          v-model="refreshInterval"
-          @change="saveRefreshInterval"
-        >
-          <option value="0">No auto-refresh</option>
-          <option value="5000">5 seconds</option>
-          <option value="10000">10 seconds</option>
-          <option value="30000">30 seconds</option>
-          <option value="60000">1 minute</option>
-        </select>
+        <div class="preferences-grid">
+          <section class="pref-section">
+            <h4>Refresh</h4>
+            <label for="refresh-interval">
+              Auto-refresh interval (Traces and Logs):
+            </label>
+            <select
+              id="refresh-interval"
+              v-model="refreshInterval"
+              @change="saveRefreshInterval"
+            >
+              <option
+                v-for="option in refreshIntervalOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <label for="metrics-refresh-interval">
+              Auto-refresh interval (Metrics):
+            </label>
+            <select
+              id="metrics-refresh-interval"
+              v-model="metricsRefreshInterval"
+              @change="saveMetricsRefreshInterval"
+            >
+              <option
+                v-for="option in metricsRefreshIntervalOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <p class="refresh-hint">
+              Metric charts run one query each, so they refresh less often to
+              keep a large dashboard from overloading the server. Use a card's
+              refresh action to update a single chart on demand.
+            </p>
+          </section>
 
-        <h4>Dark Mode</h4>
-        <button class="secondary" @click="toggleTheme">
-          <i class="bi" :class="isDark ? 'bi-sun-fill' : 'bi-moon-fill'"></i>
-          Switch to {{ isDark ? "Light" : "Dark" }} Mode
-        </button>
+          <section class="pref-section">
+            <h4>Dark Mode</h4>
+            <button class="secondary" @click="toggleTheme">
+              <i
+                class="bi"
+                :class="isDark ? 'bi-sun-fill' : 'bi-moon-fill'"
+              ></i>
+              Switch to {{ isDark ? "Light" : "Dark" }} Mode
+            </button>
+          </section>
 
-        <h4>Default Time Window</h4>
-        <label for="default-time-traces">Traces:</label>
-        <select
-          id="default-time-traces"
-          v-model="defaultTimeWindow.traces"
-          @change="saveDefaultTimeWindow('traces')"
-        >
-          <option
-            v-for="option in timeWindowOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-        <label for="default-time-metrics">Metrics:</label>
-        <select
-          id="default-time-metrics"
-          v-model="defaultTimeWindow.metrics"
-          @change="saveDefaultTimeWindow('metrics')"
-        >
-          <option
-            v-for="option in timeWindowOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
-        <label for="default-time-logs">Logs:</label>
-        <select
-          id="default-time-logs"
-          v-model="defaultTimeWindow.logs"
-          @change="saveDefaultTimeWindow('logs')"
-        >
-          <option
-            v-for="option in timeWindowOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </option>
-        </select>
+          <section class="pref-section">
+            <h4>Default Time Window</h4>
+            <label for="default-time-traces">Traces:</label>
+            <select
+              id="default-time-traces"
+              v-model="defaultTimeWindow.traces"
+              @change="saveDefaultTimeWindow('traces')"
+            >
+              <option
+                v-for="option in timeWindowOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <label for="default-time-metrics">Metrics:</label>
+            <select
+              id="default-time-metrics"
+              v-model="defaultTimeWindow.metrics"
+              @change="saveDefaultTimeWindow('metrics')"
+            >
+              <option
+                v-for="option in timeWindowOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <label for="default-time-logs">Logs:</label>
+            <select
+              id="default-time-logs"
+              v-model="defaultTimeWindow.logs"
+              @change="saveDefaultTimeWindow('logs')"
+            >
+              <option
+                v-for="option in timeWindowOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+          </section>
+        </div>
       </article>
 
       <!-- Approve a login code on another device -->
-      <article v-if="isLoginCodeAvailable">
+      <article v-if="isLoginCodeAvailable" class="card-device">
         <AuthorizeDeviceCard
           :service="loginCodeService"
           variant="plain"
@@ -348,7 +382,11 @@ import {
   ApiTokensIsExpired,
 } from "~~/services/ApiTokens";
 import { ServicesStore } from "~~/stores/ServicesStore";
-import { RefreshIntervalService } from "~~/services/RefreshIntervalService";
+import {
+  MetricsRefreshIntervalOptions,
+  RefreshIntervalOptions,
+  RefreshIntervalService,
+} from "~~/services/RefreshIntervalService";
 import {
   PreferencesService,
   TimeWindowOptions,
@@ -382,6 +420,9 @@ export default {
       pendingRevokeId: null,
       isDark: PreferencesService.isDark(),
       refreshInterval: RefreshIntervalService.get(),
+      metricsRefreshInterval: RefreshIntervalService.getMetrics(),
+      refreshIntervalOptions: RefreshIntervalOptions,
+      metricsRefreshIntervalOptions: MetricsRefreshIntervalOptions,
       defaultTimeWindow: {
         traces: getDefaultTimeWindow("traces"),
         metrics: getDefaultTimeWindow("metrics"),
@@ -402,6 +443,7 @@ export default {
       this.listApiTokens();
     }
     this.refreshInterval = RefreshIntervalService.get();
+    this.metricsRefreshInterval = RefreshIntervalService.getMetrics();
     this.defaultTimeWindow.traces = getDefaultTimeWindow("traces");
     this.defaultTimeWindow.metrics = getDefaultTimeWindow("metrics");
     this.defaultTimeWindow.logs = getDefaultTimeWindow("logs");
@@ -588,26 +630,25 @@ export default {
       RefreshIntervalService.set(this.refreshInterval);
       EventBus.emit(EventTypes.ALERT_MESSAGE, {
         type: "info",
-        text: `Refresh interval set to ${this.getRefreshIntervalLabel(
+        text: `Auto-refresh interval set to ${this.intervalLabel(
+          this.refreshIntervalOptions,
           this.refreshInterval,
         )}`,
       });
     },
-    getRefreshIntervalLabel(val) {
-      switch (val) {
-        case "0":
-          return "No auto-refresh";
-        case "5000":
-          return "5 seconds";
-        case "10000":
-          return "10 seconds";
-        case "30000":
-          return "30 seconds";
-        case "60000":
-          return "1 minute";
-        default:
-          return `${val} ms`;
-      }
+    saveMetricsRefreshInterval() {
+      RefreshIntervalService.setMetrics(this.metricsRefreshInterval);
+      EventBus.emit(EventTypes.ALERT_MESSAGE, {
+        type: "info",
+        text: `Metrics refresh interval set to ${this.intervalLabel(
+          this.metricsRefreshIntervalOptions,
+          this.metricsRefreshInterval,
+        )}`,
+      });
+    },
+    intervalLabel(options, val) {
+      const option = options.find((item) => item.value === String(val));
+      return option ? option.label : `${val} ms`;
     },
     toggleTheme() {
       PreferencesService.toggleTheme(this);
@@ -644,12 +685,93 @@ export default {
   width: 100%;
 }
 
+/* Responsive card grid: a single column on narrow screens, two columns on
+   tablet-sized layouts and three on large desktop layouts, so the settings
+   page uses the available width instead of a narrow centered strip. */
 .profile-content {
   width: 100%;
-  max-width: 480px;
-  display: flex;
-  flex-direction: column;
+  max-width: 1200px;
+  margin: 0 auto;
+  display: grid;
   gap: 1rem;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "account"
+    "password"
+    "tokens"
+    "preferences"
+    "device";
+}
+
+.profile-content > article {
+  margin-bottom: 0;
+}
+
+.card-account {
+  grid-area: account;
+}
+
+.card-password {
+  grid-area: password;
+}
+
+.card-tokens {
+  grid-area: tokens;
+}
+
+.card-preferences {
+  grid-area: preferences;
+}
+
+.card-device {
+  grid-area: device;
+}
+
+/* Preferences is the tallest card; spanning the full width and flowing its
+   sections into their own columns keeps it from leaving a large empty area
+   next to the shorter cards. */
+.preferences-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.5rem 1.5rem;
+  margin-top: 0.5rem;
+}
+
+@media (min-width: 700px) {
+  .preferences-grid {
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  }
+}
+
+.pref-section h4 {
+  margin: 0 0 0.5em;
+  font-size: 0.95em;
+}
+
+.pref-section label {
+  margin-top: 0.25rem;
+}
+
+@media (min-width: 860px) {
+  .profile-content {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas:
+      "account password"
+      "tokens tokens"
+      "preferences preferences"
+      "device device";
+  }
+}
+
+@media (min-width: 1400px) {
+  .profile-content {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      "account password tokens"
+      "preferences preferences preferences"
+      "device device device";
+  }
 }
 
 .profile-code-card {
@@ -677,12 +799,7 @@ export default {
 }
 
 h4 {
-  margin: 1.5em 0 0.3em;
   font-size: 0.95em;
-}
-
-article h4:first-child {
-  margin-top: 1em;
 }
 
 .article-actions {
@@ -721,6 +838,12 @@ article h4:first-child {
 }
 
 .api-token-note {
+  margin-top: 0.5rem;
+  font-size: 0.8em;
+  opacity: 0.65;
+}
+
+.refresh-hint {
   margin-top: 0.5rem;
   font-size: 0.8em;
   opacity: 0.65;
