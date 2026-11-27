@@ -20,7 +20,7 @@
     "vitest": "^5.1.0"
   },
   "dependencies": {
-    "@devopsplaybook.io/common-web": "^0.16.0",
+    "@devopsplaybook.io/common-web": "^0.16.3",
     "@picocss/pico": "^2.1.1",
     "@pinia/nuxt": "^1.0.3",
     "@vueuse/core": "^15.0.0",

@@ -1,2 +1,13 @@
 @import "@picocss/pico/css/pico.min.css";
 @import "bootstrap-icons/font/bootstrap-icons.css";
+
+/* Shared common-web component tokens (e.g. the app update notice) mapped onto
+   Pico. Pico redefines its --pico-* values per color scheme, so these aliases
+   resolve to the current light or dark palette automatically. */
+:root {
+  --color-text: var(--pico-color);
+  --color-surface-raised: var(--pico-card-sectioning-background-color);
+  --color-border: var(--pico-card-border-color);
+  --color-primary: var(--pico-primary-background);
+  --color-on-primary: var(--pico-primary-inverse);
+}
